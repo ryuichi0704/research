@@ -2,11 +2,8 @@
 
 \usepackage[a4paper,margin=1in]{geometry}
 \usepackage{amsmath,amssymb,amsthm,mathtools}
-\usepackage{bm}
-\usepackage{mathrsfs}
 \usepackage{hyperref}
 \usepackage{enumitem}
-\usepackage{booktabs}
 \usepackage{microtype}
 
 \hypersetup{
@@ -32,7 +29,6 @@
 \newcommand{\supp}{\mathrm{supp}}
 \newcommand{\softmax}{\mathrm{softmax}}
 \newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
-\newcommand{\ip}[2]{\left\langle #1, #2 \right\rangle}
 \newcommand{\mc}[1]{\mathcal{#1}}
 \newcommand{\Pone}{\mathcal{P}_1}
 
@@ -50,7 +46,7 @@ parameterized by Gaussian natural parameters
 $(\eta_{1,k},\eta_{2,k})=(\mu_k/\sigma_k^2,-1/(2\sigma_k^2))$, while the second
 coordinate is implemented in practice by a raw scale field passed through a
 softplus map so that $\eta_{2,k}<0$ automatically. The first theorem proved
-here is a finite-horizon shared-path result for noiseless SGD: in the joint
+here is a finite-horizon shared-path result for plain SGD: in the joint
 wide/small-step limit, independently initialized wide MDNs track the same
 deterministic labeled measure path $\rho_t$ on every fixed interval $[0,T]$.
 The second theorem explains why this still does \emph{not} solve the
@@ -73,7 +69,7 @@ The MDN extension should be read as two separate messages.
   \item \textbf{Training-side message.} For a fixed number of mixture
   components $K$, a two-layer Gaussian MDN with softmax gates, Gaussian natural
   parameters, and softplus raw scale heads still admits a finite-horizon
-  mean-field program in the raw particle variables. In the noiseless-SGD
+  mean-field program in the raw particle variables. In the plain-SGD
   scaling used in two-layer LMC work, this program can be closed with the same
   training-side structure as in the single-Gaussian case.
   \item \textbf{Synthesis-side message.} The deterministic mean-field path is a
@@ -94,10 +90,10 @@ general.
 \section{Gaussian MDN with Natural Parameters}
 
 Let $(X,Y)\sim P$ with $X\in\mc{X}\subseteq \R^d$ and $Y\in\R$. Fix a component
-count $K\ge 2$. For Gaussian natural parameters define
+count $K\ge 2$. We consider the standard fixed-$K$ Gaussian MDN architecture in
+the sense of Bishop~\cite{Bishop2006}, but parameterized directly by Gaussian
+natural coordinates. Define
 \[
-  T_{\rm G}(y):=(y,y^2),
-  \qquad
   A_{\rm G}(\eta_1,\eta_2)
   :=
   -\frac{\eta_1^2}{4\eta_2}
@@ -306,12 +302,13 @@ which is exactly \eqref{eq:mdn-eta1-derivative} and
 \eqref{eq:mdn-eta2-derivative}.
 \end{proof}
 
-\section{Finite-Horizon SGD Mean-Field Dynamics}
+\section{Training-Side Theorem in a Labeled Gauge}
 
 The practical training variables are the raw particle parameters
-$(\beta_i,a_i,c_i,\xi_i)$, not the transformed natural coordinates. The MDN
-mean-field program must therefore be written directly in the raw parameter
-space.
+$(\beta_i,a_i,c_i,\xi_i)$, not the transformed natural coordinates. The first
+task is therefore not to quotient the mixture symmetry, but to verify that the
+raw MDN drift fits the same finite-horizon SGD mean-field framework used in the
+single-Gaussian case.
 
 \begin{assumption}[Finite-horizon MDN SGD regime]
 \label{ass:mdn-sgd}
@@ -319,9 +316,9 @@ Fix a horizon $T<\infty$. Assume:
 \begin{enumerate}[label=(M\arabic*)]
   \item the step sizes satisfy
   \[
-    s_n=\varepsilon\,\xi(n\varepsilon),
+    s_n=\varepsilon\,\chi(n\varepsilon),
   \]
-  where $\xi:[0,\infty)\to(0,\infty)$ is bounded and Lipschitz;
+  where $\chi:[0,\infty)\to(0,\infty)$ is bounded and Lipschitz;
   \item the data stream
   \[
     Z_{n+1}=(X_{n+1},Y_{n+1})
@@ -335,6 +332,16 @@ Fix a horizon $T<\infty$. Assume:
   $\psi_{\rm sp}(s)=\lambda_{\min}+\log(1+e^s)$ with $\lambda_{\min}>0$.
 \end{enumerate}
 \end{assumption}
+
+\begin{remark}[Role of the bounded-support assumptions]
+The bounded response assumption $|Y|\le Y_\ast$ and the global boundedness
+assumptions on $\varphi$ and $\nabla_\xi\varphi$ are imposed here only to place
+the MDN dynamics inside the bounded-support finite-horizon SGD mean-field
+framework of Mei--Misiakiewicz--Montanari~\cite{MeiMisiakiewiczMontanari2019}.
+They are not intended as intrinsic assumptions on Gaussian MDNs. Relaxing them
+would require moment or coercivity estimates that are outside the scope of this
+note.
+\end{remark}
 
 Write
 \[
@@ -467,7 +474,7 @@ drift formulas.
 \begin{equation}
   \partial_t \rho_t
   +
-  \nabla_\theta\cdot\bigl(\rho_t\,\xi(t)b(\theta,\rho_t)\bigr)
+  \nabla_\theta\cdot\bigl(\rho_t\,\chi(t)b(\theta,\rho_t)\bigr)
   =
   0,
   \qquad
@@ -475,11 +482,353 @@ drift formulas.
   \label{eq:mdn-sgd-pde}
 \end{equation}
 
+The corresponding one-sample stochastic drift and SGD recursion are needed in
+the theorem statement, so we record them here rather than introducing them only
+in the appendix.
+
+\begin{definition}[One-sample stochastic drift for the MDN]
+\label{def:mdn-sample-drift}
+For $z=(x,y)\in\mc{X}\times\R$, define
+\[
+  \hat b(\theta,\rho;z)
+  :=
+  \bigl(\hat b_\beta(\theta,\rho;z),\hat b_a(\theta,\rho;z),\hat b_c(\theta,\rho;z),\hat b_\xi(\theta,\rho;z)\bigr)
+\]
+with componentwise coordinates
+\begin{align}
+  \hat b_{\beta_k}(\theta,\rho;z)
+  &:=
+  -
+  u_{k,\rho}(x,y)\,\varphi(\xi,x),
+  \label{eq:mdn-sample-drift-beta}
+  \\
+  \hat b_{a_k}(\theta,\rho;z)
+  &:=
+  -
+  v_{1,k,\rho}(x,y)\,\varphi(\xi,x),
+  \label{eq:mdn-sample-drift-a}
+  \\
+  \hat b_{c_k}(\theta,\rho;z)
+  &:=
+  \psi_{\rm sp}'(s_{k,\rho}(x))\,v_{2,k,\rho}(x,y)\,\varphi(\xi,x),
+  \label{eq:mdn-sample-drift-c}
+  \\
+  \hat b_\xi(\theta,\rho;z)
+  &:=
+  -
+  \sum_{k=1}^K
+  \Big(
+    \beta_k u_{k,\rho}(x,y)
+    +
+    a_k v_{1,k,\rho}(x,y)
+    -
+    c_k\psi_{\rm sp}'(s_{k,\rho}(x))v_{2,k,\rho}(x,y)
+  \Big)\nabla_\xi\varphi(\xi,x).
+  \label{eq:mdn-sample-drift-xi}
+\end{align}
+\end{definition}
+
+\begin{proposition}[Unbiased raw stochastic update for the MDN]
+\label{prop:mdn-unbiased-sample-drift}
+Under Assumption~\ref{ass:mdn-sgd},
+\[
+  b(\theta,\rho)=\E_Z[\hat b(\theta,\rho;Z)],
+\]
+where $Z=(X,Y)\sim P$. Consequently the plain SGD iteration can be written
+as
+\begin{equation}
+  \theta_i^{n+1}
+  =
+  \theta_i^n
+  +
+  s_n\,\hat b(\theta_i^n,\hat\rho_n^N;Z_{n+1}),
+  \qquad
+  \hat\rho_n^N:=\frac1N\sum_{i=1}^N \delta_{\theta_i^n}.
+  \label{eq:mdn-sgd-update}
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+Take expectations of
+\eqref{eq:mdn-sample-drift-beta}--\eqref{eq:mdn-sample-drift-xi} with respect
+to $Z=(X,Y)\sim P$ and compare with
+\eqref{eq:mdn-drift-beta}--\eqref{eq:mdn-drift-xi}.
+\end{proof}
+
+The rest of the training-side work is technical verification rather than a new
+conceptual step. Appendix~\ref{app:training-verification} records the
+MDN-specific confinement, drift
+regularity, and one-step SGD bounds needed to place the present drift inside the
+bounded-support finite-horizon SGD mean-field framework of
+Mei--Misiakiewicz--Montanari~\cite{MeiMisiakiewiczMontanari2019} and the
+shared-path route used in LMC work such as Ferbach et al.~\cite{FerbachEtAl2024}.
+
+\begin{theorem}[Training-side theorem: MDN instantiation of the bounded-support SGD mean-field framework]
+\label{thm:mdn-sgd-mean-field}
+Assume Assumption~\ref{ass:mdn-sgd}. Consider the plain SGD iterates
+\eqref{eq:mdn-sgd-update} and let $\rho_t$ be the deterministic measure-valued
+path solving \eqref{eq:mdn-sgd-pde}. Then the bounded-support finite-horizon SGD
+mean-field theory of Mei--Misiakiewicz--Montanari, instantiated with the MDN
+drift above, yields:
+\begin{enumerate}[label=(\roman*)]
+  \item the PDE \eqref{eq:mdn-sgd-pde} is well posed on $[0,T]$;
+  \item there exists an error term
+  $\delta_{N,\varepsilon}^{\rm mdn}(T)\to 0$ as $N\to\infty$ and
+  $\varepsilon\downarrow 0$ such that
+  \[
+    \sup_{n\le T/\varepsilon}
+    W_1\!\bigl(\hat\rho_n^N,\rho_{n\varepsilon}\bigr)
+    \le
+    \delta_{N,\varepsilon}^{\rm mdn}(T)
+  \]
+  with high probability;
+  \item in bounded-support regimes, one obtains the same qualitative structure
+  as in the Mei/Ferbach four-dynamics argument: a Monte-Carlo term of order
+  $N^{-1/2}$ together with discretization and stochastic-gradient terms of
+  order $\varepsilon$ and $\sqrt{\varepsilon}$.
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}[Framework-instantiation proof sketch]
+Proposition~\ref{prop:mdn-unbiased-sample-drift} identifies the SGD recursion,
+and Appendix~\ref{app:training-verification} proves
+Propositions~\ref{prop:mdn-confinement},
+\ref{prop:mdn-drift-regularity},
+\ref{prop:mdn-sgd-discrete-confinement}, and
+\ref{prop:mdn-sample-drift-regularity}. These are exactly the MDN-specific
+bounded-support hypotheses needed to invoke the finite-horizon SGD mean-field
+machinery of Mei--Misiakiewicz--Montanari and its shared-path use in the LMC
+framework of Ferbach et al. In particular,
+Proposition~\ref{prop:mdn-drift-regularity} gives the well-posedness of the
+characteristic flow on the confinement set, and the remaining propositions
+provide the boundedness, unbiasedness, and one-step regularity estimates
+required by the general theorem. The bounded Lipschitz schedule $\chi$ enters
+only as a time-inhomogeneous scalar prefactor in the drift and is handled by the
+same finite-horizon argument after the standard time-change reduction. The
+result is therefore a framework instantiation rather than a standalone new
+convergence proof.
+\end{proof}
+
+\begin{corollary}[Training-side corollary: shared-law common path for SGD in Gaussian MDNs]
+\label{cor:mdn-sgd-common-path}
+Assume Assumption~\ref{ass:mdn-sgd}. Let $\hat\rho_{A,n}^N,\hat\rho_{B,n}^N$ be
+two independent width-$N$ SGD runs of \eqref{eq:mdn-sgd-update}, both
+initialized i.i.d.\ from the same law $\rho_0$ and trained over the same
+horizon $[0,T]$. Then
+\[
+  \sup_{n\le T/\varepsilon}
+  W_1\!\bigl(\hat\rho_{A,n}^N,\hat\rho_{B,n}^N\bigr)
+  \le
+  2\,\delta_{N,\varepsilon}^{\rm mdn}(T)
+\]
+with high probability. In particular,
+\[
+  \sup_{n\le T/\varepsilon}
+  W_1\!\bigl(\hat\rho_{A,n}^N,\hat\rho_{B,n}^N\bigr)\to 0
+\]
+in probability as $N\to\infty$ and $\varepsilon\downarrow 0$.
+\end{corollary}
+
+\begin{proof}
+Apply Theorem~\ref{thm:mdn-sgd-mean-field} to each run and use the triangle
+inequality.
+\end{proof}
+
+\begin{remark}[How to read the SGD common-path theorem]
+Theorem~\ref{thm:mdn-sgd-mean-field} and
+Corollary~\ref{cor:mdn-sgd-common-path} should be read as \emph{repeatability in
+a chosen labeled gauge}. For a fixed initialization law $\rho_0$ and fixed
+finite horizon $[0,T]$, the wide/small-step limit of plain SGD is
+deterministic in labeled parameter space. What this does \emph{not} provide is
+a canonical component decomposition of the underlying predictor.
+\end{remark}
+
+\section{Why the \texorpdfstring{$K=1$}{K=1} Synthesis Route Breaks for \texorpdfstring{$K>1$}{K>1}}
+
+\begin{definition}[Labeled gauge, predictive equivalence, and global permutation]
+For a $K$-component MDN written in the raw coordinates
+$(\beta,a,c,\xi)$, the \emph{labeled gauge} means that the component labels
+$k=1,\dots,K$ are kept fixed and compared coordinatewise. Two $K$-component
+MDN predictors are \emph{predictively equivalent} if they induce the same
+conditional density $p(y|x)$ for every $(x,y)$. The \emph{mixture gauge}
+refers to the resulting non-identifiability inside such a predictive
+equivalence class: multiple labeled component decompositions can represent the
+same predictor. A \emph{global permutation} acts on a predictor by applying the
+same permutation of $\{1,\dots,K\}$ to the component indices for every $x$.
+\end{definition}
+
+The common-path theorem fixes the dynamics only in the labeled gauge. It does
+not choose a canonical representative inside the mixture gauge class of the
+corresponding predictor. For $K=1$ this distinction is absent or much smaller;
+for $K>1$ it is the new synthesis obstruction.
+
+\noindent
+For the obstruction example we now specialize to scalar inputs, $d=1$.
+
+\begin{theorem}[Global-permutation linear synthesis can fail already at the head level]
+\label{thm:mdn-obstruction}
+Fix $\sigma^2>0$ and let $\phi_\sigma(\cdot-m)$ denote the Gaussian density
+with mean $m$ and variance $\sigma^2$. Let $I\subseteq \R$ be any input domain
+containing both negative and positive points, and consider the two $K=2$ MDN
+predictors on $I$
+\[
+  p_A(y|x)
+  :=
+  \frac12 \phi_\sigma(y-x)+\frac12 \phi_\sigma(y+x),
+\]
+and
+\[
+  p_B(y|x)
+  :=
+  \frac12 \phi_\sigma(y-|x|)+\frac12 \phi_\sigma(y+|x|).
+\]
+Then:
+\begin{enumerate}[label=(\roman*)]
+  \item $p_A(y|x)=p_B(y|x)$ for every $(x,y)$, so the two predictors are
+  predictively equivalent;
+  \item for any global permutation $\tau\in S_2$, the arithmetic midpoint in
+  the labeled natural-coordinate output-head fields of $A$ and $\tau\cdot B$
+  produces a predictor $\bar p_\tau$ such that either
+  \[
+    \bar p_\tau(\cdot|x)\neq p_A(\cdot|x)\qquad \forall x<0,
+  \]
+  or
+  \[
+    \bar p_\tau(\cdot|x)\neq p_A(\cdot|x)\qquad \forall x>0;
+  \]
+  \item if the data law gives positive mass to both $\{x<0\}$ and $\{x>0\}$,
+  and $Y|X\sim p_A(\cdot|X)$, then the population negative log-likelihood
+  satisfies
+  \[
+    \E[-\log \bar p_\tau(Y|X)]
+    >
+    \E[-\log p_A(Y|X)]
+  \]
+  for every global permutation $\tau$.
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+For $x\ge 0$ the two representations agree componentwise, while for $x<0$ they
+agree only after swapping the two components. Therefore any fixed global
+labeling disagrees with one half of the input domain. On that half, the
+component midpoint collapses to the single Gaussian $\phi_\sigma(y)$, which
+differs from the common target mixture and yields a strictly positive KL gap.
+Appendix~\ref{app:obstruction-proof} records the full calculation.
+\end{proof}
+
+\begin{corollary}[Direct extension of the $K=1$ synthesis premise fails for plain MDNs]
+\label{cor:k1-breaks-at-k2}
+Any LMC strategy whose synthesis step requires predictively equivalent endpoint
+representations to become globally alignable after a single component
+permutation can fail already for plain $K=2$ MDNs. Consequently, the direct
+$K=1\to K>1$ extension breaks at the synthesis premise, not at the training-side
+common-path premise.
+\end{corollary}
+
+\begin{proof}
+For $K=1$ there is no nontrivial mixture decomposition to identify. For $K=2$,
+Theorem~\ref{thm:mdn-obstruction} provides a pair of predictively equivalent
+heads for which every global-permutation midpoint has strictly larger
+population loss. Hence the naive $K=1$ synthesis step does not survive in plain
+mixture models.
+\end{proof}
+
+\begin{remark}[Interpretation for future LMC work]
+Theorem~\ref{thm:mdn-obstruction} does \emph{not} contradict
+Corollary~\ref{cor:mdn-sgd-common-path}. The finite-horizon common-path theorem
+says that, for a fixed initialization law and fixed labeled parameter space, the
+wide/small-step limit dynamics are deterministic. The obstruction theorem says
+that the labeled parameter space itself is not canonically quotiented by global
+permutation. Thus the natural expectation for plain MDNs is:
+\begin{quote}
+In the joint wide/small-step mean-field limit and at fixed finite horizon,
+run-to-run gauge randomness should be suppressed for a fixed initialization law;
+at finite width and with SGD/noise, different microscopic asymmetries can
+select different representatives, and the plain global-permutation route to
+linear mode connectivity can fail.
+\end{quote}
+\end{remark}
+
+\section{Finite-Width Interpretation}
+
+The gauge is not created by finite width: the mixture non-identifiability
+already exists at the level of the predictor class. Finite width and SGD noise
+matter because different runs can select different representatives of the same
+predictive class. Accordingly, the finite-width discrepancy should be read as
+having a transverse component and a gauge component.
+
+\begin{definition}[Finite-width synthesis barrier]
+\label{def:barrier}
+Let $\Theta_A^N,\Theta_B^N$ be two trained width-$N$ particle systems after a
+chosen neuron alignment procedure. Their linear-interpolation barrier is
+\[
+  \mathrm{Bar}_N(\Theta_A^N,\Theta_B^N)
+  :=
+  \sup_{\alpha\in[0,1]}
+  \mc{R}_N\big((1-\alpha)\Theta_A^N+\alpha \Theta_B^N\big)
+  -
+  \max\{\mc{R}_N(\Theta_A^N),\mc{R}_N(\Theta_B^N)\},
+\]
+where $\mc{R}_N$ is the width-$N$ population MDN risk on particle systems.
+\end{definition}
+
+\begin{conjecture}[Informal gauge-dominance picture]
+After separating the ordinary finite-width tracking error from the
+run-to-run discrepancy, the remaining synthesis barrier for plain MDNs is
+dominated by the component of that discrepancy lying along mixture-gauge
+directions. For $K=1$ the corresponding nontrivial mixture gauge is absent, so
+only the ordinary finite-width error remains.
+\end{conjecture}
+
+\begin{remark}[Formal template]
+Appendix~\ref{app:gauge-template} records one formal stable/gauge decomposition
+template for turning the previous conjectural picture into a theorem. It is
+kept in the appendix because it is a proof-building device rather than part of
+the main narrative of the note.
+\end{remark}
+
+\section{Implications for the Research Program}
+
+The present note supports the following research direction.
+
+\begin{enumerate}[label=(\roman*)]
+  \item The \emph{training-side} premise used in the $K=1$ LMC argument still
+  survives for plain MDNs. In the current note it is verified in the same
+  finite-horizon plain-SGD scaling, but only as a deterministic statement
+  in a chosen labeled gauge.
+  \item The direct extension from $K=1$ to $K>1$ fails at the
+  \emph{synthesis-side} premise, not at the mean-field premise.
+  \item Consequently, an eventual $K>1$ analogue of the $K=1$ theorem must
+  either prove that a richer quotient of MDN parameter space is compatible with
+  synthesis, or avoid the issue by changing the model class.
+\end{enumerate}
+
+The clean narrative is therefore:
+\begin{quote}
+For $K=1$, one can hope to run the full chain from finite-horizon common path to
+aligned interpolation to LMC. For $K>1$, the wide-limit common path still looks
+plausible, but the chain can break before interpolation because the relevant
+quotient of MDN parameter space is no longer captured by global permutation.
+\end{quote}
+
+\appendix
+
+\section{Training-Side Verification}
+\label{app:training-verification}
+
+This appendix records the MDN-specific confinement, regularity, and one-step SGD
+estimates used in the proof sketch of
+Theorem~\ref{thm:mdn-sgd-mean-field}. None of these are conceptually the main
+point of the note; they are the bookkeeping needed to fit the present MDN drift
+into the bounded-support finite-horizon SGD framework of
+Mei--Misiakiewicz--Montanari and Ferbach et al.
+
 \begin{proposition}[Time-inhomogeneous finite-horizon confinement for the MDN flow]
 \label{prop:mdn-confinement}
 Assume Assumption~\ref{ass:mdn-sgd} and let
 \[
-  \xi_{\max}:=\sup_{t\in[0,T]}\xi(t)<\infty.
+  \chi_{\max}:=\sup_{t\in[0,T]}\chi(t)<\infty.
 \]
 Define the initial bounds
 \begin{align*}
@@ -503,7 +852,7 @@ Let $B_t^{\rm sgd},A_t^{\rm sgd},C_t^{\rm sgd},R_t^{\rm sgd}$ solve
 \begin{align}
   \dot B_t^{\rm sgd}
   &=
-  \xi_{\max}K_\varphi,
+  \chi_{\max}K_\varphi,
   \qquad
   B_{t=0}^{\rm sgd}=B_0,
   \label{eq:B-envelope-mdn-sgd}
@@ -515,7 +864,7 @@ Let $B_t^{\rm sgd},A_t^{\rm sgd},C_t^{\rm sgd},R_t^{\rm sgd}$ solve
   \\
   \dot A_t^{\rm sgd}
   &=
-  \xi_{\max}K_\varphi \Gamma_{1,t}^{\rm sgd},
+  \chi_{\max}K_\varphi \Gamma_{1,t}^{\rm sgd},
   \qquad
   A_{t=0}^{\rm sgd}=A_0,
   \label{eq:A-envelope-mdn-sgd}
@@ -531,14 +880,14 @@ Let $B_t^{\rm sgd},A_t^{\rm sgd},C_t^{\rm sgd},R_t^{\rm sgd}$ solve
   \\
   \dot C_t^{\rm sgd}
   &=
-  \xi_{\max}K_\varphi \Gamma_{2,t}^{\rm sgd},
+  \chi_{\max}K_\varphi \Gamma_{2,t}^{\rm sgd},
   \qquad
   C_{t=0}^{\rm sgd}=C_0,
   \label{eq:C-envelope-mdn-sgd}
   \\
   \dot R_t^{\rm sgd}
   &=
-  \xi_{\max}K K_\nabla
+  \chi_{\max}K K_\nabla
   \big(
     B_t^{\rm sgd}
     +
@@ -553,7 +902,7 @@ Let $B_t^{\rm sgd},A_t^{\rm sgd},C_t^{\rm sgd},R_t^{\rm sgd}$ solve
 Then these envelopes remain finite on $[0,T]$. Every characteristic of the
 time-inhomogeneous mean-field flow
 \[
-  \dot\theta(t)=\xi(t)b(\theta(t),\rho_t)
+  \dot\theta(t)=\chi(t)b(\theta(t),\rho_t)
 \]
 started from $\supp(\rho_0)$ satisfies
 \[
@@ -616,17 +965,17 @@ $|\eta_{1,k,\rho}(x)|\le K_\varphi A_t^{\rm sgd}$, hence
 Since $0<\psi_{\rm sp}'<1$, the drift formulas
 \eqref{eq:mdn-drift-beta}--\eqref{eq:mdn-drift-xi} imply
 \[
-  |\dot\beta_k(t)|\le \xi_{\max}K_\varphi,
+  |\dot\beta_k(t)|\le \chi_{\max}K_\varphi,
   \qquad
-  |\dot a_k(t)|\le \xi_{\max}K_\varphi\Gamma_{1,t}^{\rm sgd},
+  |\dot a_k(t)|\le \chi_{\max}K_\varphi\Gamma_{1,t}^{\rm sgd},
   \qquad
-  |\dot c_k(t)|\le \xi_{\max}K_\varphi\Gamma_{2,t}^{\rm sgd},
+  |\dot c_k(t)|\le \chi_{\max}K_\varphi\Gamma_{2,t}^{\rm sgd},
 \]
 and
 \[
   \norm{\dot\xi(t)}
   \le
-  \xi_{\max}K K_\nabla
+  \chi_{\max}K K_\nabla
   \big(
     B_t^{\rm sgd}
     +
@@ -738,77 +1087,6 @@ these bounds into \eqref{eq:mdn-drift-beta}--\eqref{eq:mdn-drift-xi}, and using
 the boundedness and Lipschitz continuity of $\varphi$ and $\nabla_\xi\varphi$,
 gives \eqref{eq:mdn-drift-lipschitz}. The uniform bound on $b$ follows from the
 same estimates with $\bar\theta=\theta$ and $\rho=\nu$.
-\end{proof}
-
-\subsection{SGD mean-field approximation and a shared-law common path}
-
-\begin{definition}[One-sample stochastic drift for the MDN]
-\label{def:mdn-sample-drift}
-For $z=(x,y)\in\mc{X}\times\R$, define
-\[
-  \hat b(\theta,\rho;z)
-  :=
-  \bigl(\hat b_\beta(\theta,\rho;z),\hat b_a(\theta,\rho;z),\hat b_c(\theta,\rho;z),\hat b_\xi(\theta,\rho;z)\bigr)
-\]
-with componentwise coordinates
-\begin{align}
-  \hat b_{\beta_k}(\theta,\rho;z)
-  &:=
-  -
-  u_{k,\rho}(x,y)\,\varphi(\xi,x),
-  \label{eq:mdn-sample-drift-beta}
-  \\
-  \hat b_{a_k}(\theta,\rho;z)
-  &:=
-  -
-  v_{1,k,\rho}(x,y)\,\varphi(\xi,x),
-  \label{eq:mdn-sample-drift-a}
-  \\
-  \hat b_{c_k}(\theta,\rho;z)
-  &:=
-  \psi_{\rm sp}'(s_{k,\rho}(x))\,v_{2,k,\rho}(x,y)\,\varphi(\xi,x),
-  \label{eq:mdn-sample-drift-c}
-  \\
-  \hat b_\xi(\theta,\rho;z)
-  &:=
-  -
-  \sum_{k=1}^K
-  \Big(
-    \beta_k u_{k,\rho}(x,y)
-    +
-    a_k v_{1,k,\rho}(x,y)
-    -
-    c_k\psi_{\rm sp}'(s_{k,\rho}(x))v_{2,k,\rho}(x,y)
-  \Big)\nabla_\xi\varphi(\xi,x).
-  \label{eq:mdn-sample-drift-xi}
-\end{align}
-\end{definition}
-
-\begin{proposition}[Unbiased raw stochastic update for the MDN]
-\label{prop:mdn-unbiased-sample-drift}
-Under Assumption~\ref{ass:mdn-sgd},
-\[
-  b(\theta,\rho)=\E_Z[\hat b(\theta,\rho;Z)],
-\]
-where $Z=(X,Y)\sim P$. Consequently the noiseless SGD iteration can be written
-as
-\begin{equation}
-  \theta_i^{n+1}
-  =
-  \theta_i^n
-  +
-  s_n\,\hat b(\theta_i^n,\hat\rho_n^N;Z_{n+1}),
-  \qquad
-  \hat\rho_n^N:=\frac1N\sum_{i=1}^N \delta_{\theta_i^n}.
-  \label{eq:mdn-sgd-update}
-\end{equation}
-\end{proposition}
-
-\begin{proof}
-Take expectations of
-\eqref{eq:mdn-sample-drift-beta}--\eqref{eq:mdn-sample-drift-xi} with respect
-to $Z=(X,Y)\sim P$ and compare with
-\eqref{eq:mdn-drift-beta}--\eqref{eq:mdn-drift-xi}.
 \end{proof}
 
 \begin{proposition}[Discrete-time finite-horizon confinement for MDN SGD]
@@ -974,7 +1252,7 @@ and
 \]
 This closes the induction.
 
-Since $s_n\le \varepsilon\xi_{\max}$ and the right-hand sides of
+Since $s_n\le \varepsilon\chi_{\max}$ and the right-hand sides of
 \eqref{eq:mdn-discrete-B-envelope}--\eqref{eq:mdn-discrete-R-envelope} are
 nondecreasing in the envelopes, the standard Euler-vs-ODE comparison gives
 \[
@@ -1065,137 +1343,9 @@ gives \eqref{eq:mdn-sample-drift-bound} and
 \eqref{eq:mdn-sample-drift-lipschitz}.
 \end{proof}
 
-\begin{theorem}[Training-side theorem: finite-horizon SGD mean-field approximation for Gaussian MDNs]
-\label{thm:mdn-sgd-mean-field}
-Assume Assumption~\ref{ass:mdn-sgd}. Consider the noiseless SGD iterates
-\eqref{eq:mdn-sgd-update} and let $\rho_t$ be the deterministic measure-valued
-path solving \eqref{eq:mdn-sgd-pde}. Then:
-\begin{enumerate}[label=(\roman*)]
-  \item the PDE \eqref{eq:mdn-sgd-pde} is well posed on $[0,T]$;
-  \item there exists an error term
-  $\delta_{N,\varepsilon}^{\rm mdn}(T)\to 0$ as $N\to\infty$ and
-  $\varepsilon\downarrow 0$ such that
-  \[
-    \sup_{n\le T/\varepsilon}
-    W_1\!\bigl(\hat\rho_n^N,\rho_{n\varepsilon}\bigr)
-    \le
-    \delta_{N,\varepsilon}^{\rm mdn}(T)
-  \]
-  with high probability;
-  \item in bounded-support regimes, one obtains the same qualitative structure
-  as in the Mei/Ferbach four-dynamics argument: a Monte-Carlo term of order
-  $N^{-1/2}$ together with discretization and stochastic-gradient terms of
-  order $\varepsilon$ and $\sqrt{\varepsilon}$.
-\end{enumerate}
-\end{theorem}
+\section{Proof of Theorem~\ref{thm:mdn-obstruction}}
+\label{app:obstruction-proof}
 
-\begin{proof}[Proof sketch]
-Propositions~\ref{prop:mdn-confinement}, \ref{prop:mdn-drift-regularity},
-\ref{prop:mdn-unbiased-sample-drift},
-\ref{prop:mdn-sgd-discrete-confinement}, and
-\ref{prop:mdn-sample-drift-regularity} verify the model-specific hypotheses
-needed for the bounded-support four-dynamics comparison of
-Mei--Misiakiewicz--Montanari~\cite{MeiMisiakiewiczMontanari2019}. The same
-finite-horizon reduction underlies the SGD-side LMC argument of
-Ferbach et al.~\cite{FerbachEtAl2024}. Applying that machinery to the present
-MDN drift yields the stated approximation theorem.
-\end{proof}
-
-\begin{corollary}[Training-side corollary: shared-law common path for SGD in Gaussian MDNs]
-\label{cor:mdn-sgd-common-path}
-Assume Assumption~\ref{ass:mdn-sgd}. Let $\hat\rho_{A,n}^N,\hat\rho_{B,n}^N$ be
-two independent width-$N$ SGD runs of \eqref{eq:mdn-sgd-update}, both
-initialized i.i.d.\ from the same law $\rho_0$ and trained over the same
-horizon $[0,T]$. Then
-\[
-  \sup_{n\le T/\varepsilon}
-  W_1\!\bigl(\hat\rho_{A,n}^N,\hat\rho_{B,n}^N\bigr)
-  \le
-  2\,\delta_{N,\varepsilon}^{\rm mdn}(T)
-\]
-with high probability. In particular,
-\[
-  \sup_{n\le T/\varepsilon}
-  W_1\!\bigl(\hat\rho_{A,n}^N,\hat\rho_{B,n}^N\bigr)\to 0
-\]
-in probability as $N\to\infty$ and $\varepsilon\downarrow 0$.
-\end{corollary}
-
-\begin{proof}
-Apply Theorem~\ref{thm:mdn-sgd-mean-field} to each run and use the triangle
-inequality.
-\end{proof}
-
-\begin{remark}[How to read the SGD common-path theorem]
-Theorem~\ref{thm:mdn-sgd-mean-field} and
-Corollary~\ref{cor:mdn-sgd-common-path} should be read as \emph{repeatability in
-a chosen labeled gauge}. For a fixed initialization law $\rho_0$ and fixed
-finite horizon $[0,T]$, the wide/small-step limit of noiseless SGD is
-deterministic. In that precise sense, run-to-run gauge randomness is frozen in
-the mean-field limit. What the theorem does \emph{not} say is that the MDN
-component decomposition has become canonical.
-\end{remark}
-
-\section{Deterministicity Does Not Canonically Fix the Mixture Gauge}
-
-\begin{definition}[Labeled gauge, predictive equivalence, and global permutation]
-For a $K$-component MDN written in the raw coordinates
-$(\beta,a,c,\xi)$, the \emph{labeled gauge} means that the component labels
-$k=1,\dots,K$ are kept fixed and compared coordinatewise. Two $K$-component
-MDN predictors are \emph{predictively equivalent} if they induce the same
-conditional density $p(y|x)$ for every $(x,y)$. The \emph{mixture gauge}
-refers to the resulting non-identifiability inside such a predictive
-equivalence class: multiple labeled component decompositions can represent the
-same predictor. A \emph{global permutation} acts on a predictor by applying the
-same permutation of $\{1,\dots,K\}$ to the component indices for every $x$.
-\end{definition}
-
-\begin{remark}[What the common-path theorem fixes and what it does not]
-Theorem~\ref{thm:mdn-sgd-mean-field} fixes the dynamics only in the labeled
-gauge: for a fixed initialization law $\rho_0$ and finite horizon $[0,T]$, the
-wide/small-step limit selects a deterministic labeled path. It does not choose
-a canonical representative inside the mixture gauge class of the corresponding
-predictor. For $K=1$ this distinction is absent or much smaller; for $K>1$ it
-is the new synthesis obstruction.
-\end{remark}
-
-\begin{theorem}[Global-permutation linear synthesis can fail already at the head level]
-\label{thm:mdn-obstruction}
-Fix $\sigma^2>0$ and let $\phi_\sigma(\cdot-m)$ denote the Gaussian density
-with mean $m$ and variance $\sigma^2$. On any input domain containing both
-negative and positive points, consider the two $K=2$ MDN predictors
-\[
-  p_A(y|x)
-  :=
-  \frac12 \phi_\sigma(y-x)+\frac12 \phi_\sigma(y+x),
-\]
-and
-\[
-  p_B(y|x)
-  :=
-  \frac12 \phi_\sigma(y-|x|)+\frac12 \phi_\sigma(y+|x|).
-\]
-Then:
-\begin{enumerate}[label=(\roman*)]
-  \item $p_A(y|x)=p_B(y|x)$ for every $(x,y)$, so the two predictors are
-  predictively equivalent;
-  \item for any global permutation $\tau\in S_2$, the component-parameter
-  midpoint between the labeled output-head representations $A$ and $\tau\cdot B$
-  produces a predictor $\bar p_\tau$ that differs from the common density
-  $p_A=p_B$ on a set of inputs with positive measure;
-  \item if the data law gives positive mass to both $\{x<0\}$ and $\{x>0\}$,
-  and $Y|X\sim p_A(\cdot|X)$, then the population negative log-likelihood
-  satisfies
-  \[
-    \E[-\log \bar p_\tau(Y|X)]
-    >
-    \E[-\log p_A(Y|X)]
-  \]
-  for every global permutation $\tau$.
-\end{enumerate}
-\end{theorem}
-
-\begin{proof}
 Item (i) is immediate: for $x\ge 0$, the two formulas coincide term by term,
 while for $x<0$ they coincide after swapping the two components.
 
@@ -1229,8 +1379,8 @@ If $\tau$ is the identity, then for every $x<0$ the midpoint satisfies
 \]
 Hence $\bar p_{\mathrm{id}}(y|x)=\phi_\sigma(y)$ for every $x<0$, which differs
 from $p_A(y|x)$ whenever $x\ne 0$. If $\tau$ is the transposition, the same
-collapse occurs for every $x>0$. Thus every global permutation fails on a set
-of inputs with positive measure.
+collapse occurs for every $x>0$. Thus every global permutation fails on one of
+the two sign regions: either on all $x<0$ or on all $x>0$.
 
 For item (iii), define the midpoint excess risk
 \[
@@ -1251,63 +1401,14 @@ Since $Y|X\sim p_A(\cdot|X)$,
 By item (ii), the conditional densities differ on a set of $x$ values with
 positive $P_X$-measure, so the conditional KL divergence is strictly positive
 there. Therefore $\Delta_\tau>0$.
-\end{proof}
 
-\begin{remark}[Interpretation for future LMC work]
-Theorem~\ref{thm:mdn-obstruction} does \emph{not} contradict
-Corollary~\ref{cor:mdn-sgd-common-path}. The two results live at different
-levels.
-\begin{enumerate}[label=(\alph*)]
-  \item The finite-horizon common-path theorem says that, for a fixed
-  initialization law and fixed labeled parameter space, the wide/small-step
-  limit dynamics are deterministic.
-  \item The obstruction theorem says that the labeled parameter space itself is
-  not canonically quotiented by global permutation. Two predictively equivalent
-  representations may still be globally incompatible for linear synthesis.
-\end{enumerate}
-Thus the natural expectation for plain MDNs is:
-\begin{quote}
-In the joint wide/small-step mean-field limit and at fixed finite horizon,
-run-to-run gauge randomness should be suppressed for a fixed initialization law;
-at finite width and with SGD/noise, different microscopic asymmetries can
-select different representatives, and the plain global-permutation route to
-linear mode connectivity can fail.
-\end{quote}
-For a single Gaussian head, the corresponding training-side common-path
-statement is much closer to what the synthesis argument needs, because there is
-no analogous nontrivial mixture gauge to quotient. For plain MDNs, this is
-exactly the step where a naive extension of the $K=1$ story breaks.
-\end{remark}
+\section{Formal Gauge-Dominance Template}
+\label{app:gauge-template}
 
-\section{Toward a Gauge-Dominance Theorem}
-
-The strongest version of the MDN-LMC story is not merely that gauge directions
-\emph{exist}. It is that, once the ordinary mean-field approximation error has
-been controlled, the \emph{remaining} failure of parameter-space synthesis is
-dominated by those gauge directions. This section records the theorem template
-needed to make that statement rigorous.
-
-The terminology here is structural. The gauge is not created by finite width:
-the mixture non-identifiability already exists at the level of the predictor
-class. Finite width and SGD noise matter because different runs can select
-different representatives of the same predictive class. Accordingly,
-$\Delta_{N,\mathrm{g}}$ should be read as the projection of the finite-width
-run-to-run discrepancy onto the low-curvature gauge directions, while
-$\Delta_{N,\mathrm{st}}$ is the transverse finite-width error.
-
-\begin{definition}[Finite-width synthesis barrier]
-Let $\Theta_A^N,\Theta_B^N$ be two trained width-$N$ particle systems after a
-chosen neuron alignment procedure. Their linear-interpolation barrier is
-\[
-  \mathrm{Bar}_N(\Theta_A^N,\Theta_B^N)
-  :=
-  \sup_{\alpha\in[0,1]}
-  \mc{R}\big((1-\alpha)\Theta_A^N+\alpha \Theta_B^N\big)
-  -
-  \max\{\mc{R}(\Theta_A^N),\mc{R}(\Theta_B^N)\},
-\]
-where $\mc{R}$ is the population MDN risk.
-\end{definition}
+This appendix records one formal theorem template for the strongest possible
+finite-width interpretation of the main obstruction story. It is not needed for
+the main narrative; it is included as a proof-building scaffold for future
+work.
 
 \begin{assumption}[Stable/gauge decomposition at the reference path]
 \label{ass:gauge-dominance}
@@ -1407,10 +1508,7 @@ $\Delta_{N,\mathrm{g}}$ term disappears and the barrier is controlled by the
 ordinary finite-width error alone. The MDN difficulty is therefore not merely
 that finite-width approximation is imperfect in both cases; it is that
 $K>1$ introduces additional low-curvature directions that can dominate the
-observed synthesis failure. In particular, the training-side common-path
-argument from the $K=1$ paper can plausibly be extended to $K>1$ in the
-wide-limit finite-horizon regime, but the synthesis-side premise used there can
-already fail for $K=2$ because no canonical global alignment need exist.
+observed synthesis failure.
 \end{remark}
 
 \begin{remark}[What remains to be proved]
@@ -1431,39 +1529,6 @@ needed to explain why the mixture case fails while the single-Gaussian case does
 not.
 \end{remark}
 
-\section{Implications for the Research Program}
-
-The present note supports the following research direction.
-
-\begin{enumerate}[label=(\roman*)]
-  \item The \emph{training-side} premise used in the $K=1$ LMC argument still
-  survives for plain MDNs. In the current note it is verified in the same
-  finite-horizon noiseless-SGD scaling, but only as a deterministic statement
-  in a chosen labeled gauge.
-  \item The direct extension from $K=1$ to $K>1$ fails at the
-  \emph{synthesis-side} premise, not at the mean-field premise. Plain MDNs have
-  more symmetry than a single Gaussian head, and global permutation is not rich
-  enough to identify all predictively equivalent decompositions.
-  \item Consequently, an eventual $K>1$ analogue of the $K=1$ theorem must
-  explain why the missing quotient issue is harmless, or else avoid it by
-  changing the model class. The next MDN-LMC paper can therefore naturally aim
-  for one of two outcomes:
-  \begin{enumerate}[label=(\alph*)]
-    \item a negative result showing that plain-MDN global-permutation synthesis
-    is impossible in general;
-    \item a positive result for a restricted synthesis-friendly class, such as
-    anchored, hierarchical, or otherwise gauge-breaking MDNs.
-  \end{enumerate}
-\end{enumerate}
-
-The theorem proved here favors a crisp narrative. For $K=1$, one can hope to
-run the full chain from finite-horizon common path to aligned interpolation to
-LMC. For $K>1$, the wide-limit common path still looks plausible, but the chain
-can break before interpolation because the relevant quotient of MDN parameter
-space is no longer captured by global permutation. The mean-field part is not
-the hard part anymore; the hard part is identifying the right quotient for
-comparing and synthesizing trained mixture models.
-
 \begin{thebibliography}{99}
 
 \bibitem{Bishop2006}
@@ -1483,17 +1548,6 @@ Song Mei, Theodor Misiakiewicz, and Andrea Montanari.
 bounds and kernel limit.
 \newblock In \emph{Proceedings of the Thirty-Second Conference on Learning
 Theory}, pages 2388--2464, 2019.
-
-\bibitem{SirignanoSpiliopoulos2020}
-Justin Sirignano and Konstantinos Spiliopoulos.
-\newblock Mean field analysis of neural networks: A law of large numbers.
-\newblock \emph{SIAM Journal on Applied Mathematics}, 80(2):725--752, 2020.
-
-\bibitem{vanHavreEtAl2015}
-Zo\'e van Havre, Nial Friel, Arthur Rousseau, and Chris P. Robert.
-\newblock Overfitting Bayesian mixture models with an unknown number of
-components.
-\newblock \emph{PLoS ONE}, 10(7):e0131739, 2015.
 
 \end{thebibliography}
 
