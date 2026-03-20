@@ -141,6 +141,16 @@ Fix a bounded feature map $\varphi:\R^d\times\mc{X}\to\R$ satisfying
   \qquad
   K_{\nabla}:=\sup_{\xi,x}\norm{\nabla_\xi \varphi(\xi,x)}<\infty.
 \]
+Assume furthermore that $\nabla_\xi\varphi(\cdot,x)$ is globally Lipschitz in
+$\xi$, uniformly in $x$, i.e.
+\[
+  \norm{\nabla_\xi\varphi(\xi,x)-\nabla_\xi\varphi(\bar\xi,x)}
+  \le
+  L_{\nabla}\norm{\xi-\bar\xi}
+  \qquad
+  \forall \xi,\bar\xi\in\R^d,\ \forall x\in\mc{X},
+\]
+for some finite constant $L_{\nabla}$.
 Whenever we discuss finite-horizon training dynamics, we assume the
 initialization law $\rho_0$ on $\R^2\times\R^d$ has compact support.
 
@@ -576,8 +586,9 @@ The full argument is recorded in Theorem~\ref{thm:deterministic-lmc-k1}.
 Assume Assumption~\ref{ass:softplus-sgd-k1}. Let
 $\hat\rho_{A,k}^N$ and $\hat\rho_{B,k}^N$ be the empirical laws of two
 independent width-$N$ SGD runs of the practical natural-softplus Gaussian head,
-both initialized i.i.d.\ from the same law $\rho_0$ and trained over the same
-horizon $[0,T]$. Let
+with parameter vectors $\Theta_{A,k}$ and $\Theta_{B,k}$, both initialized
+i.i.d.\ from the same law $\rho_0$ and trained over the same horizon $[0,T]$.
+Let
 $A_T^{\rm sgd},C_T^{\rm sgd},R_T^{\rm sgd}$ be the deterministic confinement
 envelopes furnished in Appendix~A, and write
 \[
@@ -1103,8 +1114,9 @@ Proposition~\ref{prop:sgd-confinement-k1} and
 Proposition~\ref{prop:gaussian-smoothness-k1} imply that
 $q_1(\eta_\rho(x);y)$ and $q_2(\eta_\rho(x);y)$ are uniformly bounded and
 Lipschitz in $(\theta,\rho)$ for $|y|\le Y_\ast$. Since $\psi'_{\rm sp}$ is
-bounded and Lipschitz, and since $\varphi$ and $\nabla_\xi\varphi$ are bounded
-and Lipschitz in $\xi$, the formulas
+bounded and Lipschitz, $\varphi$ is $K_{\nabla}$-Lipschitz in $\xi$ by the
+uniform gradient bound, and $\nabla_\xi\varphi$ is $L_{\nabla}$-Lipschitz in
+$\xi$ by assumption, the formulas
 \eqref{eq:sample-drift-a-k1}--\eqref{eq:sample-drift-xi-k1} immediately yield
 \eqref{eq:sample-drift-bound-k1} and \eqref{eq:sample-drift-lipschitz-k1}.
 \end{proof}
@@ -1440,6 +1452,16 @@ Let
   \qquad
   \theta_i^X:=(a_i^X,c_i^X,\xi_i^X).
 \]
+Assume that for some deterministic bounds $A,C,R<\infty$,
+\[
+  |a_i^A|,\ |a_i^B|\le A,
+  \qquad
+  |c_i^A|,\ |c_i^B|\le C,
+  \qquad
+  \norm{\xi_i^A},\ \norm{\xi_i^B}\le R
+  \qquad
+  \forall i=1,\dots,N.
+\]
 Let $\varepsilon_N:=W_1(\rho_A^N,\rho_B^N)$, where $W_1$ is computed with the
 Euclidean cost on $\R^{2+d}$. Then there exists a permutation $\pi_N$ such
 that
@@ -1454,17 +1476,14 @@ satisfy
 \begin{align}
   B_N
   &\le
-  2R_T\,\varepsilon_N,
+  2R\,\varepsilon_N,
   \label{eq:w1-to-BN-k1}
   \\
   \Delta_{s,N}
   &\le
-  \bigl(K_\varphi+C_TK_{\nabla}\bigr)^2\varepsilon_N^2,
+  \bigl(K_\varphi+CK_{\nabla}\bigr)^2\varepsilon_N^2,
   \label{eq:w1-to-scale-k1}
 \end{align}
-where $A_T,C_T,R_T$ are the deterministic envelopes from
-Proposition~\ref{prop:softplus-confinement-k1} and
-$M_{V,T}:=\max\{A_T,C_T\}$.
 \end{lemma}
 
 \begin{proof}
@@ -1474,7 +1493,7 @@ transport plan for $W_1$ is realized by a permutation, proving
 
 For \eqref{eq:w1-to-BN-k1}, note that
 \[
-  \norm{\xi_i^A-\xi_i^B}\le 2R_T
+  \norm{\xi_i^A-\xi_i^B}\le 2R
   \qquad\text{and}\qquad
   \norm{\xi_i^A-\xi_i^B}\le \norm{\theta_i^A-\theta_i^B}.
 \]
@@ -1482,7 +1501,7 @@ Hence
 \[
   \norm{\xi_i^A-\xi_i^B}^2
   \le
-  2R_T\norm{\theta_i^A-\theta_i^B}.
+  2R\norm{\theta_i^A-\theta_i^B}.
 \]
 Averaging proves \eqref{eq:w1-to-BN-k1}.
 
@@ -1498,12 +1517,12 @@ For \eqref{eq:w1-to-scale-k1}, write
   \frac1N\sum_{i=1}^N
   c_i^B\bigl(\varphi(\xi_i^A,x)-\varphi(\xi_i^B,x)\bigr).
 \end{align*}
-Using $|\varphi|\le K_\varphi$, $|c_i^B|\le C_T$, and the gradient bound on
+Using $|\varphi|\le K_\varphi$, $|c_i^B|\le C$, and the gradient bound on
 $\varphi$,
 \[
   |s_{\Theta_A}(x)-s_{\Theta_B}(x)|
   \le
-  \bigl(K_\varphi+C_TK_{\nabla}\bigr)\varepsilon_N.
+  \bigl(K_\varphi+CK_{\nabla}\bigr)\varepsilon_N.
 \]
 Squaring and taking expectation in $X$ yields \eqref{eq:w1-to-scale-k1}.
 \end{proof}
@@ -1546,7 +1565,9 @@ in the same mode of convergence.
 \begin{proof}
 The displayed deterministic bounds imply $M_V^\infty\le M_{V,T}$. Apply
 Theorem~\ref{thm:deterministic-lmc-k1} after relabeling network $B$ by
-$\pi_N$, and then use \eqref{eq:w1-to-BN-k1} and \eqref{eq:w1-to-scale-k1} to
+$\pi_N$, and then use Lemma~\ref{lem:w1-permutation-k1} with
+$(A,C,R)=(A_T,C_T,R_T)$ together with \eqref{eq:w1-to-BN-k1} and
+\eqref{eq:w1-to-scale-k1} to
 replace $B_N$ and $\Delta_{s,N}$ by Wasserstein-based quantities.
 \end{proof}
 
@@ -1705,9 +1726,7 @@ Take the empirical $\ell_2$ norm in $i$ and the maximum over $j$.
 
 \begin{proposition}[Refined vector-head transfer]
 \label{prop:refined-transfer-k1}
-Assume in addition that $\nabla_\xi\varphi$ is Lipschitz in $\xi$ with
-constant $L_{\nabla}$
-uniformly in $x$. Then
+Under the standing setup, one has
 \begin{equation}
   \sup_{t\in[0,1]}\ \sup_{x\in\mc{X}}
   \norm{z_t(x)-\hat z_t(x)}_\infty
@@ -1787,7 +1806,7 @@ Adding the two estimates and taking the maximum over $j$ proves the claim.
 
 \begin{proposition}[Endpoint raw-scale rate]
 \label{prop:scale-rate-k1}
-Then
+Under the standing appendix bounds,
 \begin{equation}
   \Delta_{s,N}^{1/2}
   \le
