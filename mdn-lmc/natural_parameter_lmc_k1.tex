@@ -1,0 +1,1136 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{bm}
+\usepackage{mathrsfs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{microtype}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue
+}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\newtheorem{remark}[theorem]{Remark}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\supp}{\mathrm{supp}}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\mc}[1]{\mathcal{#1}}
+\newcommand{\cE}{\mathcal{E}}
+\newcommand{\cB}{\mathcal{B}}
+
+\title{Linear Mode Connectivity for the Single-Gaussian\\Natural-Softplus Head}
+\author{Working draft}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This note isolates the $K=1$ part of the linear-mode-connectivity program for
+distributional two-layer networks with Gaussian natural outputs. The training
+side is assumed to be supplied by the companion mean-field note: in the
+continuous-time full-batch regime, two wide runs started from the same
+initialization law track the same deterministic path. The present note studies
+the interpolation side. For the practical single-Gaussian head
+\[
+  \eta_1(x)=\frac1N\sum_{i=1}^N a_i\varphi(\xi_i,x),
+  \qquad
+  \eta_2(x)=-\psi_{\rm sp}\!\left(\frac1N\sum_{i=1}^N c_i\varphi(\xi_i,x)\right),
+\]
+the Gaussian negative log-likelihood is convex in the natural output
+$\eta=(\eta_1,\eta_2)$. The barrier
+instead decomposes into two terms: a vector-head transfer gap between parameter
+interpolation and raw-output interpolation, and a softplus Jensen gap between
+raw-output interpolation and natural-output interpolation. Combining this
+deterministic decomposition with the companion common-path theorem yields a
+Ferbach-style conclusion: if two trained width-$N$ networks come from the same
+initialization law, then after an optimal neuron permutation their
+interpolation barrier goes to zero as $N\to\infty$.
+\end{abstract}
+
+\section{Executive Summary}
+
+For the single-Gaussian head, the LMC story is cleaner than in the multi-mixture
+case:
+\begin{enumerate}[label=(\roman*)]
+  \item there is no component permutation and no softmax competition;
+  \item the Gaussian negative log-likelihood is convex in the natural output
+  $\eta=(\eta_1,\eta_2)$;
+  \item the practical parameterization still uses a raw scale field
+  $s$ with $\eta_2=-\psi_{\rm sp}(s)$, so the parameter-interpolation path is
+  not the same as the natural-output interpolation path;
+  \item the interpolation barrier therefore splits into exactly two terms:
+  a vector-head transfer term and a softplus Jensen term;
+  \item the companion mean-field theorem supplies the missing training-side
+  input, namely that two runs with the same initialization law are close in
+  Wasserstein distance at any fixed finite horizon.
+\end{enumerate}
+
+The main message is:
+\begin{quote}
+In the $K=1$ Gaussian natural-softplus model, one can prove a mode-connectivity
+theorem directly in
+natural-output space; all that remains is to quantify the mismatch between
+parameter interpolation and natural-output interpolation.
+\end{quote}
+
+\section{Setup}
+
+Let $\mc{X}$ be the input space and let $(X,Y)$ be a data pair with
+$|Y|\le Y_\ast$ almost surely. Fix a bounded feature map
+$\varphi:\R^p\times\mc{X}\to\R$ satisfying
+\[
+  K_\varphi:=\sup_{\xi,x}|\varphi(\xi,x)|<\infty,
+  \qquad
+  K_{\nabla}:=\sup_{\xi,x}\norm{\nabla_\xi\varphi(\xi,x)}<\infty.
+\]
+We consider width-$N$ two-layer networks with mean-field scaling
+\[
+  z_\Theta(x)
+  =
+  \bigl(u_\Theta(x),s_\Theta(x)\bigr)
+  :=
+  \frac1N\sum_{i=1}^N (a_i,c_i)\,\varphi(\xi_i,x)
+  \in \R^2,
+\]
+where
+\[
+  \Theta=((a_i,c_i,\xi_i))_{i=1}^N \in (\R\times\R\times\R^p)^N.
+\]
+The natural output is obtained by the practical softplus link
+\[
+  \eta_\Theta(x)
+  :=
+  \Gamma(z_\Theta(x))
+  =
+  \bigl(u_\Theta(x),-\psi_{\rm sp}(s_\Theta(x))\bigr),
+\]
+where
+\[
+  \psi_{\rm sp}(s):=\lambda_{\min}+\log(1+e^s),
+  \qquad
+  \lambda_{\min}>0.
+\]
+
+\paragraph{Population risk.}
+For Gaussian natural parameters
+$\eta=(\eta_1,\eta_2)\in \R\times(-\infty,0)$, define
+\[
+  A_{\rm G}(\eta_1,\eta_2)
+  =
+  -\frac{\eta_1^2}{4\eta_2}
+  + \frac12\log\!\Bigl(\frac{-\pi}{\eta_2}\Bigr),
+\]
+and the negative log-likelihood
+\[
+  \ell_\eta(\eta;y)
+  :=
+  A_{\rm G}(\eta) - \eta_1 y - \eta_2 y^2.
+\]
+The population risk is
+\[
+  \cE(\Theta)
+  :=
+  \E\big[\ell_\eta(\eta_\Theta(X);Y)\big].
+\]
+
+\paragraph{Aligned interpolation.}
+Fix a neuron permutation $\pi\in\mathfrak S_N$ and absorb it into network $B$;
+that is, after relabeling we write
+\[
+  \Theta_A=((a_i^A,c_i^A,\xi_i^A))_{i=1}^N,
+  \qquad
+  \Theta_B=((a_i^B,c_i^B,\xi_i^B))_{i=1}^N.
+\]
+The parameter-interpolation path is
+\[
+  \Theta_t
+  :=
+  \bigl((1-t)a_i^A+ta_i^B,\ (1-t)c_i^A+tc_i^B,\ (1-t)\xi_i^A+t\xi_i^B\bigr)_{i=1}^N.
+\]
+We also define
+\[
+  z_A:=z_{\Theta_A},
+  \qquad
+  z_B:=z_{\Theta_B},
+  \qquad
+  z_t:=z_{\Theta_t},
+\]
+the raw-output interpolation
+\[
+  \hat z_t := (1-t)z_A + tz_B,
+\]
+the natural-output interpolation
+\[
+  \hat\eta_t := (1-t)\eta_{\Theta_A} + t\eta_{\Theta_B},
+\]
+and the lifted raw interpolation
+\[
+  \tilde\eta_t := \Gamma(\hat z_t).
+\]
+
+\begin{definition}[Aligned barrier]
+For a fixed neuron permutation $\pi$, the aligned interpolation barrier is
+\[
+  \cB(\Theta_A,\Theta_B;\pi)
+  :=
+  \sup_{t\in[0,1]}
+  \Bigl\{
+    \cE(\Theta_t)
+    -
+    (1-t)\cE(\Theta_A)
+    -
+    t\cE(\Theta_B)
+  \Bigr\}.
+\]
+\end{definition}
+
+\paragraph{Alignment diagnostics.}
+The hidden-feature mismatch is
+\begin{equation}
+  B_N
+  :=
+  \frac1N\sum_{i=1}^N \norm{\xi_i^A-\xi_i^B}^2.
+  \label{eq:hidden_mismatch}
+\end{equation}
+The raw-scale endpoint gap is
+\begin{equation}
+  \Delta_{s,N}
+  :=
+  \E\bigl[(s_{\Theta_A}(X)-s_{\Theta_B}(X))^2\bigr].
+  \label{eq:scale_gap}
+\end{equation}
+Finally, define the per-coordinate head moment
+\begin{equation}
+  M_V^\infty
+  :=
+  \max\!\Biggl\{
+    \Bigl(\frac1N\sum_{i=1}^N (a_i^A)^2\Bigr)^{1/2},
+    \Bigl(\frac1N\sum_{i=1}^N (c_i^A)^2\Bigr)^{1/2},
+    \Bigl(\frac1N\sum_{i=1}^N (a_i^B)^2\Bigr)^{1/2},
+    \Bigl(\frac1N\sum_{i=1}^N (c_i^B)^2\Bigr)^{1/2}
+  \Biggr\}.
+  \label{eq:head_moment}
+\end{equation}
+
+\section{Output Geometry for the Single-Gaussian Head}
+
+\begin{proposition}[Convexity and Lipschitz control on a natural strip]
+\label{prop:convex-lipschitz-strip}
+Fix $M>0$ and $\lambda_{\min}>0$, and define
+\[
+  D_{M,\lambda_{\min}}
+  :=
+  \{(\eta_1,\eta_2)\in\R^2: |\eta_1|\le M,\ \eta_2\le -\lambda_{\min}\}.
+\]
+Then for every $|y|\le Y_\ast$:
+\begin{enumerate}[label=(\roman*)]
+  \item $\ell_\eta(\cdot;y)$ is convex on $D_{M,\lambda_{\min}}$;
+  \item $\ell_\eta(\cdot;y)$ is $C_\eta(M,\lambda_{\min},Y_\ast)$-Lipschitz in
+  the $\ell_\infty$ norm on $D_{M,\lambda_{\min}}$, where
+  \begin{align}
+    C_\eta(M,\lambda_{\min},Y_\ast)
+    &:=
+    \frac{M}{2\lambda_{\min}} + Y_\ast
+    + \frac{M^2}{4\lambda_{\min}^2}
+    + \frac{1}{2\lambda_{\min}}
+    + Y_\ast^2.
+    \label{eq:Ceta}
+  \end{align}
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+For Gaussian natural parameters, $\ell_\eta(\eta;y)=A_{\rm G}(\eta)-\eta_1y-\eta_2y^2$.
+The Gaussian log-partition $A_{\rm G}$ is convex on $\{\eta_2<0\}$, so
+$\ell_\eta(\cdot;y)$ is convex there as well.
+
+For the Lipschitz bound, write
+\[
+  q_1(\eta;y):=\partial_{\eta_1}\ell_\eta(\eta;y)
+  =
+  -\frac{\eta_1}{2\eta_2}-y
+\]
+and
+\[
+  q_2(\eta;y):=\partial_{\eta_2}\ell_\eta(\eta;y)
+  =
+  \frac{\eta_1^2}{4\eta_2^2}
+  -
+  \frac1{2\eta_2}
+  -
+  y^2.
+\]
+On $D_{M,\lambda_{\min}}$ and for $|y|\le Y_\ast$,
+\[
+  |q_1(\eta;y)|
+  \le
+  \frac{M}{2\lambda_{\min}} + Y_\ast
+\]
+and
+\[
+  |q_2(\eta;y)|
+  \le
+  \frac{M^2}{4\lambda_{\min}^2}
+  +
+  \frac1{2\lambda_{\min}}
+  +
+  Y_\ast^2.
+\]
+Hence
+\[
+  \sup_{\eta\in D_{M,\lambda_{\min}}}
+  \norm{\nabla_\eta \ell_\eta(\eta;y)}_1
+  \le
+  C_\eta(M,\lambda_{\min},Y_\ast).
+\]
+The mean-value theorem in the $\ell_\infty$ norm yields the claim.
+\end{proof}
+
+\begin{lemma}[Automatic strip control along the interpolation path]
+\label{lem:auto_strip}
+For all $x\in\mc{X}$ and all $t\in[0,1]$,
+\[
+  \norm{z_A(x)}_\infty,\ \norm{z_B(x)}_\infty,\ \norm{z_t(x)}_\infty,\
+  \norm{\hat z_t(x)}_\infty
+  \le
+  K_\varphi M_V^\infty.
+\]
+Consequently
+\[
+  \eta_{\Theta_A}(x),\ \eta_{\Theta_B}(x),\ \eta_{\Theta_t}(x),\
+  \hat\eta_t(x),\ \tilde\eta_t(x)
+  \in
+  D_{K_\varphi M_V^\infty,\lambda_{\min}}
+  \qquad
+  \forall x,\ \forall t.
+\]
+\end{lemma}
+
+\begin{proof}
+Consider the first coordinate. By Cauchy--Schwarz,
+\[
+  |u_{\Theta_A}(x)|
+  \le
+  \frac1N\sum_{i=1}^N |a_i^A|\,|\varphi(\xi_i^A,x)|
+  \le
+  K_\varphi
+  \Bigl(\frac1N\sum_{i=1}^N (a_i^A)^2\Bigr)^{1/2}
+  \le
+  K_\varphi M_V^\infty.
+\]
+The same estimate holds for the raw scale coordinate and for network $B$.
+For the interpolated head coefficients, convexity of the square gives
+\[
+  \frac1N\sum_{i=1}^N \bigl((1-t)a_i^A+ta_i^B\bigr)^2
+  \le
+  (1-t)\frac1N\sum_{i=1}^N (a_i^A)^2
+  +
+  t\frac1N\sum_{i=1}^N (a_i^B)^2
+  \le
+  (M_V^\infty)^2,
+\]
+and similarly for the $c$-coordinates. This proves the raw bound for $z_t$.
+The same bound for $\hat z_t=(1-t)z_A+tz_B$ is immediate.
+
+For the natural outputs, the first coordinate is unchanged and the second
+coordinate is always $\le -\lambda_{\min}$ because
+$\psi_{\rm sp}(s)\ge \lambda_{\min}$ for all $s\in\R$.
+\end{proof}
+
+\begin{proposition}[Softplus Jensen gap]
+\label{prop:softplus-jensen}
+For any $s_A,s_B\in\R$ and $t\in[0,1]$,
+\begin{equation}
+  0
+  \le
+  (1-t)\psi_{\rm sp}(s_A)+t\psi_{\rm sp}(s_B)
+  -
+  \psi_{\rm sp}((1-t)s_A+ts_B)
+  \le
+  \frac18\,t(1-t)(s_A-s_B)^2.
+  \label{eq:softplus-jensen}
+\end{equation}
+Consequently, for every $x\in\mc{X}$,
+\begin{equation}
+  \norm{\tilde\eta_t(x)-\hat\eta_t(x)}_\infty
+  \le
+  \frac18\,t(1-t)\bigl(s_{\Theta_A}(x)-s_{\Theta_B}(x)\bigr)^2.
+  \label{eq:natural-jensen-gap}
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+The function $\psi_{\rm sp}$ is convex and satisfies
+\[
+  \psi_{\rm sp}''(s)
+  =
+  \frac{e^s}{(1+e^s)^2}
+  \le
+  \frac14.
+\]
+For any $C^2$ convex function with second derivative bounded by $L$,
+the midpoint interpolation error is at most
+$\frac{L}{2}t(1-t)(s_A-s_B)^2$. Applying this with
+$L=\frac14$ gives \eqref{eq:softplus-jensen}.
+Since only the second natural coordinate is nonlinear,
+\eqref{eq:natural-jensen-gap} is the same estimate written for
+\[
+  \tilde\eta_t
+  =
+  \bigl((1-t)u_A+tu_B,\ -\psi_{\rm sp}((1-t)s_A+ts_B)\bigr)
+\]
+and
+\[
+  \hat\eta_t
+  =
+  \bigl((1-t)u_A+tu_B,\ -(1-t)\psi_{\rm sp}(s_A)-t\psi_{\rm sp}(s_B)\bigr).
+\]
+\end{proof}
+
+\section{Vector-Head Transfer}
+
+The raw head is two-dimensional: one coordinate feeds the first natural
+parameter directly, while the other feeds the raw scale. This is exactly the
+vector-head setting in which the direct output-coupling argument is useful.
+
+\begin{proposition}[Direct raw-output coupling for the two-coordinate head]
+\label{prop:vector-head-transfer}
+For the aligned pair $(\Theta_A,\Theta_B)$,
+\begin{equation}
+  \sup_{t\in[0,1]}\ \sup_{x\in\mc{X}}
+  \norm{z_t(x)-\hat z_t(x)}_\infty
+  \le
+  \frac12 K_{\nabla} M_V^\infty \sqrt{B_N}.
+  \label{eq:vector-transfer}
+\end{equation}
+In particular,
+\[
+  \sup_{t\in[0,1]}
+  \Bigl(
+    \E\big[\norm{z_t(X)-\hat z_t(X)}_\infty^2\big]
+  \Bigr)^{1/2}
+  \le
+  \frac12 K_{\nabla} M_V^\infty \sqrt{B_N}.
+\]
+\end{proposition}
+
+\begin{proof}
+Set
+\[
+  \xi_i(t):=(1-t)\xi_i^A+t\xi_i^B,
+  \qquad
+  \Delta \xi_i:=\xi_i^A-\xi_i^B.
+\]
+Let $v_i^A=(a_i^A,c_i^A)$ and $v_i^B=(a_i^B,c_i^B)$. Then
+\begin{align*}
+  z_t(x)-\hat z_t(x)
+  &=
+  \frac1N\sum_{i=1}^N
+  \Bigl[
+    (1-t)v_i^A\bigl(\varphi(\xi_i(t),x)-\varphi(\xi_i^A,x)\bigr)
+    \\
+  &\qquad\qquad\qquad
+    +
+    tv_i^B\bigl(\varphi(\xi_i(t),x)-\varphi(\xi_i^B,x)\bigr)
+  \Bigr].
+\end{align*}
+Since
+\[
+  \norm{\xi_i(t)-\xi_i^A}=t\norm{\Delta\xi_i},
+  \qquad
+  \norm{\xi_i(t)-\xi_i^B}=(1-t)\norm{\Delta\xi_i},
+\]
+the uniform gradient bound gives
+\[
+  |\varphi(\xi_i(t),x)-\varphi(\xi_i^A,x)|
+  \le
+  tK_{\nabla}\norm{\Delta\xi_i},
+  \qquad
+  |\varphi(\xi_i(t),x)-\varphi(\xi_i^B,x)|
+  \le
+  (1-t)K_{\nabla}\norm{\Delta\xi_i}.
+\]
+Taking the $j$th coordinate ($j\in\{1,2\}$), we obtain
+\begin{align*}
+  |(z_t(x)-\hat z_t(x))_j|
+  &\le
+  \frac{t(1-t)K_{\nabla}}{N}
+  \sum_{i=1}^N
+  \bigl(|(v_i^A)_j|+|(v_i^B)_j|\bigr)\norm{\Delta\xi_i}.
+\end{align*}
+By Cauchy--Schwarz,
+\[
+  \frac1N\sum_{i=1}^N |(v_i^A)_j|\norm{\Delta\xi_i}
+  \le
+  \Bigl(\frac1N\sum_{i=1}^N (v_i^A)_j^2\Bigr)^{1/2}
+  \Bigl(\frac1N\sum_{i=1}^N \norm{\Delta\xi_i}^2\Bigr)^{1/2}
+  \le
+  M_V^\infty \sqrt{B_N},
+\]
+and the same bound holds for the $B$ term. Hence
+\[
+  \norm{z_t(x)-\hat z_t(x)}_\infty
+  \le
+  2t(1-t)K_{\nabla}M_V^\infty\sqrt{B_N}
+  \le
+  \frac12 K_{\nabla}M_V^\infty\sqrt{B_N}.
+\]
+The $L^2(P_X)$ statement follows immediately.
+\end{proof}
+
+\begin{proposition}[Natural-output interpolation gap]
+\label{prop:natural-output-gap}
+For every $t\in[0,1]$,
+\begin{equation}
+  \E\big[\norm{\eta_{\Theta_t}(X)-\hat\eta_t(X)}_\infty\big]
+  \le
+  \frac12 K_{\nabla} M_V^\infty \sqrt{B_N}
+  +
+  \frac18\,t(1-t)\Delta_{s,N}.
+  \label{eq:natural-gap}
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+By the triangle inequality,
+\[
+  \norm{\eta_{\Theta_t}(x)-\hat\eta_t(x)}_\infty
+  \le
+  \norm{\eta_{\Theta_t}(x)-\tilde\eta_t(x)}_\infty
+  +
+  \norm{\tilde\eta_t(x)-\hat\eta_t(x)}_\infty.
+\]
+The map $\Gamma(u,s)=(u,-\psi_{\rm sp}(s))$ is $1$-Lipschitz in the
+$\ell_\infty$ norm because its first coordinate is the identity and
+$0<\psi_{\rm sp}'(s)<1$. Hence
+\[
+  \norm{\eta_{\Theta_t}(x)-\tilde\eta_t(x)}_\infty
+  \le
+  \norm{z_t(x)-\hat z_t(x)}_\infty,
+\]
+so Proposition~\ref{prop:vector-head-transfer} gives
+\[
+  \E\big[\norm{\eta_{\Theta_t}(X)-\tilde\eta_t(X)}_\infty\big]
+  \le
+  \frac12 K_{\nabla} M_V^\infty \sqrt{B_N}.
+\]
+For the second term, Proposition~\ref{prop:softplus-jensen} yields
+\[
+  \norm{\tilde\eta_t(x)-\hat\eta_t(x)}_\infty
+  \le
+  \frac18\,t(1-t)(s_{\Theta_A}(x)-s_{\Theta_B}(x))^2.
+\]
+Taking expectation proves \eqref{eq:natural-gap}.
+\end{proof}
+
+\section{Deterministic LMC Theorem}
+
+\begin{theorem}[Aligned barrier decomposition for the single-Gaussian head]
+\label{thm:deterministic-lmc}
+For every fixed neuron permutation $\pi$,
+\begin{equation}
+  \cB(\Theta_A,\Theta_B;\pi)
+  \le
+  C_\eta(K_\varphi M_V^\infty,\lambda_{\min},Y_\ast)
+  \left[
+    \frac12 K_{\nabla} M_V^\infty \sqrt{B_N}
+    +
+    \frac1{32}\Delta_{s,N}
+  \right].
+  \label{eq:deterministic-barrier}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Fix $t\in[0,1]$. By Lemma~\ref{lem:auto_strip}, all relevant outputs lie in
+$D_{K_\varphi M_V^\infty,\lambda_{\min}}$, so
+Proposition~\ref{prop:convex-lipschitz-strip} applies there.
+Using the Lipschitz bound first,
+\[
+  \E[\ell_\eta(\eta_{\Theta_t}(X);Y)]
+  \le
+  \E[\ell_\eta(\hat\eta_t(X);Y)]
+  +
+  C_\eta(K_\varphi M_V^\infty,\lambda_{\min},Y_\ast)
+  \E[\norm{\eta_{\Theta_t}(X)-\hat\eta_t(X)}_\infty].
+\]
+Proposition~\ref{prop:natural-output-gap} bounds the second term by
+\[
+  C_\eta(K_\varphi M_V^\infty,\lambda_{\min},Y_\ast)
+  \left[
+    \frac12 K_{\nabla} M_V^\infty \sqrt{B_N}
+    +
+    \frac18\,t(1-t)\Delta_{s,N}
+  \right].
+\]
+Now use convexity of $\ell_\eta(\cdot;Y)$ in natural coordinates:
+\[
+  \ell_\eta(\hat\eta_t(X);Y)
+  \le
+  (1-t)\ell_\eta(\eta_{\Theta_A}(X);Y)
+  +
+  t\ell_\eta(\eta_{\Theta_B}(X);Y).
+\]
+Taking expectations and then $\sup_{t\in[0,1]}$ gives
+\eqref{eq:deterministic-barrier} because $\sup_{t\in[0,1]} t(1-t)=1/4$.
+\end{proof}
+
+\begin{remark}[Barrier ingredients]
+Theorem~\ref{thm:deterministic-lmc} is the $K=1$ analogue of the
+Ferbach-style barrier decomposition. Its two terms have a direct interpretation:
+\begin{enumerate}[label=(\alph*)]
+  \item convexity is exact in natural-output space, so no output-level
+  curvature loss appears;
+  \item the only nonlinear residue is the softplus Jensen term
+  $\Delta_{s,N}$;
+  \item the head is genuinely vector-valued, and the transfer step therefore
+  uses the direct vector-head coupling proposition rather than any scalar-head
+  activation-matching argument.
+\end{enumerate}
+\end{remark}
+
+\section{Rates}
+
+The deterministic theorem is expressed in terms of the alignment quantities
+$B_N$ and $\Delta_{s,N}$. The width rate therefore depends on how those two
+objects scale along the aligned pair.
+
+\begin{proposition}[From hidden-law concentration to $B_N=O(d/N)$]
+\label{prop:BN-from-w2}
+Let
+\[
+  \hat\nu_A^N:=\frac1N\sum_{i=1}^N \delta_{\xi_i^A},
+  \qquad
+  \hat\nu_B^N:=\frac1N\sum_{i=1}^N \delta_{\xi_i^B},
+\]
+and let $\mu_{\xi,\ast}$ be a reference law on $\R^p$. Suppose that for some
+deterministic sequence $\eta_N\downarrow 0$,
+\[
+  W_2(\hat\nu_A^N,\mu_{\xi,\ast})\le \eta_N,
+  \qquad
+  W_2(\hat\nu_B^N,\mu_{\xi,\ast})\le \eta_N.
+\]
+If the neuron permutation $\pi_N$ is chosen by hidden-weight optimal transport,
+then
+\begin{equation}
+  B_N = W_2^2(\hat\nu_A^N,\hat\nu_B^N)\le 4\eta_N^2.
+  \label{eq:BN-via-w2}
+\end{equation}
+In particular, if
+\[
+  \eta_N = O(\kappa_\xi \sqrt{d/N}),
+\]
+then
+\[
+  B_N = O(\kappa_\xi^2 d/N).
+\]
+\end{proposition}
+
+\begin{proof}
+Because the hidden states all carry mass $1/N$, the $W_2$-optimal coupling
+between $\hat\nu_A^N$ and $\hat\nu_B^N$ is realized by a permutation, and the
+corresponding squared cost is exactly $B_N$. The triangle inequality gives
+\[
+  W_2(\hat\nu_A^N,\hat\nu_B^N)
+  \le
+  W_2(\hat\nu_A^N,\mu_{\xi,\ast}) + W_2(\hat\nu_B^N,\mu_{\xi,\ast})
+  \le
+  2\eta_N.
+\]
+Squaring proves \eqref{eq:BN-via-w2}. The final claim is immediate.
+\end{proof}
+
+\begin{corollary}[Baseline rate]
+\label{cor:baseline-rate}
+Suppose that along a width sequence,
+\[
+  B_N = O(d/N),
+  \qquad
+  \Delta_{s,N} = O(1/N).
+\]
+Then Theorem~\ref{thm:deterministic-lmc} yields
+\[
+  \cB(\Theta_A,\Theta_B;\pi)
+  =
+  O\!\left(\sqrt{\frac{d}{N}} + \frac1N\right).
+\]
+In particular, for fixed input dimension $d$,
+\[
+  \cB(\Theta_A,\Theta_B;\pi)=O(N^{-1/2}).
+\]
+\end{corollary}
+
+\begin{proof}
+Substitute the displayed assumptions into
+\eqref{eq:deterministic-barrier}.
+\end{proof}
+
+\begin{remark}[Ferbach-style specialization]
+Proposition~\ref{prop:BN-from-w2} is the precise point where the present note
+meets the Ferbach-style alignment theory. If the trained hidden empirical laws
+obey a sub-Gaussian Wasserstein concentration rate
+\[
+  \eta_N=O(\kappa_\xi\sqrt{d/N}),
+\]
+then hidden-weight optimal transport gives
+\[
+  B_N = O(\kappa_\xi^2 d/N).
+\]
+Substituting this into Corollary~\ref{cor:baseline-rate} yields the explicit
+baseline barrier rate
+\[
+  \cB(\Theta_A,\Theta_B;\pi_N)
+  =
+  O\!\left(\kappa_\xi\sqrt{\frac{d}{N}} + \frac1N\right).
+\]
+Thus the $O(\sqrt{d/N})$ law comes entirely from the transfer bottleneck.
+\end{remark}
+
+The older LMC draft identified a faster route: the transfer term can improve
+from $O(\sqrt{B_N})$ to $O(B_N)$ if the trained two-coordinate head is itself a
+regular function of the hidden feature. For $K=1$, this route is simpler than
+in the mixture case because there is no softmax block and hence no gauge-fixing
+step.
+
+\begin{definition}[Per-coordinate head mismatch]
+\label{def:head-mismatch}
+Define
+\[
+  M_{\Delta V}^\infty
+  :=
+  \max_{j\in\{1,2\}}
+  \Bigl(
+    \frac1N\sum_{i=1}^N
+    \bigl((v_i^A-v_i^B)_j\bigr)^2
+  \Bigr)^{1/2},
+  \qquad
+  v_i^X:=(a_i^X,c_i^X)\in\R^2.
+\]
+\end{definition}
+
+\begin{assumption}[Conditional head regularity for $K=1$]
+\label{ass:head-regularity-k1}
+There exist a map $g:\R^p\to\R^2$ and residuals $r_i^A,r_i^B\in\R^2$ such that
+\[
+  v_i^A = g(\xi_i^A)+r_i^A,
+  \qquad
+  v_i^B = g(\xi_i^B)+r_i^B,
+\]
+and
+\[
+  \norm{g(\xi)-g(\bar\xi)}_\infty \le L_g \norm{\xi-\bar\xi}
+  \qquad
+  \forall \xi,\bar\xi\in\R^p.
+\]
+Define the residual mismatch
+\[
+  \mathcal R_N
+  :=
+  \max_{j\in\{1,2\}}
+  \Bigl(
+    \frac1N\sum_{i=1}^N
+    \bigl((r_i^A-r_i^B)_j\bigr)^2
+  \Bigr)^{1/2}.
+\]
+\end{assumption}
+
+\begin{lemma}[Head mismatch from conditional regularity]
+\label{lem:head-mismatch-regular}
+Under Assumption~\ref{ass:head-regularity-k1},
+\begin{equation}
+  M_{\Delta V}^\infty
+  \le
+  L_g \sqrt{B_N} + \mathcal R_N.
+  \label{eq:head-mismatch-regular}
+\end{equation}
+\end{lemma}
+
+\begin{proof}
+For each coordinate $j\in\{1,2\}$,
+\[
+  |(v_i^A-v_i^B)_j|
+  \le
+  |(g(\xi_i^A)-g(\xi_i^B))_j|
+  +
+  |(r_i^A-r_i^B)_j|
+  \le
+  L_g\norm{\xi_i^A-\xi_i^B} + |(r_i^A-r_i^B)_j|.
+\]
+Take the empirical $\ell_2$ norm in $i$ and then the maximum over $j$.
+\end{proof}
+
+\begin{proposition}[Refined vector-head transfer]
+\label{prop:refined-transfer}
+Assume Assumption~\ref{ass:confinement-input}, and assume in addition that
+$\nabla_\xi\varphi$ is Lipschitz in $\xi$ with constant $L_{\nabla}$ uniformly
+in $x$. Then
+\begin{equation}
+  \sup_{t\in[0,1]}\ \sup_{x\in\mc{X}}
+  \norm{z_t(x)-\hat z_t(x)}_\infty
+  \le
+  \frac{K_{\nabla}}{4} M_{\Delta V}^\infty \sqrt{B_N}
+  +
+  \frac{L_{\nabla}}{8} M_{V,T} B_N,
+  \label{eq:refined-transfer}
+\end{equation}
+where $M_{V,T}:=\max\{A_T,C_T\}$.
+\end{proposition}
+
+\begin{proof}
+Write
+\[
+  \phi_i^A(x):=\varphi(\xi_i^A,x),
+  \qquad
+  \phi_i^B(x):=\varphi(\xi_i^B,x),
+  \qquad
+  \phi_i^t(x):=\varphi((1-t)\xi_i^A+t\xi_i^B,x).
+\]
+Then
+\begin{align*}
+  z_t(x)-\hat z_t(x)
+  &=
+  \frac1N\sum_{i=1}^N
+  \Bigl(
+    v_i^t\phi_i^t-(1-t)v_i^A\phi_i^A-tv_i^B\phi_i^B
+  \Bigr)
+  \\
+  &=
+  \frac1N\sum_{i=1}^N
+  v_i^t
+  \Bigl(
+    \phi_i^t-(1-t)\phi_i^A-t\phi_i^B
+  \Bigr)
+  \\
+  &\qquad
+  +
+  t(1-t)\frac1N\sum_{i=1}^N
+  (v_i^B-v_i^A)(\phi_i^A-\phi_i^B),
+\end{align*}
+where $v_i^t:=(1-t)v_i^A+tv_i^B$.
+
+For the second sum, use
+\[
+  |\phi_i^A(x)-\phi_i^B(x)|
+  \le
+  K_{\nabla}\norm{\xi_i^A-\xi_i^B}
+\]
+to obtain, coordinate-wise,
+\[
+  t(1-t)\frac1N\sum_{i=1}^N
+  |(v_i^B-v_i^A)_j|\,|\phi_i^A(x)-\phi_i^B(x)|
+  \le
+  \frac{K_{\nabla}}{4} M_{\Delta V}^\infty \sqrt{B_N}.
+\]
+
+For the first sum, the Lipschitz property of $\nabla_\xi\varphi$ gives the
+second-order interpolation remainder
+\[
+  \bigl|
+    \phi_i^t(x)-(1-t)\phi_i^A(x)-t\phi_i^B(x)
+  \bigr|
+  \le
+  \frac{L_{\nabla}}{2}\,t(1-t)\norm{\xi_i^A-\xi_i^B}^2.
+\]
+Since $| (v_i^t)_j |\le M_{V,T}$ under
+Assumption~\ref{ass:confinement-input},
+\[
+  \frac1N\sum_{i=1}^N
+  |(v_i^t)_j|
+  \bigl|
+    \phi_i^t(x)-(1-t)\phi_i^A(x)-t\phi_i^B(x)
+  \bigr|
+  \le
+  \frac{L_{\nabla}}{8} M_{V,T} B_N.
+\]
+Adding the two bounds and taking the maximum over $j\in\{1,2\}$ proves
+\eqref{eq:refined-transfer}.
+\end{proof}
+
+\begin{proposition}[Endpoint raw-scale rate under head regularity]
+\label{prop:scale-rate}
+Assume Assumption~\ref{ass:confinement-input}. Then
+\begin{equation}
+  \Delta_{s,N}^{1/2}
+  \le
+  K_\varphi M_{\Delta V}^\infty + C_T K_{\nabla}\sqrt{B_N}.
+  \label{eq:scale-rate}
+\end{equation}
+Consequently, if
+\[
+  M_{\Delta V}^\infty = O(\sqrt{B_N}),
+\]
+then
+\[
+  \Delta_{s,N} = O(B_N).
+\]
+\end{proposition}
+
+\begin{proof}
+Exactly as in the proof of Lemma~\ref{lem:w1-permutation},
+\begin{align*}
+  s_{\Theta_A}(x)-s_{\Theta_B}(x)
+  &=
+  \frac1N\sum_{i=1}^N
+  \bigl(c_i^A-c_i^B\bigr)\varphi(\xi_i^A,x)
+  \\
+  &\qquad
+  +
+  \frac1N\sum_{i=1}^N
+  c_i^B\bigl(\varphi(\xi_i^A,x)-\varphi(\xi_i^B,x)\bigr).
+\end{align*}
+The first term is bounded by
+$K_\varphi M_{\Delta V}^\infty$ and the second by
+$C_TK_{\nabla}\sqrt{B_N}$. Take the supremum in $x$ and then the
+$L^2(P_X)$ norm.
+\end{proof}
+
+\begin{corollary}[Fast barrier under conditional head regularity]
+\label{cor:fast-rate}
+Assume Assumptions~\ref{ass:confinement-input}
+and~\ref{ass:head-regularity-k1}. Assume also that
+$\nabla_\xi\varphi$ is Lipschitz with constant $L_{\nabla}$ and that
+\[
+  \mathcal R_N = O(\sqrt{B_N}).
+\]
+Then
+\[
+  \cB(\Theta_A,\Theta_B;\pi)=O(B_N).
+\]
+In particular, if in addition
+\[
+  B_N = O(d/N),
+\]
+then
+\[
+  \cB(\Theta_A,\Theta_B;\pi)=O(d/N),
+\]
+which is $O(1/N)$ for fixed input dimension $d$.
+\end{corollary}
+
+\begin{proof}
+Lemma~\ref{lem:head-mismatch-regular} implies
+$M_{\Delta V}^\infty=O(\sqrt{B_N})$.
+Proposition~\ref{prop:refined-transfer} then yields
+\[
+  \sup_t\sup_x \norm{z_t(x)-\hat z_t(x)}_\infty = O(B_N).
+\]
+Because $\Gamma$ is $1$-Lipschitz, the same $O(B_N)$ bound holds for
+$\eta_{\Theta_t}-\tilde\eta_t$. Proposition~\ref{prop:scale-rate} gives
+$\Delta_{s,N}=O(B_N)$, hence Proposition~\ref{prop:softplus-jensen} gives
+\[
+  \sup_t \E\big[\norm{\tilde\eta_t(X)-\hat\eta_t(X)}_\infty\big] = O(B_N).
+\]
+Repeating the proof of Theorem~\ref{thm:deterministic-lmc} with these refined
+estimates gives $\cB=O(B_N)$. The final statement follows by substituting
+$B_N=O(d/N)$.
+\end{proof}
+
+\section{From the Companion Mean-Field Theorem to LMC}
+
+The companion note proves a training-side common-path theorem in the
+continuous-time full-batch regime: if two width-$N$ runs are initialized i.i.d.\
+from the same law and trained up to a fixed finite horizon $T$, then their
+empirical parameter measures are both close to the same deterministic
+mean-field law. The purpose of this section is to turn that statement into an
+LMC corollary.
+
+\begin{assumption}[Finite-horizon confinement input]
+\label{ass:confinement-input}
+Fix a training horizon $T<\infty$. Assume the trained endpoints satisfy
+\[
+  |a_i^A|,\ |a_i^B|\le A_T,
+  \qquad
+  |c_i^A|,\ |c_i^B|\le C_T,
+  \qquad
+  \norm{\xi_i^A},\ \norm{\xi_i^B}\le R_T
+\]
+for all $i=1,\dots,N$.
+\end{assumption}
+
+\begin{lemma}[Permutation selected by empirical Wasserstein distance]
+\label{lem:w1-permutation}
+Let
+\[
+  \rho_A^N:=\frac1N\sum_{i=1}^N \delta_{\theta_i^A},
+  \qquad
+  \rho_B^N:=\frac1N\sum_{i=1}^N \delta_{\theta_i^B},
+  \qquad
+  \theta_i^X:=(a_i^X,c_i^X,\xi_i^X).
+\]
+Let $\varepsilon_N:=W_1(\rho_A^N,\rho_B^N)$, where $W_1$ is computed with the
+Euclidean cost on $\R^{2+p}$. Then there exists a permutation $\pi_N$ such that
+\begin{equation}
+  \frac1N\sum_{i=1}^N \norm{\theta_i^A-\theta_{\pi_N(i)}^B}
+  =
+  \varepsilon_N.
+  \label{eq:w1-permutation}
+\end{equation}
+After relabeling network $B$ by this permutation, the quantities
+$B_N$ and $\Delta_{s,N}$ satisfy
+\begin{align}
+  B_N
+  &\le
+  2R_T\,\varepsilon_N,
+  \label{eq:w1-to-BN}
+  \\
+  \Delta_{s,N}
+  &\le
+  \bigl(K_\varphi + C_T K_{\nabla}\bigr)^2\,\varepsilon_N^2.
+  \label{eq:w1-to-scale}
+\end{align}
+\end{lemma}
+
+\begin{proof}
+Because both empirical measures assign mass $1/N$ to each atom, the optimal
+transport plan for $W_1$ is an optimal bistochastic matrix. By Birkhoff's
+theorem, an extreme-point optimizer is a permutation, proving
+\eqref{eq:w1-permutation}.
+
+For \eqref{eq:w1-to-BN}, note that
+\[
+  \norm{\xi_i^A-\xi_i^B}\le 2R_T
+  \qquad\text{and}\qquad
+  \norm{\xi_i^A-\xi_i^B}\le \norm{\theta_i^A-\theta_i^B}.
+\]
+Hence
+\[
+  \norm{\xi_i^A-\xi_i^B}^2
+  \le
+  2R_T \norm{\xi_i^A-\xi_i^B}
+  \le
+  2R_T \norm{\theta_i^A-\theta_i^B}.
+\]
+Averaging gives \eqref{eq:w1-to-BN}.
+
+For \eqref{eq:w1-to-scale}, write
+\begin{align*}
+  s_{\Theta_A}(x)-s_{\Theta_B}(x)
+  &=
+  \frac1N\sum_{i=1}^N
+  \bigl(c_i^A-c_i^B\bigr)\varphi(\xi_i^A,x)
+  \\
+  &\qquad
+  +
+  \frac1N\sum_{i=1}^N
+  c_i^B\bigl(\varphi(\xi_i^A,x)-\varphi(\xi_i^B,x)\bigr).
+\end{align*}
+Using $|\varphi|\le K_\varphi$, $|c_i^B|\le C_T$, and the gradient bound on
+$\varphi$,
+\[
+  |s_{\Theta_A}(x)-s_{\Theta_B}(x)|
+  \le
+  K_\varphi \frac1N\sum_{i=1}^N |c_i^A-c_i^B|
+  +
+  C_T K_{\nabla}\frac1N\sum_{i=1}^N \norm{\xi_i^A-\xi_i^B}.
+\]
+Since both $|c_i^A-c_i^B|$ and $\norm{\xi_i^A-\xi_i^B}$ are bounded by
+$\norm{\theta_i^A-\theta_i^B}$,
+\[
+  \sup_{x\in\mc{X}} |s_{\Theta_A}(x)-s_{\Theta_B}(x)|
+  \le
+  \bigl(K_\varphi + C_T K_{\nabla}\bigr)\varepsilon_N.
+\]
+Squaring and taking expectation in $X$ proves \eqref{eq:w1-to-scale}.
+\end{proof}
+
+\begin{corollary}[Finite-horizon LMC from a shared initialization law]
+\label{cor:lmc-from-common-path}
+Assume Assumption~\ref{ass:confinement-input}. Let $\rho_A^N$ and $\rho_B^N$
+be the empirical measures of two independently trained width-$N$ runs of the
+single-Gaussian natural-softplus network, both started from the same
+initialization law and trained up to the same finite horizon $T$ in the
+continuous-time full-batch regime of the companion note. Suppose that
+\[
+  \varepsilon_N:=W_1(\rho_A^N,\rho_B^N)\to 0
+\]
+almost surely, hence also in probability, as $N\to\infty$.
+Let $\pi_N$ be the permutation from Lemma~\ref{lem:w1-permutation}. Then
+\begin{equation}
+  \cB(\Theta_A,\Theta_B;\pi_N)
+  \le
+  C_\eta(K_\varphi M_{V,T},\lambda_{\min},Y_\ast)
+  \left[
+    \frac12 K_{\nabla} M_{V,T}\sqrt{2R_T}\,\varepsilon_N^{1/2}
+    +
+    \frac{(K_\varphi + C_TK_{\nabla})^2}{32}\,\varepsilon_N^2
+  \right],
+  \label{eq:lmc-common-path-bound}
+\end{equation}
+where $M_{V,T}:=\max\{A_T,C_T\}$. In particular,
+\[
+  \cB(\Theta_A,\Theta_B;\pi_N)\to 0
+\]
+almost surely, hence also in probability, as $N\to\infty$.
+\end{corollary}
+
+\begin{proof}
+Assumption~\ref{ass:confinement-input} implies $M_V^\infty\le M_{V,T}$.
+Apply Theorem~\ref{thm:deterministic-lmc} after relabeling network $B$ by the
+permutation $\pi_N$. Then use Lemma~\ref{lem:w1-permutation} to replace $B_N$
+and $\Delta_{s,N}$ by the Wasserstein-based bounds \eqref{eq:w1-to-BN} and
+\eqref{eq:w1-to-scale}. Since $\varepsilon_N\to 0$, the right-hand side of
+\eqref{eq:lmc-common-path-bound} converges to zero.
+\end{proof}
+
+\begin{remark}[What the common-path corollary does and does not give]
+Corollary~\ref{cor:lmc-from-common-path} is the clean Ferbach-style bridge from
+training dynamics to connectivity, but it is not yet the sharpest rate
+statement in this note. By itself it gives
+\[
+  \cB = O(\varepsilon_N^{1/2}+\varepsilon_N^2),
+  \qquad
+  \varepsilon_N=W_1(\rho_A^N,\rho_B^N).
+\]
+The faster $O(d/N)$ route of Corollary~\ref{cor:fast-rate} needs extra
+structure: it uses hidden-weight alignment together with conditional head
+regularity of the trained law.
+\end{remark}
+
+\begin{remark}[The rate-limiting term]
+The bound \eqref{eq:lmc-common-path-bound} has two pieces:
+\begin{enumerate}[label=(\alph*)]
+  \item the transfer term, of order $\varepsilon_N^{1/2}$;
+  \item the softplus Jensen term, of order $\varepsilon_N^2$.
+\end{enumerate}
+Thus, in this first $K=1$ theorem, the barrier is dominated by the
+parameter-to-output transfer step. This cleanly separates the role of the
+single-Gaussian convex output geometry from the role of neuron alignment.
+\end{remark}
+
+\section{What This Achieves}
+
+This note deliberately stops before the MDN case. For $K=1$, the structure is:
+\begin{enumerate}[label=(\roman*)]
+  \item the training-side companion note supplies a finite-horizon common-path
+  theorem;
+  \item the present note turns that common path into an aligned barrier bound;
+  \item output-space convexity is exact in the natural parameter $\eta$.
+\end{enumerate}
+
+This is the cleanest first LMC theorem available in the present project.
+Compared with the older loss-regularity framework, the present note isolates the
+precise reason the $K=1$ case is easier:
+\begin{quote}
+there is no component competition, so the loss interpolation is handled by
+convexity in $\eta$, and the only remaining defects come from vector-head
+transfer and softplus curvature.
+\end{quote}
+
+\end{document}
