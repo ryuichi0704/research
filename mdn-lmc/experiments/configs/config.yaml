@@ -1,0 +1,33 @@
+experiment:
+  parameterization: both
+  output_dir: results
+  device: cuda
+
+model:
+  width: 1024
+  variance_min: 0.001
+  variance_max: 10.0
+  precision_activation: exp
+
+data:
+  train_size: 1024
+  test_size: 2048
+  x_max: 1.5
+
+train:
+  epochs: 1000
+  batch_size: 256
+  learning_rate: 0.1
+  weight_decay: 0.000001
+
+evaluation:
+  barrier_points: 25
+  probe_points: 2048
+
+visualization:
+  plot_points: 2048
+
+seeds:
+  data: 2026
+  model_a: 0
+  model_b: 1

@@ -1,0 +1,14 @@
+[project]
+name = "experiments"
+version = "0.1.0"
+description = "Synthetic LMC experiments for the k1 Gaussian-head note"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.10.1",
+    "numpy>=2.2.4",
+    "pyyaml>=6.0.2",
+    "scipy>=1.15.2",
+    "torch>=2.6.0",
+    "tqdm>=4.66.0",
+]
