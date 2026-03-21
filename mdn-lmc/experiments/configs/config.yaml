@@ -7,7 +7,7 @@ model:
   width: 1024
   variance_min: 0.001
   variance_max: 10.0
-  precision_activation: exp
+  precision_activation: softplus
 
 data:
   train_size: 1024
