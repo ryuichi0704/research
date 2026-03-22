@@ -53,9 +53,9 @@ def build_sweep_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--parameterization",
-        choices=["natural"],
+        choices=["natural", "meanvar"],
         default="natural",
-        help="Width sweep currently supports the natural parameterization only.",
+        help="Width sweep supports both the natural and mean/variance parameterizations.",
     )
     parser.add_argument(
         "--width-exponents",
@@ -97,6 +97,12 @@ def raw_precision(model: TwoLayerK1Net, raw_scale: torch.Tensor) -> torch.Tensor
     return F.softplus(raw_scale) + model.lambda_min
 
 
+def raw_variance(model: TwoLayerK1Net, raw_scale: torch.Tensor) -> torch.Tensor:
+    if model.precision_activation == "exp":
+        return torch.exp(raw_scale) + model.variance_floor
+    return F.softplus(raw_scale) + model.variance_floor
+
+
 def normalized_conditional_moments(
     x_normalized: torch.Tensor,
     dataset_bundle: DatasetBundle,
@@ -122,43 +128,67 @@ def conditional_risk_from_raw(
     conditional_mean: torch.Tensor,
     conditional_second_moment: torch.Tensor,
 ) -> torch.Tensor:
-    precision = raw_precision(model, raw_scale)
+    if model.parameterization == "natural":
+        precision = raw_precision(model, raw_scale)
+        return (
+            raw_mean.square() / (4.0 * precision)
+            + 0.5 * torch.log(math.pi / precision)
+            - raw_mean * conditional_mean
+            + precision * conditional_second_moment
+        )
+    variance = raw_variance(model, raw_scale)
     return (
-        raw_mean.square() / (4.0 * precision)
-        + 0.5 * torch.log(math.pi / precision)
-        - raw_mean * conditional_mean
-        + precision * conditional_second_moment
+        0.5 * torch.log(2.0 * math.pi * variance)
+        + (raw_mean.square() - 2.0 * raw_mean * conditional_mean + conditional_second_moment)
+        / (2.0 * variance)
     )
 
 
 def omega_u_timewise(
+    model: TwoLayerK1Net,
     u_hat: torch.Tensor,
     delta_u: torch.Tensor,
     conditional_mean: torch.Tensor,
-    r_low: torch.Tensor,
-    r_high: torch.Tensor,
+    scale_low: torch.Tensor,
+    scale_high: torch.Tensor,
 ) -> torch.Tensor:
-    def evaluate(r_value: torch.Tensor) -> torch.Tensor:
-        return delta_u * torch.abs(u_hat / (2.0 * r_value) - conditional_mean) + delta_u.square() / (4.0 * r_value)
+    def evaluate(scale_value: torch.Tensor) -> torch.Tensor:
+        if model.parameterization == "natural":
+            return (
+                delta_u * torch.abs(u_hat / (2.0 * scale_value) - conditional_mean)
+                + delta_u.square() / (4.0 * scale_value)
+            )
+        return (
+            delta_u * torch.abs(u_hat - conditional_mean) / scale_value
+            + delta_u.square() / (2.0 * scale_value)
+        )
 
-    return torch.maximum(evaluate(r_low), evaluate(r_high))
+    return torch.maximum(evaluate(scale_low), evaluate(scale_high))
 
 
 def omega_s_timewise(
+    model: TwoLayerK1Net,
     u_hat: torch.Tensor,
     conditional_second_moment: torch.Tensor,
-    r_hat: torch.Tensor,
-    r_low: torch.Tensor,
-    r_high: torch.Tensor,
+    conditional_mean: torch.Tensor,
+    scale_hat: torch.Tensor,
+    scale_low: torch.Tensor,
+    scale_high: torch.Tensor,
 ) -> torch.Tensor:
-    def evaluate(r_value: torch.Tensor) -> torch.Tensor:
+    def evaluate(scale_value: torch.Tensor) -> torch.Tensor:
+        if model.parameterization == "natural":
+            return (
+                conditional_second_moment * (scale_value - scale_hat)
+                + (u_hat.square() / 4.0) * (1.0 / scale_value - 1.0 / scale_hat)
+                + 0.5 * torch.log(scale_hat / scale_value)
+            )
+        centered_second = u_hat.square() - 2.0 * u_hat * conditional_mean + conditional_second_moment
         return (
-            conditional_second_moment * (r_value - r_hat)
-            + (u_hat.square() / 4.0) * (1.0 / r_value - 1.0 / r_hat)
-            + 0.5 * torch.log(r_hat / r_value)
+            0.5 * torch.log(scale_value / scale_hat)
+            + 0.5 * centered_second * (1.0 / scale_value - 1.0 / scale_hat)
         )
 
-    return torch.clamp(torch.maximum(evaluate(r_low), evaluate(r_high)), min=0.0)
+    return torch.clamp(torch.maximum(evaluate(scale_low), evaluate(scale_high)), min=0.0)
 
 
 @torch.no_grad()
@@ -169,8 +199,8 @@ def exact_modulus_statistics(
     device: torch.device,
     time_grid_points: int,
 ) -> dict[str, object]:
-    if model_a.parameterization != "natural" or model_b.parameterization != "natural":
-        raise ValueError("exact_modulus_statistics currently supports natural parameterization only.")
+    if model_a.parameterization != model_b.parameterization:
+        raise ValueError("exact_modulus_statistics requires matching parameterizations.")
 
     probe_x = dataset_bundle.evaluation_probe_x.to(device)
     test_x, test_y = dataset_bundle.test.tensors
@@ -232,12 +262,25 @@ def exact_modulus_statistics(
         delta_u_path = torch.maximum(delta_u_path, delta_u)
         delta_s_path = torch.maximum(delta_s_path, delta_s)
 
-        r_hat = raw_precision(model_a, s_hat)
-        r_low = raw_precision(model_a, s_hat - delta_s)
-        r_high = raw_precision(model_a, s_hat + delta_s)
+        if model_a.parameterization == "natural":
+            scale_hat = raw_precision(model_a, s_hat)
+            scale_low = raw_precision(model_a, s_hat - delta_s)
+            scale_high = raw_precision(model_a, s_hat + delta_s)
+        else:
+            scale_hat = raw_variance(model_a, s_hat)
+            scale_low = raw_variance(model_a, s_hat - delta_s)
+            scale_high = raw_variance(model_a, s_hat + delta_s)
 
-        omega_u = omega_u_timewise(u_hat, delta_u, conditional_mean, r_low, r_high)
-        omega_s = omega_s_timewise(u_hat, conditional_second_moment, r_hat, r_low, r_high)
+        omega_u = omega_u_timewise(model_a, u_hat, delta_u, conditional_mean, scale_low, scale_high)
+        omega_s = omega_s_timewise(
+            model_a,
+            u_hat,
+            conditional_second_moment,
+            conditional_mean,
+            scale_hat,
+            scale_low,
+            scale_high,
+        )
         risk_hat = conditional_risk_from_raw(model_a, u_hat, s_hat, conditional_mean, conditional_second_moment)
         j_t = torch.clamp(risk_hat - ((1.0 - t) * risk_a + t * risk_b), min=0.0)
 
@@ -264,12 +307,25 @@ def exact_modulus_statistics(
     for u_hat_cpu, s_hat_cpu, j_t_cpu in raw_hat_history:
         u_hat = u_hat_cpu.to(device)
         s_hat = s_hat_cpu.to(device)
-        r_hat = raw_precision(model_a, s_hat)
-        r_low = raw_precision(model_a, s_hat - delta_s_path)
-        r_high = raw_precision(model_a, s_hat + delta_s_path)
+        if model_a.parameterization == "natural":
+            scale_hat = raw_precision(model_a, s_hat)
+            scale_low = raw_precision(model_a, s_hat - delta_s_path)
+            scale_high = raw_precision(model_a, s_hat + delta_s_path)
+        else:
+            scale_hat = raw_variance(model_a, s_hat)
+            scale_low = raw_variance(model_a, s_hat - delta_s_path)
+            scale_high = raw_variance(model_a, s_hat + delta_s_path)
 
-        omega_u_env = omega_u_timewise(u_hat, delta_u_path, conditional_mean, r_low, r_high)
-        omega_s_env = omega_s_timewise(u_hat, conditional_second_moment, r_hat, r_low, r_high)
+        omega_u_env = omega_u_timewise(model_a, u_hat, delta_u_path, conditional_mean, scale_low, scale_high)
+        omega_s_env = omega_s_timewise(
+            model_a,
+            u_hat,
+            conditional_second_moment,
+            conditional_mean,
+            scale_hat,
+            scale_low,
+            scale_high,
+        )
 
         path_u_max = max(path_u_max, float(omega_u_env.mean().item()))
         path_s_max = max(path_s_max, float(omega_s_env.mean().item()))
@@ -339,7 +395,7 @@ def safe_ratio(numerator: float, denominator: float) -> float:
 
 def run_width_sweep(args: argparse.Namespace) -> dict[str, object]:
     settings = resolve_settings(args)
-    config_base = config_from_settings(settings, "natural")
+    config_base = config_from_settings(settings, args.parameterization)
     device = choose_device(config_base.device)
 
     output_dir = args.output_dir
@@ -398,7 +454,12 @@ def run_width_sweep(args: argparse.Namespace) -> dict[str, object]:
             json.dump(summary, handle, indent=2)
 
         actual_barrier_dense = float(exact_modulus["dense_barrier"]["max_barrier"])
-        baseline_bound = float(matched_stats["k1_barrier_bound"])
+        baseline_bound = float(
+            matched_stats.get(
+                "k1_barrier_bound",
+                matched_stats.get("raw_k1_barrier_bound", math.nan),
+            )
+        )
         timewise_bound = float(exact_modulus["timewise_exact_modulus"]["bound"])
         path_bound = float(exact_modulus["path_envelope_exact_modulus"]["bound"])
 

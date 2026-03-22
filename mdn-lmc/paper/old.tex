@@ -1,0 +1,3974 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[hypertexnames=false]{hyperref}
+\usepackage{enumitem}
+\usepackage{algorithm,algorithmic}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{longtable}
+\usepackage{float}
+\usepackage{multicol}
+\usepackage{graphicx}
+\graphicspath{{../output/figures/mean_field/}{../output/figures/vmf/}{figure/}}
+\usepackage{wrapfig}
+\usepackage{pifont}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{assumption}{Assumption}
+\renewcommand{\theassumption}{A\arabic{assumption}}
+
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator{\softmax}{softmax}
+\DeclareMathOperator{\diag}{diag}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\cL}{\mathcal{L}}
+\newcommand{\cW}{\mathcal{W}}
+\newcommand{\cS}{\mathcal{S}}
+\newcommand{\cN}{\mathcal{N}}
+\newcommand{\cB}{\mathcal{B}}
+\newcommand{\cD}{\mathcal{D}}  % output-space domain ball (distinct from barrier \cB)
+\newcommand{\cE}{\mathcal{E}}
+\newcommand{\cY}{\mathcal{Y}}
+\DeclareMathOperator{\vmf}{vMF}
+\newcommand{\nperm}{\mathfrak{p}}  % neuron permutation (renamed from \pi to avoid conflict with mixing weights \pi_k)
+% Named label for table rows (assumption references)
+% \ref{#1} will display #2 (e.g. "A1") rather than the section number
+\makeatletter
+\newcommand{\namedlabel}[2]{%
+  \protected@edef\@currentlabel{#2}%
+  \phantomsection\label{#1}#2}
+\makeatother
+
+\title{Linear Mode Connectivity Beyond Convex Losses}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+All existing theoretical guarantees for linear mode connectivity (LMC)
+of neural networks require convex, Lipschitz losses.
+We remove this convexity requirement: for any
+\emph{$\rho$-semi-convex} loss, we prove that the interpolation
+barrier of wide two-layer networks decomposes into a transfer term
+(controlled by input-weight alignment) and a semi-convexity penalty
+proportional to $\rho$, both vanishing as width grows.
+We instantiate this general framework on two non-convex mixture-model
+families.
+For \emph{Mixture Density Networks} (MDNs), a log-sum-exp Hessian
+decomposition yields $\rho = O(\Lambda^4/s_{\min}^4)$, giving a
+barrier of $O(\sqrt{d/N} + K/N)$.
+For \emph{von Mises-Fisher (vMF) mixture networks}, the
+exponential-family structure of each component makes the per-component
+Hessian negative semi-definite; the resulting semi-convexity constant
+is a \emph{universal} $\rho_{\vmf} \le 6$---independent of all model
+parameters---with no architectural constraints required.
+Under a conditional head-regularity hypothesis, both rates improve
+to $O(d/N + K/N)$.
+We complement the theory with two-level alignment algorithms and
+empirical validation on synthetic benchmarks.
+\end{abstract}
+
+%======================================================================
+\section{Introduction}\label{sec:intro}
+%======================================================================
+
+Two independently trained neural networks often lie in the same loss
+basin: after permuting one network's neurons, the linear interpolation
+path between them stays at low loss throughout
+(Figure~\ref{fig:schematics}).
+This \emph{linear mode connectivity} (LMC) phenomenon---originally
+demonstrated via nonlinear paths~\cite{garipov2018,draxler2018} and
+strengthened to linear connectivity by
+Frankle et al.~\cite{frankle2020}---has become a practical foundation
+for model merging~\cite{wortsman2022soups,ilharco2023task,yadav2023ties},
+federated averaging, and loss-landscape
+diagnostics~\cite{entezari2022,ainsworth2023}.
+
+\begin{wrapfigure}{r}{0.52\textwidth}
+  \centering
+  \vspace{-12pt}
+  \includegraphics[width=0.50\textwidth]{schematics.pdf}
+  \caption{Schematic of mixture-model LMC.
+    After neuron permutation (red) and component permutation (blue),
+    the \textcolor{orange}{origin} is transformed close to the
+    \textcolor{blue!70!black}{target} in the loss landscape,
+    enabling low-barrier linear interpolation.}
+  \label{fig:schematics}
+  \vspace{-8pt}
+\end{wrapfigure}
+
+On the theoretical side,
+Ferbach et al.~\cite{ferbach2024} established the first quantitative
+guarantee: for wide two-layer networks with i.i.d.\ mean-field sampled
+weights and a \emph{convex, Lipschitz} loss, the interpolation barrier
+vanishes as width grows.
+Their proof rests on two pillars:
+(i)~an optimal-transport (OT) alignment of neurons, with an
+activation-matching property specific to scalar output heads, and
+(ii)~convexity of the loss, which converts the alignment error directly
+into a barrier bound.
+Several works extend LMC to other
+settings~\cite{zhan2025permutation,theus2025,kanoh2025dte,tran2025moe},
+but all assume convex output losses.
+
+Many important model families train with non-convex losses.
+Mixture Density Networks
+(MDNs)~\cite{bishop1994,graves2013,ha2018worldmodels,makansi2019,papamakarios2016}
+model conditional densities as weighted sums of Gaussians;
+von Mises--Fisher (vMF) mixture
+networks~\cite{banerjee2005,gopal2014} model directional data on the
+unit sphere~$S^{d_y-1}$.
+Both fall outside the convex-loss framework:
+their NLLs $-\log\sum_k\pi_k f_k$ are non-convex, breaking
+pillar~(ii), while each neuron's output head is a vector (in
+$\R^{3K}$ for MDNs, $\R^{K(1+d_y)}$ for vMF), breaking
+pillar~(i).
+Like Mixture-of-Experts (MoE)~\cite{tran2025moe}, these outputs are
+symmetric sums over components, so establishing LMC requires a
+\emph{two-level alignment}: a neuron permutation in the hidden layer
+together with a component permutation in the output layer
+(Figure~\ref{fig:schematics}).
+
+Our key insight is that, for non-convex losses, the degree of
+\emph{semi-convexity}~$\rho$ determines the quality of the barrier
+bound.
+A loss $\ell$ is $\rho$-semi-convex if $\ell + \tfrac{\rho}{2}\|\cdot\|^2$
+is convex; the constant $\rho \ge 0$ captures how far the loss departs
+from convexity.
+We prove a general LMC theorem (Theorem~\ref{thm:general}) in which the
+interpolation barrier decomposes into a transfer term (controlled by
+input-weight alignment) and a semi-convexity penalty proportional
+to~$\rho$, both vanishing as width grows.
+Crucially, $\rho$ is \emph{loss-specific}: it depends on the analytic
+structure of the negative log-likelihood, not on the network
+architecture, and its magnitude dictates the tightness of the bound.
+
+Two instantiations reveal dramatically different behaviour.
+For MDNs, a log-sum-exp Hessian decomposition yields a
+parameter-dependent $\rho = O(\Lambda^4/s_{\min}^4)$, where
+$\Lambda$ is an output-magnitude bound and $s_{\min}$ is the scale
+floor (Section~\ref{sec:output_geometry}).
+For vMF mixture networks, the exponential-family structure of each
+component makes the per-component Hessian negative semi-definite,
+yielding a \emph{universal} $\rho_{\vmf} \le 6$---independent of all
+model parameters (Section~\ref{sec:vmf}).
+This contrast demonstrates that \emph{loss structure governs linear
+mode connectivity}: it is the geometry of the output-space loss, not
+the network width alone, that controls the barrier.
+
+We resolve the two technical obstacles outlined above by replacing
+both of Ferbach et al.'s pillars.
+In place of~(i), Proposition~\ref{prop:transfer} gives a
+\emph{direct output-coupling} bound for multi-dimensional heads.
+In place of~(ii), the Hessian decomposition reduces the
+semi-convexity constant to a manageable, loss-specific quantity.
+Our contributions are as follows.
+\begin{itemize}[leftmargin=*,itemsep=2pt]
+  \item \textbf{General semi-convex LMC theorem}
+    (Theorem~\ref{thm:general}):
+    barrier $= $ transfer $+$ $\rho$-penalty, both $\to 0$ as
+    $N \to \infty$; strictly generalises Ferbach et
+    al.~\cite{ferbach2024} ($\rho = 0$ special case).
+  \item \textbf{MDN instantiation}
+    (Corollary~\ref{cor:asymptotic}):
+    $\rho = O(\Lambda^4/s_{\min}^4)$, barrier
+    $O(\kappa_W\sqrt{d/N} + K/N)$.
+  \item \textbf{vMF instantiation}
+    (Corollary~\ref{cor:vmf_barrier}):
+    universal $\rho_{\vmf} \le 6$, barrier
+    $O(\sqrt{d_y}\,\kappa_W\sqrt{d/N} + K/N)$.
+  \item \textbf{Refined rate under head regularity}
+    (Corollary~\ref{cor:struct_rate}):
+    $O(\kappa_W^2 d/N + K/N)$ for both families;
+    two-level alignment algorithms
+    (Section~\ref{sec:algorithm}).
+\end{itemize}
+
+\noindent
+Table~\ref{tab:refinement} summarises the progression of results across
+the two loss families.
+
+\begin{table}[t]
+\centering\small
+\caption{Barrier rates for MDN and vMF mixture applications.
+  Each row within a block adds assumptions to the previous one.}
+\label{tab:refinement}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+\textbf{Loss} & \textbf{Result} & \textbf{Additional assumptions}
+  & \textbf{Alignment} & \textbf{Rate} \\
+\midrule
+\multirow{2}{*}{MDN}
+  & Cor.~\ref{cor:asymptotic}
+  & sub-Gaussian $W$
+  & $W$-OT
+  & $O(\kappa_W\sqrt{d/N} + K/N)$ \\
+  & Cor.~\ref{cor:struct_rate}
+  & $+$ head regularity, $C^2$ act.
+  & $W$-OT
+  & $O(\kappa_W^2 d/N + K/N)$ \\
+\midrule
+vMF
+  & Cor.~\ref{cor:vmf_barrier}
+  & sub-Gaussian $W$
+  & $W$-OT
+  & $O(\sqrt{d_y}\,\kappa_W\sqrt{d/N} + K/N)$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%======================================================================
+\section{Related Work}\label{sec:related}
+%======================================================================
+
+\paragraph{Linear mode connectivity theory.}
+Garipov et al.~\cite{garipov2018} and Draxler et al.~\cite{draxler2018}
+demonstrated nonlinear low-loss paths between minima;
+Frankle et al.~\cite{frankle2020} strengthened this to linear paths
+after neuron permutation.
+Entezari et al.~\cite{entezari2022} conjectured that
+permutation-invariance alone explains LMC, and
+Ainsworth et al.~\cite{ainsworth2023} provided practical matching
+algorithms.
+Ferbach et al.~\cite{ferbach2024} gave the first quantitative barrier
+bound for wide mean-field networks under a convex, Lipschitz loss.
+Subsequent extensions treat multi-layer
+networks~\cite{zhan2025permutation}, convolutional
+architectures~\cite{theus2025}, and data-dependent
+transport~\cite{kanoh2025dte}, yet all retain the convexity assumption.
+Among these, Zhan et al.~\cite{zhan2025permutation} achieve a
+dimension-free $O(m^{-1/2})$ rate but in a teacher--student setting
+with known ground-truth structure;
+Theus et al.~\cite{theus2025} extend the empirical scope to
+Transformers but provide no quantitative barrier bounds.
+Ferbach et al.'s result therefore remains the only quantitative
+barrier guarantee in the general mean-field two-layer setting
+with i.i.d.\ sampled weights, making it the natural baseline
+for theoretical extensions.
+Our work takes this baseline and removes the convexity
+assumption via semi-convexity, strictly generalising their
+result (Theorem~\ref{thm:general} subsumes their bound as
+the $\rho=0$ special case;
+see Remark~\ref{rem:ferbach_recovery}).
+
+\paragraph{Mixture-of-Experts LMC.}
+Tran et al.~\cite{tran2025moe} study LMC for Mixture-of-Experts models,
+introducing a two-level alignment (expert permutation $+$ neuron
+permutation).
+We share the two-level alignment structure but address a distinct
+challenge: the non-convexity of the mixture-model NLL, which does not
+arise in the MoE setting where each expert uses a convex loss.
+
+\paragraph{Model merging.}
+LMC underpins practical model merging methods including model
+soups~\cite{wortsman2022soups}, task
+arithmetic~\cite{ilharco2023task}, TIES-Merging~\cite{yadav2023ties},
+and weight matching~\cite{ainsworth2023}.
+Our barrier bounds provide theoretical grounding for applying these
+techniques to mixture density networks.
+
+\paragraph{Mean-field theory.}
+The mean-field regime of two-layer networks---where weights are sampled
+i.i.d.\ from a common law that evolves under training---has been
+studied extensively~\cite{mei2018meanfield,rotskoff2022}.
+De~Bortoli et al.~\cite{debortoli2020} establish quantitative
+propagation-of-chaos bounds that justify Assumption~\ref{ass:mf_law}
+in our setting (see Appendix~\ref{app:A4_mf}).
+
+\paragraph{Mixture density networks.}
+Bishop~\cite{bishop1994} introduced MDNs for modelling conditional
+densities as Gaussian mixtures.
+Graves~\cite{graves2013} applied MDNs to handwriting synthesis, and
+Ha \& Schmidhuber~\cite{ha2018worldmodels} used them in world models.
+vMF mixture models for directional data were studied
+by Banerjee et al.~\cite{banerjee2005} and Gopal \&
+Yang~\cite{gopal2014}.
+
+%======================================================================
+\section{Preliminaries}\label{sec:prelim}
+%======================================================================
+
+\subsection{Two-Layer Mixture Networks}\label{sec:general_arch}
+
+We consider two-layer networks with $N$ hidden neurons, input
+$x \in \R^d$, and $1/N$ mean-field scaling.
+The backbone is
+$\phi(x) = \bigl(\sigma(w_i^\top x)\bigr)_{i=1}^N$,
+followed by a linear head producing raw outputs
+\begin{equation}\label{eq:network_output}
+  z(x) = \frac{1}{N}\sum_{i=1}^N v_i\,\sigma(w_i^\top x)
+  \;\in\; \R^p,
+\end{equation}
+where $v_i \in \R^p$ is the head weight and
+$w_i \in \R^d$ the input weight of neuron~$i$.
+The output dimension $p$ and the mapping from $z$ to a conditional
+density $p(y \mid x)$ are model-specific; see
+Sections~\ref{sec:mdn} and~\ref{sec:vmf}.
+
+\paragraph{Interpolation barrier.}
+Let $P$ denote the data distribution over $(x,y)$.
+Given two parameter vectors $\theta_A,\theta_B$ and population loss
+$\cE(\theta)=\E_P[\ell(z(x;\theta),y)]$, the
+\emph{interpolation barrier} is
+\[
+  \cB(\theta_A,\theta_B)
+  = \sup_{t\in[0,1]}\Bigl\{
+    \cE((1-t)\theta_A + t\theta_B)
+    - (1-t)\cE(\theta_A) - t\cE(\theta_B)
+  \Bigr\}.
+\]
+The networks are \emph{linearly mode connected} if
+$\cB \le \varepsilon$ for a small $\varepsilon > 0$ after suitable
+neuron permutation.
+
+\paragraph{Component permutation symmetry.}
+When the loss involves a mixture of $K$ components,
+$\ell(P_\tau z, y) = \ell(z, y)$ for any component
+permutation $\tau \in \cS_K$
+($\cS_K$: symmetric group on $\{1,\dots,K\}$),
+where $P_\tau$ is the corresponding block permutation matrix.
+This gives rise to a \emph{two-level alignment}: optimising over
+both a neuron permutation $\nperm \in \cS_N$ and a component
+permutation $\tau \in \cS_K$
+(Figure~\ref{fig:schematics}), yielding permuted head weights
+$\widetilde{v}_{B,i} = P_\tau v_{B,\nperm(i)}$.
+
+\paragraph{Neuron permutation via $W$-optimal transport.}
+Throughout this paper the neuron permutation $\nperm \in \cS_N$ is
+defined as the \textbf{$W$-optimal-transport ($W$-OT) coupling}---the
+linear assignment problem on \emph{input weights} $w_i \in \R^d$ only:
+\begin{equation}\label{eq:OT_perm}
+  \nperm \;\coloneqq\; \argmin_{q \in \cS_N}
+  \frac{1}{N}\sum_{i=1}^N \|w_{A,i} - w_{B,q(i)}\|^2.
+\end{equation}
+This $\nperm$ minimises the input-weight mismatch
+$B_N = \frac{1}{N}\sum_i\|w_{A,i}-w_{B,\nperm(i)}\|^2$.
+As Proposition~\ref{prop:transfer} shows, only $B_N$---not the
+head-weight mismatch $A_N$---appears in the interpolation barrier,
+so aligning on $W$ alone is sufficient for the baseline barrier bound.
+Component correspondence is handled separately by $\tau$ at
+$O(K^3)$ cost (Section~\ref{sec:algorithm}).
+
+\subsection{MDN Architecture and Loss}\label{sec:mdn}
+
+A Mixture Density Network (MDN) with $K$ Gaussian components
+models $y \in \R$ conditioned on $x \in \R^d$.
+The output dimension is $p = 3K$, with
+\begin{equation}\label{eq:mdn_output}
+  z(x) = \frac{1}{N}\sum_{i=1}^N v_i \sigma(w_i^\top x)
+  \in \R^{3K},
+\end{equation}
+partitioned as $z = (z_\pi, z_\mu, z_s) \in \R^K \times \R^K \times \R^K$.
+The conditional density is
+\[
+  p(y \mid x) = \sum_{k=1}^K \pi_k(x)\,
+  \cN(y;\,\mu_k(x),\,s_k(x)^2),
+\]
+where $\pi_k = \softmax(z_\pi)_k$ (mixture weights), $\mu_k = z_{\mu,k}$,
+and $s_k = e^{z_{s,k}}$ (log-standard-deviation parametrisation).
+We distinguish $\pi_k$ (network-output mixture weights) from the
+EM responsibilities $\gamma_k = \pi_k\varphi_k / \sum_j \pi_j\varphi_j$
+(posterior component probabilities given $(x,y)$), which appear in
+the Hessian analysis of Section~\ref{sec:output_geometry}.
+All gradient and Hessian computations are with respect to the raw
+outputs~$z$. The MDN loss is
+\begin{equation}\label{eq:mdn_loss}
+  \cL_{\mathrm{MDN}}(z, y)
+  = -\log\!\Biggl(\sum_{k=1}^K \pi_k\,
+    \frac{1}{\sqrt{2\pi}\,s_k}\,
+    \exp\!\Bigl(-\frac{(y-\mu_k)^2}{2s_k^2}\Bigr)\Biggr).
+\end{equation}
+
+The completeness of the component permutation symmetry for MDNs
+is analysed in Section~\ref{sec:symmetry};
+see also Tran et al.~\cite{tran2025moe} for the analogous
+symmetry in MoE architectures.
+
+\subsection{Standing Assumptions}\label{sec:assumptions}
+
+The following assumptions extend the mean-field framework
+of Ferbach et al.~\cite{ferbach2024}, replacing
+their convex loss assumption with our semi-convexity analysis.
+Assumptions~\ref{ass:arch}--\ref{ass:bdd_resp} are loss-specific;
+\ref{ass:activ}--\ref{ass:subgauss} apply to all losses.
+Each theorem statement lists the assumptions it requires.
+
+\begin{assumption}[Architecture]\label{ass:arch}
+The two networks $A$ and $B$ are two-layer networks parameterised
+as in~\eqref{eq:network_output} with the $1/N$ mean-field scaling.
+The per-neuron parameter space is $\R^{p+d}$, where $v_i \in \R^p$
+is the head weight vector and $w_i \in \R^d$ is the input weight.
+\emph{MDN-specific:}
+the log-standard-deviation outputs are clamped from below:
+$z_{s,k} \mapsto \max(z_{s,k},\,\underline{z}_s)$ for a fixed
+$\underline{z}_s \in \R$, ensuring
+$s_k = e^{z_{s,k}} \ge s_{\min} \coloneqq e^{\underline{z}_s} > 0$ for
+\emph{all} network outputs, including those at interpolated parameters.
+This is standard practice in MDN
+implementations~(e.g.\ \texttt{torch.clamp}).
+For vMF mixtures, no such clamp is needed.
+\end{assumption}
+
+\begin{assumption}[Bounded response]\label{ass:bdd_resp}
+The response variable is bounded: $|y| \le Y_{\max}$ $P$-a.s.\
+for some finite $Y_{\max} > 0$ (MDN), or
+$y \in S^{d_y-1}$ so that $\|y\| = 1$ (vMF).
+\end{assumption}
+
+\begin{assumption}[Activation regularity]\label{ass:activ}
+The activation $\sigma:\R\to\R$ satisfies:
+\begin{enumerate}[label=(\roman*),leftmargin=*,itemsep=0pt]
+  \item $|\sigma(u)| \le S_\sigma$ for all $u\in\R$, for some $S_\sigma \in \R_+$
+    (boundedness);
+  \item $|\sigma(u) - \sigma(v)| \le L_\sigma|u-v|$ for all $u,v\in\R$,
+    for some $L_\sigma \in \R_+$ (Lipschitz continuity).
+\end{enumerate}
+When stated explicitly, we additionally require:
+\begin{enumerate}[label=(\roman*),leftmargin=*,itemsep=0pt,start=3]
+  \item $\sigma \in C^2(\R)$ with
+    $\|\sigma''\|_\infty \le L_{\sigma'} < \infty$
+    (second-order smoothness).
+\end{enumerate}
+For the standard sigmoid $\sigma(u) = 1/(1+e^{-u})$, conditions (i)--(iii) hold with
+$S_\sigma = 1$, $L_\sigma = 1/4$, and
+$L_{\sigma'} = 1/(6\sqrt{3}) \approx 0.096$.
+\end{assumption}
+
+\begin{assumption}[Finite input moments]\label{ass:input_mom}
+The input distribution satisfies $\E_P[\|x\|^2] \le M_x^2$
+for some finite constant $M_x > 0$.
+Write $\Sigma_x \coloneqq \E_P[xx^\top]$ for the input covariance
+(so $\mathrm{tr}(\Sigma_x) = M_x^2$).
+When stated explicitly, we additionally require a finite fourth moment:
+$\E_P[\|x\|^4] \le M_{x,4}^4$.
+\end{assumption}
+
+\begin{assumption}[Mean-field law from finite-time training]\label{ass:mf_law}
+Both networks are trained by (mean-field) gradient flow for time
+$T < \infty$, starting from i.i.d.\ initialisation
+$\theta_{X,i}(0) \sim \mathfrak{m}_0$ with
+$\E_{\mathfrak{m}_0}[\|\theta\|^4] < \infty$
+(e.g.\ Gaussian, He, or Xavier initialisation).
+After training, the neuron parameters $\theta_{X,i} = (v_{X,i}, w_{X,i})$,
+$i=1,\ldots,N$, of each network $X \in \{A, B\}$ are i.i.d.\ draws
+from the time-$T$ law $\mathfrak{m}_* \coloneqq \mathfrak{m}_T$ on
+$\R^{p+d}$.
+\end{assumption}
+
+The i.i.d.\ structure is justified via propagation of
+chaos~\cite{mei2018meanfield,rotskoff2022,debortoli2020} at
+$O(1/\sqrt{N})$ error; see Appendix~\ref{app:A4_mf}.
+Empirical validation (neuron density overlays and predictive
+convergence across seeds) is provided in
+Appendix~\ref{app:a5_validation}.
+
+The following moment quantities of $\mathfrak{m}_*$ appear in the
+barrier bounds:
+\begin{equation}\label{eq:moment_defs}
+  m_{2,*} \coloneqq \int\!\|V\|^2\,d\mathfrak{m}_*,
+  \qquad
+  m_{4,*} \coloneqq \max_{j=1,\ldots,p}
+    \E_{\mathfrak{m}_*}[(V)_j^4].
+\end{equation}
+In the finite-time mean-field setting, Proposition~\ref{prop:a6_auto}
+(Appendix~\ref{app:a6_proposition}) gives a sufficient condition
+ensuring that both are finite.
+The per-coordinate fourth moment $m_{4,*}$ enables sharper
+concentration of the head moment (Theorem~\ref{thm:hp}).
+
+\begin{assumption}[Sub-Gaussian input weights]\label{ass:subgauss}
+The $W$-marginal of $\mathfrak{m}_*$ is
+$\kappa_W^2$-sub-Gaussian:
+for all $\lambda \in \R^d$,
+\[
+  \E_{\mathfrak{m}_*}\!\bigl[\exp\bigl(\langle\lambda, W - \E[W]\rangle\bigr)\bigr]
+  \;\le\; \exp\!\Bigl(\frac{\kappa_W^2\|\lambda\|^2}{2}\Bigr).
+\]
+\end{assumption}
+
+This holds at Gaussian initialisation; preservation under training
+is not guaranteed in general (the flow map is locally, not globally,
+Lipschitz; see Appendix~\ref{app:a7_validation}).
+The $W$-marginal sub-Gaussian condition (Assumption~\ref{ass:subgauss})
+is empirically supported across all mean-field experiments
+(Appendix~\ref{app:a7_validation}).
+Sub-Gaussianity yields the parametric $\cW_2$ convergence rate
+$\eta_N = O(\kappa_W\sqrt{d/N})$, with $d$ entering only linearly,
+via a covering-number argument~\cite{lei2020,weed2019}.
+
+%======================================================================
+\section{Theoretical Results}\label{sec:loss_geometry}
+%======================================================================
+
+We first state a general barrier theorem that applies to any
+$\rho$-semi-convex loss, then specialise to MDNs and vMF mixtures.
+All proofs are in Appendix~\ref{app:proofs}.
+
+\subsection{General Framework for Semi-Convex Losses}
+\label{sec:general_framework}
+
+A loss $\ell:\R^p \times \cY \to \R$ is \emph{$\rho$-semi-convex}
+on a domain $\cD \subset \R^p$ if
+$\nabla^2_z \ell(z,y) \succeq -\rho I$ for all $z \in \cD$,
+$y \in \cY$; it is \emph{$C_L^\infty$-Lipschitz} on $\cD$ if
+$|\ell(z_1,y)-\ell(z_2,y)| \le C_L^\infty \|z_1-z_2\|_\infty$.
+Consider a two-layer network
+$z(x)=\frac{1}{N}\sum_{i=1}^N v_i\,\sigma(w_i^\top x)\in\R^p$
+with head weights $v_i\in\R^p$, input weights $w_i\in\R^d$, and
+$1/N$ mean-field scaling,
+under Assumptions~\ref{ass:activ} and~\ref{ass:input_mom}.
+Define $M_V^\infty$ as in~\eqref{eq:head_moment_inf}
+and set $R=S_\sigma M_V^\infty$.
+
+\begin{theorem}[General LMC barrier for semi-convex losses]
+\label{thm:general}
+Let $\ell$ be $\rho$-semi-convex and $C_L^\infty$-Lipschitz on
+$\cD_R = \{z:\|z\|_\infty \le R\}$.
+Fix any neuron permutation $\nperm \in \cS_N$.
+Then for all $t\in[0,1]$:
+\begin{equation}\label{eq:general_bound}
+  \boxed{
+  \cB \;\le\;
+  \underbrace{\tfrac{1}{2}\,C_L^\infty\,L_\sigma\,M_V^\infty
+    M_x\sqrt{B_N}}_{\text{transfer}}
+  \;+\;
+  \underbrace{\tfrac{\rho}{8}\,\Delta_N}_{\text{semi-convexity}}
+  }
+\end{equation}
+where $B_N = \frac{1}{N}\sum_i\|\Delta w_i\|^2$ and
+$\Delta_N = \E_P[\|z_A(x)-z_B'(x)\|^2]$
+(with $z_B'$ the permuted network-$B$ output).
+\end{theorem}
+
+The proof (Appendix~\ref{sec:proof_main}) combines two
+loss-independent steps: the transfer bound
+(Proposition~\ref{prop:transfer}) controls the
+parameter-to-output gap, and $\rho$-semi-convexity replaces
+convexity in the output-interpolation step.
+The high-probability bound (Theorem~\ref{thm:hp}) and asymptotic
+rate (Corollary~\ref{cor:asymptotic}) carry over with the
+loss-specific $\rho$ and $C_L^\infty$.
+
+\begin{remark}[Subsumption of Ferbach et al.]\label{rem:ferbach_recovery}
+Setting $\rho=0$ (convex loss) eliminates the semi-convexity
+penalty, reducing~\eqref{eq:general_bound} to
+$\cB \le \tfrac{1}{2}\,C_L^\infty L_\sigma M_V^\infty M_x\sqrt{B_N}$.
+This strictly generalises the barrier guarantee
+of Ferbach et al.~\cite{ferbach2024} (Corollary~3.2)
+in two respects:
+(i)~it provides an explicit rate
+$\cB=O(\kappa_W\sqrt{d/N})$
+(Corollary~\ref{cor:asymptotic}),
+whereas Ferbach et al.\ establish qualitative convergence
+($\forall\,\mathrm{err}>0,\;\exists\,N_{\min}$), and
+(ii)~Proposition~\ref{prop:transfer} replaces their
+activation-matching property (which requires scalar output heads)
+with a direct output-coupling bound valid for
+multi-dimensional heads ($p\ge 1$).
+For $\rho > 0$, our framework further extends
+to non-convex losses that lie entirely outside the scope of
+prior work.
+\end{remark}
+To apply this framework, one must compute $\rho$ and $C_L^\infty$
+for the loss at hand.
+For mixture-model NLLs of the form $\ell = -\log\sum_k e^{u_k}$,
+the log-sum-exp Hessian decomposition~\eqref{eq:hess_decomp}
+reduces this to bounding per-component quantities
+$\|\nabla u_k\|$ and $\|\nabla^2 u_k\|_{\mathrm{op}}$.
+
+\subsection{MDN Output-Space Geometry}\label{sec:output_geometry}
+
+We now compute $\rho$ and $C_L^\infty$ for the MDN loss to
+instantiate Theorem~\ref{thm:general}.
+Let $\cD_R = \{z \in \R^{3K} : \|z\|_\infty \le R\}$ denote the
+output-space domain; our goal is to obtain $\rho$ with a manageable
+dependence on~$R$.
+A direct Hessian bound via $\nabla^2(-\log p)$ requires a lower bound
+on $p$, yielding a doubly-exponential $\rho$ (vacuous in practice).
+We avoid $p_{\min}$ entirely by exploiting the log-sum-exp structure.
+Writing $u_k = \log(\pi_k\varphi_k)$ with
+$\varphi_k \coloneqq \cN(y;\mu_k,s_k^2)$,
+we have $\cL_{\mathrm{MDN}} = -\log\sum_k e^{u_k}$, and the
+standard log-sum-exp Hessian identity~\cite{boyd2004} gives
+\begin{equation}\label{eq:hess_decomp}
+  \nabla^2 \cL_{\mathrm{MDN}}
+  = -\sum_k \gamma_k \nabla^2 u_k - \mathrm{Cov}_\gamma(\nabla u_k),
+\end{equation}
+where $\gamma_k = e^{u_k}/\sum_j e^{u_j}$ are the EM responsibilities.
+Since $\gamma_k \in [0,1]$ absorb the $1/p$ denominator, both the
+Lipschitz ($C_L$) and semi-convexity ($\rho$) bounds reduce to
+controlling $\|\nabla u_k\|$ and $\|\nabla^2 u_k\|_{\mathrm{op}}$ on
+$\cD_R$---finite quantities with no $p_{\min}$ factor.
+
+The \emph{scale floor} $s_{\min} = e^{\underline{z}_s}$ is the
+architectural parameter from Assumption~\ref{ass:arch}, guaranteeing
+$s_k \ge s_{\min} > 0$ for all network outputs.
+Because the clamp is applied coordinate-wise \emph{after} the linear
+head, the clamped output of any network---including one with
+interpolated parameters---satisfies $s_k \ge s_{\min}$.
+Set $\Lambda = Y_{\max} + R$.
+
+\begin{proposition}[Loss regularity]\label{prop:loss_regularity}
+On $\cD_R$ with $|y| \le Y_{\max}$ and $\min_k e^{z_{s,k}} \ge s_{\min}$:
+\begin{equation}\label{eq:refined_bounds}
+  C_L^\infty \;\le\; \hat c_0\,\frac{\Lambda^2}{s_{\min}^2},
+  \qquad
+  C_L \;\le\; \hat c_1\,\frac{\Lambda^2}{s_{\min}^2},
+  \qquad
+  \rho \;\le\; \frac{1}{s_{\min}^2}
+  + 2\hat c_2\,\frac{\Lambda^4}{s_{\min}^4},
+\end{equation}
+where $\hat c_0, \hat c_1, \hat c_2 > 0$ are universal constants.
+The simplified forms above assume $\Lambda \ge 1$;
+for general $\Lambda$ the full expressions
+from the proof~\eqref{eq:grad_sq_bound}, \eqref{eq:rho_bound} hold
+with additive universal constants
+(e.g.\ $C_L^\infty \le 3 + \hat c_0' \Lambda^2/s_{\min}^2$).
+In all downstream applications $\Lambda = Y_{\max} + R \ge Y_{\max}$,
+which is $\ge 1$ in typical regression settings.
+\end{proposition}
+
+The $\ell_\infty$-Lipschitz constant $C_L^\infty$ is the one used in
+the transfer bound (Proposition~\ref{prop:transfer}).
+
+While the bound on $\rho$ is stated uniformly in $K$,
+the Hessian decomposition~\eqref{eq:hess_decomp} reveals a
+qualitative gap between $K=1$ and $K \ge 2$.
+For $K=1$ the EM weight $\gamma_1 \equiv 1$, so the
+covariance term $\mathrm{Cov}_\gamma(\nabla u_k)$ vanishes
+identically; the semi-convexity is then controlled by
+$-\nabla^2 u_1$ alone, giving $\rho_{K=1} \le 1/s_{\min}^2$
+independently of $\Lambda$.
+For $K \ge 2$ the covariance term is non-zero---the competition
+factor $\gamma_k(1-\gamma_k)$ reaches $1/4$ at
+$\gamma_k = 1/2$---and drives the $O(\Lambda^4/s_{\min}^4)$
+scaling in~\eqref{eq:refined_bounds}.
+
+\subsection{Main Theorems}\label{sec:main_theorem}
+
+The output-space bounds above apply to the linear interpolation of
+outputs $\hat z_t = (1-t)z_A + tP_\tau z_B$, but the barrier involves
+the interpolated \emph{network} $z_{M_t}$.
+Define the \emph{per-coordinate head moment}
+\begin{equation}\label{eq:head_moment_inf}
+  M_V^\infty \;\coloneqq\;
+  \max\!\Bigl\{
+    \max_{j=1,\ldots,p}\!\Bigl(\frac{1}{N}\sum_{i=1}^N (v_{A,i})_j^2\Bigr)^{\!1/2},\;
+    \max_{j=1,\ldots,p}\!\Bigl(\frac{1}{N}\sum_{i=1}^N (P_\tau v_{B,\nperm(i)})_j^2\Bigr)^{\!1/2}
+  \Bigr\}
+\end{equation}
+and set $R = S_\sigma M_V^\infty$.
+A Cauchy--Schwarz argument shows that all network outputs
+$z_A$, $P_\tau z_B$, $z_{M_t}$, $\hat z_t$ lie in $\cD_R$
+(Lemma~\ref{lem:auto_path_domain} in the appendix).
+
+The following proposition quantifies the transfer gap
+$z_{M_t} - \hat z_t$ via the input-weight mismatch
+$B_N = \frac{1}{N}\sum_{i} \|\Delta w_i\|^2$,
+where $\Delta w_i = w_{A,i} - w_{B,\nperm(i)}$.
+
+\begin{proposition}[Direct output coupling]\label{prop:transfer}
+Under Assumptions~\ref{ass:activ} and~\ref{ass:input_mom},
+the gap between the interpolated network output $z_{M_t}$ and the
+output interpolation $\hat z_t$ satisfies
+\begin{equation}\label{eq:transfer}
+  \sup_{t\in[0,1]}
+  \bigl(\E_P[\|z_{M_t}(x) - \hat z_t(x)\|_\infty^2]\bigr)^{1/2}
+  \;\le\; \tfrac{1}{2}\,L_\sigma M_V^\infty M_x \sqrt{B_N},
+\end{equation}
+where $M_V^\infty$ is the per-coordinate head moment~\eqref{eq:head_moment_inf}
+and $B_N = \frac{1}{N}\sum_i \|\Delta w_i\|^2$ is the input-weight mismatch.
+\end{proposition}
+
+The bound depends only on the input-weight mismatch $B_N$,
+not on the head-weight mismatch~$A_N$:
+the output-coupling gap decomposes into activation differences
+that depend on $\Delta w_i$ but not on head-weight differences;
+the head weights enter only through their amplitudes $M_V^\infty$.
+Combined with the loss-specific $C_L^\infty$,
+the transfer term is independent of $K$
+(the semi-convexity term carries the $K$-dependence
+via $\Delta_N$; see Theorem~\ref{thm:general}).
+
+The endpoint output mismatch
+$\Delta_N = \E_P[\|z_A(x) - P_\tau z_B(x)\|^2]$ is bounded via
+a parameter-space decomposition
+(Lemma~\ref{lem:delta_control} in the appendix).
+
+\noindent
+The \emph{aligned barrier} $\cB(\theta_A,\theta_B;\nperm,\tau)$ is
+defined by permuting network~$B$'s weights to
+$(P_\tau v_{B,\nperm(i)}, w_{B,\nperm(i)})$ before interpolation.
+
+\begin{theorem}[MDN barrier---deterministic]\label{thm:main}
+Theorem~\ref{thm:general} applied to $\ell = \cL_{\mathrm{MDN}}$
+under Assumptions~\ref{ass:arch}--\ref{ass:input_mom}, with
+$p = 3K$,
+$C_L^\infty$ and $\rho$ from
+Proposition~\ref{prop:loss_regularity}
+($C_L^\infty = O(\Lambda^2/s_{\min}^2)$,
+$\rho = O(\Lambda^4/s_{\min}^4)$,
+$\Lambda = Y_{\max} + S_\sigma M_V^\infty$),
+yields: for any $(\nperm,\tau) \in \cS_N \times \cS_K$
+and all $t \in [0,1]$,
+\begin{equation}\label{eq:main_bound}
+  \begin{aligned}
+  \E_P[\cL_{\mathrm{MDN}}(z_{M_t}, y)]
+  &\le (1-t)\,\E_P[\cL_{\mathrm{MDN}}(z_A, y)]
+  + t\,\E_P[\cL_{\mathrm{MDN}}(z_B, y)]\\
+  &\quad + \tfrac{1}{2}\,C_L^\infty L_\sigma M_V^\infty M_x \sqrt{B_N}
+  + \tfrac{\rho}{2}\,t(1-t)\,\Delta_N.
+  \end{aligned}
+\end{equation}
+\end{theorem}
+
+This is deterministic and loss-independent in structure: the
+MDN-specific content enters only through $C_L^\infty$ and $\rho$.
+The transfer term is $K$-independent;
+$K$ enters only through the semi-convexity term via~$\Delta_N$.
+
+Taking $\sup_{t\in[0,1]}$ and using $\sup_t t(1-t) = \tfrac{1}{4}$, the barrier form is
+\begin{equation}\label{eq:barrier_form}
+  \cB \;\le\; \tfrac{1}{2}\,C_L^\infty L_\sigma M_V^\infty M_x \sqrt{B_N}
+  \;+\; \frac{\rho}{8}\,\Delta_N.
+\end{equation}
+
+To obtain a high-probability guarantee, we invoke the mean-field model:
+
+\begin{theorem}[LMC barrier---high-probability existence]\label{thm:hp}
+Let $\ell$ be $\rho$-semi-convex and $C_L^\infty$-Lipschitz on
+$\cD_R$ with $R = S_\sigma M_V^\infty$ (so that
+Theorem~\ref{thm:general} applies).
+Under Assumptions~\ref{ass:arch}, \ref{ass:activ},
+and~\ref{ass:input_mom}, additionally suppose
+Assumption~\ref{ass:mf_law}: both networks $A$ and $B$ are
+drawn i.i.d.\ from $\mathfrak{m}_* = \mathfrak{m}_T$.
+Let $m_{2,*}, m_{4,*}$ be the moment quantities
+defined in~\eqref{eq:moment_defs}, and assume they are finite.
+(Proposition~\ref{prop:a6_auto} gives a sufficient criterion
+for this in the finite-time mean-field setting.)
+Let $\delta \in (0,1)$ and let $\eta_N$ be any quantity satisfying
+$\Prob\!\bigl(\cW_2(\hat\nu_W^X, \mathfrak{m}_{*,W}) > \eta_N\bigr)
+\le \delta/6$ for each network $X \in \{A,B\}$.
+Then with probability at least $1-\delta$
+over the draws of $A$ and $B$, the $W$-OT neuron permutation $\nperm$
+from~\eqref{eq:OT_perm} together with $\tau = \mathrm{id}$
+yield a barrier bound~\eqref{eq:general_bound} with
+\begin{equation}\label{eq:head_moment}
+  (M_V^\infty)^2 \le m_{\infty,*}^2 + \varepsilon_N(\delta), \quad
+  B_N \le 4\eta_N^2, \quad
+  \Delta_N \le \frac{6S_\sigma^2 m_{2,*}}{N\delta},
+\end{equation}
+where
+$\varepsilon_N(\delta) \coloneqq \sqrt{6p\,m_{4,*}/(N\delta)}$.
+\end{theorem}
+
+The Chebyshev correction $\varepsilon_N(\delta)$ vanishes as $N\to\infty$.
+In particular, as $N \to \infty$ under the mean-field model,
+the barrier $\cB$ converges to zero (Corollary~\ref{cor:asymptotic}).
+
+We now derive the asymptotic rate.\label{sec:asymptotic_rate}
+By the SLLN, as $N\to\infty$ the per-coordinate head moment
+converges: for each coordinate~$j$,
+$(1/N)\sum_i (v_i)_j^2 \to \E_{\mathfrak{m}_*}[(V)_j^2]$.
+Define the \emph{per-coordinate limiting moment}
+$m_{\infty,*}^2 \coloneqq \max_j \E_{\mathfrak{m}_*}[(V)_j^2]$.
+Then $M_V^\infty \to m_{\infty,*}$ almost surely,
+$R \to S_\sigma m_{\infty,*}$, and the loss constants
+$C_L^\infty$, $\rho$ stabilise at finite values.
+Note that $m_{\infty,*}^2 = O(1)$ under natural scaling
+(each coordinate has bounded second moment),
+without requiring any head-normalisation assumption.
+Since $m_{2,*} = \sum_j \E[(V)_j^2] \le p \cdot m_{\infty,*}^2$,
+the semi-convexity term contributes
+$\rho \cdot \Delta_N = O(m_{2,*}/N) = O(p/N)$.
+
+Substituting the probabilistic bounds from Theorem~\ref{thm:hp} into the barrier form~\eqref{eq:barrier_form} yields the asymptotic rate:
+
+\begin{corollary}[Asymptotic barrier under $W$-OT alignment]
+\label{cor:asymptotic}
+Under the hypotheses of Theorem~\ref{thm:hp},
+additionally suppose Assumption~\ref{ass:subgauss}.
+Let $\delta \in (0,1)$.  Then the $W$-OT alignment $\nperm$
+of~\eqref{eq:OT_perm} yields, with probability at least $1-\delta$:
+\begin{equation}\label{eq:barrier_bound}
+  \boxed{
+  \cB \;\le\;
+  \underbrace{C_{\mathrm{tr}}(\delta,N)\,\kappa_W\sqrt{\frac{d}{N}}}_{\substack{\text{transfer}\\[2pt]
+    \scriptscriptstyle O(\sqrt{d/N})}}
+  \;+\;
+  \underbrace{C_{\mathrm{sc}}(\delta,N)\,\frac{m_{2,*}}{N}}_{\substack{\text{semi-convexity}\\[2pt]
+    \scriptscriptstyle O(K/N)}}
+  \;\;\xrightarrow{\;N\to\infty\;}\;\; 0
+  }
+\end{equation}
+where
+$\hat M_V(\delta,N) \coloneqq (m_{\infty,*}^2 + \varepsilon_N(\delta))^{1/2}$,
+$R(\delta,N) = S_\sigma \hat M_V(\delta,N)$,
+and $C_L^\infty$, $\rho$ are the loss-specific regularity constants
+evaluated at this~$R$
+(e.g.\ Proposition~\ref{prop:loss_regularity} for MDN,
+Proposition~\ref{prop:vmf_regularity} for vMF).
+The prefactors are
+\begin{equation}\label{eq:prefactors}
+  C_{\mathrm{tr}}(\delta,N)
+  \;=\; C_L^\infty \cdot L_\sigma\,\hat M_V(\delta,N)
+        \cdot M_x,
+  \qquad
+  C_{\mathrm{sc}}(\delta,N)
+  \;=\; \frac{3\,\rho\,S_\sigma^2}{4\,\delta}.
+\end{equation}
+Since $\varepsilon_N(\delta) = O(\sqrt{p/(N\delta)})$,
+$\hat M_V(\delta,N) \to m_{\infty,*}$, and both prefactors converge
+to finite SLLN limits $C_{\mathrm{tr}}^*$, $C_{\mathrm{sc}}^*$.
+The barrier simplifies to
+\begin{equation}\label{eq:barrier_rate_sg}
+  \cB \;=\; O\!\left(\kappa_W\sqrt{\frac{d}{N}} + \frac{p}{N}\right),
+\end{equation}
+where $p/N = O(K/N)$ for both MDN ($p=3K$) and vMF ($p=K(1\!+\!d_y)$).
+To achieve a target barrier $\cB \le \xi$ ($\xi > 0$),
+each term must be at most $\xi/2$, giving
+\begin{equation}\label{eq:width_req}
+  N \;\ge\;
+  \max\!\left\{
+    \frac{4\,(C_{\mathrm{tr}}^*)^2 \kappa_W^2\,d}{\xi^2},\;
+    \frac{2\,C_{\mathrm{sc}}^*\,m_{2,*}}{\xi}
+  \right\}.
+\end{equation}
+The first (transfer) entry scales as $\xi^{-2}$ and dominates
+for small $\xi$ or large $d$;
+the second (semi-convexity) entry scales as $\xi^{-1}$ but carries
+the loss-specific constant $C_{\mathrm{sc}}^*$ and can dominate at moderate~$\xi$.
+In either regime the required width is polynomial in~$d$
+with no exponential dependence.
+\end{corollary}
+
+\paragraph{MDN prefactor convergence.}
+For MDN, the loss-specific constants depend on $R$ through
+$\Lambda = Y_{\max} + R$ as
+$C_L^\infty = O(\Lambda^2/s_{\min}^2)$ and
+$\rho = O(\Lambda^4/s_{\min}^4)$
+(Proposition~\ref{prop:loss_regularity}).
+Taylor-expanding around $\hat M_V = m_{\infty,*}$:
+\begin{equation}\label{eq:Ctr_rate}
+  C_{\mathrm{tr}}(\delta,N)
+  \;=\; C_{\mathrm{tr}}^*
+  + O\!\left(\sqrt{\frac{p}{N\delta}}\right),
+  \qquad
+  C_{\mathrm{sc}}(\delta,N)
+  \;=\; C_{\mathrm{sc}}^*
+  + O\!\left(\sqrt{\frac{p}{N\delta}}\right),
+\end{equation}
+where $\Lambda^* = Y_{\max} + S_\sigma m_{\infty,*}$ and
+the SLLN limits are
+\begin{equation}\label{eq:prefactor_limits}
+  C_{\mathrm{tr}}^*
+  \;=\; \hat c_0\,\frac{(\Lambda^*)^2}{s_{\min}^2}
+        \cdot L_\sigma\,m_{\infty,*}
+        \cdot M_x,
+  \qquad
+  C_{\mathrm{sc}}^*
+  \;=\; \frac{3\,S_\sigma^2}{4\,\delta}
+        \!\left(\frac{1}{s_{\min}^2}
+        + 2\hat c_2\,\frac{(\Lambda^*)^4}{s_{\min}^4}\right).
+\end{equation}
+Both corrections are lower-order, leaving the asymptotic
+rate~\eqref{eq:barrier_rate_sg} unchanged.
+For vMF, $C_L^\infty \le 2 + 2\sqrt{d_y}$ and $\rho \le 6$
+are independent of~$R$ (Proposition~\ref{prop:vmf_regularity}),
+so the prefactors stabilise immediately with no Taylor correction
+needed.
+
+\subsection{Improved Rate via Head Regularity}
+\label{sec:head_regularity}
+
+The baseline rate $O(\kappa_W\sqrt{d/N})$ in the transfer term
+leaves a gap with the empirical decay $O(N^{-1.3})$ observed for
+$K=1$ (Appendix~\ref{app:nonvacuous_detail}).
+We now show that this gap can be closed under
+a structural hypothesis on the trained law:
+even with $W$-only alignment, the transfer rate improves to
+$O(d/N)$ when the gauge-fixed head $\tilde V$ is approximately
+a Lipschitz function of the hidden weight~$W$.
+
+\paragraph{Head regularity hypothesis.}
+Define the \emph{centred head weights}
+\begin{equation}\label{eq:centred_head}
+  \tilde v_{i,\pi_k}
+  \;\coloneqq\;
+  (v_i)_{\pi_k} - \frac{1}{K}\sum_{k'=1}^K (v_i)_{\pi_{k'}},
+  \qquad
+  \tilde v_i
+  \;\coloneqq\;
+  \bigl(\tilde v_{i,\pi},\; (v_i)_{K+1:p}\bigr)
+  \;\in\; \R^{p},
+\end{equation}
+where the $\pi$-block (mixing-weight coordinates) is projected onto the
+hyperplane $\{u \in \R^K : \mathbf{1}^\top u = 0\}$ and the remaining
+$p-K$ component-parameter coordinates are left unchanged.
+The common-mode component is barrier-neutral
+(Proposition~\ref{prop:barrier_neutrality}).
+Fix canonical gauge
+($\frac{1}{K}\sum_k (v_{X,i})_{\pi_k} = 0$ for all $X,i$) and suppose
+that for some map $g:\R^d \to \R^{p}$ and residuals $r_{X,i}$,
+\begin{equation}\label{eq:head_reg_decomp}
+  \tilde v_{X,i} = g(w_{X,i}) + r_{X,i},
+  \qquad X \in \{A,B\},
+\end{equation}
+with $g$ satisfying the $\ell_2 \to \ell_\infty$ Lipschitz condition
+\begin{equation}\label{eq:head_reg_lip}
+  \|g(w) - g(w')\|_\infty \le L_g \|w - w'\|
+  \qquad \forall\, w,w' \in \R^d.
+\end{equation}
+For a given alignment $(\nperm,\tau)$ define the residual mismatch
+\begin{equation}\label{eq:head_residual_mismatch}
+  \mathcal R_N(\nperm,\tau)
+  \;\coloneqq\;
+  \max_{j=1,\ldots,p}
+  \Bigl(
+    \frac{1}{N}\sum_{i=1}^N
+    \bigl(r_{A,i} - P_\tau r_{B,\nperm(i)}\bigr)_j^2
+  \Bigr)^{1/2}.
+\end{equation}
+This is a structural hypothesis on the trained law
+($\tilde V$ is approximately a regular function of~$W$),
+not an assumption on the optimisation algorithm.
+Intuitively, neurons with similar input directions learn similar
+output heads under mean-field dynamics; the residual $r_{X,i}$
+captures the remaining stochasticity.
+We probe this hypothesis empirically in
+Section~\ref{sec:experiments}.
+
+\begin{remark}[Structural support for $K\!=\!1$]
+\label{rmk:head_reg_k1}
+For $K=1$, the mean-field head drift
+$b_v(w,m_s) = -\E_P[\sigma(w^\top x)\,\nabla_z\cL(z_{m_s}(x),y)]$
+depends on the particle only through~$w$, not~$v$.
+The conditional mean $g(w) \coloneqq \E[V_T \!\mid\! W_T = w]$
+is thus Lipschitz under mild non-degeneracy conditions on the
+flow map, providing structural evidence for the
+decomposition~\eqref{eq:head_reg_decomp}.
+However, the residual $r = V_T - g(W_T)$ captures the initial
+head variance $\mathrm{Var}(V_0)$, which does not vanish under the
+mean-field law; the stronger condition
+$\mathcal{R}_N = O(\sqrt{B_N})$ therefore remains a hypothesis.
+\end{remark}
+
+\begin{proposition}[Fast transfer from conditional head regularity]
+\label{prop:transfer_struct}
+Under Assumptions~\ref{ass:arch}, \ref{ass:activ}\,(i)--(iii),
+and~\ref{ass:input_mom} (including the fourth-moment condition
+$\E_P[\|x\|^4] \le M_{x,4}^4$),
+suppose additionally that the
+gauge-fixed heads admit the decomposition~\eqref{eq:head_reg_decomp}
+with~\eqref{eq:head_reg_lip}. Then for any alignment $(\nperm,\tau)$,
+the per-coordinate gauge-fixed head mismatch
+$M_{\Delta \tilde V}^\infty
+\coloneqq
+\max_{j} (\frac{1}{N}\sum_{i}
+(\tilde v_{A,i} - P_\tau \tilde v_{B,\nperm(i)})_j^2)^{1/2}$
+satisfies
+\begin{equation}\label{eq:head_mismatch_struct}
+  M_{\Delta \tilde V}^\infty
+  \;\le\;
+  L_g \sqrt{B_N} + \mathcal R_N(\nperm,\tau).
+\end{equation}
+Hence, if $\mathcal R_N(\nperm,\tau) = O(\sqrt{B_N})$
+and $Q_N \coloneqq \frac{1}{N}\sum_{i} \E_P[(\Delta w_i^\top x)^4]
+= O(B_N^2)$ along a width sequence, then the transfer
+term in Theorem~\ref{thm:general} is $O(B_N) = O(d/N)$
+under $W$-only alignment.
+\end{proposition}
+
+Proposition~\ref{prop:transfer_struct} identifies a concrete mechanism
+by which the empirical barrier can decay faster than the baseline
+$O(N^{-1/2})$ transfer law even without explicit head matching:
+the conditional head map $W \mapsto \tilde V$ need only be regular
+up to a residual whose aligned mismatch scales like $\sqrt{B_N}$.
+This provides a target for diagnostics:
+measure whether $M_{\Delta \tilde V}^\infty$ already tracks
+$\sqrt{B_N}$ under $W$-only alignment
+(Section~\ref{sec:experiments}).
+
+Substituting into the barrier bound yields:
+
+\begin{corollary}[Conditional fast barrier under $W$-OT alignment]
+\label{cor:struct_rate}
+Under the hypotheses of Theorem~\ref{thm:hp},
+additionally suppose Assumption~\ref{ass:activ}\,(iii),
+the fourth-moment condition in Assumption~\ref{ass:input_mom},
+Assumption~\ref{ass:subgauss},
+and the structural hypothesis of
+Proposition~\ref{prop:transfer_struct}.
+Let $\delta \in (0,1)$ and let $(\nperm,\tau)$ be the aligned pair from
+Theorem~\ref{thm:hp}.
+Assume that on the same high-probability event one further has
+\begin{equation}\label{eq:struct_aux}
+  \mathcal R_N(\nperm,\tau) \le C_R\,\eta_N,
+  \qquad
+  Q_N \le C_Q\,\eta_N^4
+\end{equation}
+for deterministic constants $C_R, C_Q > 0$ independent of~$N$.
+Then, with probability at least $1-\delta$,
+\begin{equation}\label{eq:struct_rate}
+  \boxed{
+  \cB
+  \;\le\;
+  C_{\mathrm{fast}}(\delta,N)\,\eta_N^2
+  + C_{\mathrm{sc}}(\delta,N)\,\frac{m_{2,*}}{N}
+  \;=\;
+  O\!\left(\kappa_W^2\frac{d}{N} + \frac{K}{N}\right).
+  }
+\end{equation}
+\end{corollary}
+
+Corollary~\ref{cor:struct_rate} converts the transfer bottleneck from
+$O(\kappa_W\sqrt{d/N})$ to $O(\kappa_W^2 d/N)$ without requiring
+full-parameter alignment.
+
+\paragraph{The $K=1$ case.}
+For a single Gaussian component ($K=1$), the head regularity
+hypothesis is significantly easier to satisfy.
+The centring projection~\eqref{eq:centred_head} is trivial
+(the $\pi$-block is one-dimensional, so
+$\tilde v_{i,\pi} = 0$ for all $i$),
+leaving only the $(\mu, s)$ block.
+Furthermore, the semi-convexity constant reduces to
+$\rho_{K=1} \le 1/s_{\min}^2$---independent of
+$\Lambda$---because the covariance term
+$\mathrm{Cov}_\gamma(\nabla u_k)$ vanishes when $K=1$
+(Proposition~\ref{prop:loss_regularity}).
+Together with the empirical observation that the barrier
+decays as $O(N^{-1.3})$ at $K=1$
+(Appendix~\ref{app:nonvacuous_detail}),
+faster than the baseline $O(N^{-1/2})$ but consistent with
+the $O(1/N)$ rate of Corollary~\ref{cor:struct_rate},
+this provides strong evidence that head regularity holds
+for single-component MDNs.
+
+The bounded Lipschitz activation assumption
+(Assumption~\ref{ass:activ}\,(i)--(ii)) is shared with
+Ferbach et al.~\cite{ferbach2024}, who likewise require bounded Lipschitz
+activations in the mean-field two-layer setting; our baseline results
+(Theorems~\ref{thm:general}--\ref{thm:hp},
+Corollary~\ref{cor:asymptotic}) therefore do not impose any
+additional restriction on the activation function
+beyond the existing literature.
+The head-regularity result (Corollary~\ref{cor:struct_rate})
+additionally requires $C^2$ smoothness
+(Assumption~\ref{ass:activ}\,(iii)).
+
+\subsection{Application to von Mises--Fisher Mixtures}
+\label{sec:vmf}
+
+We now instantiate Theorem~\ref{thm:general} on a second
+mixture-model family: von Mises--Fisher (vMF) mixtures on the unit
+sphere.
+
+\paragraph{Motivation.}
+Normalised embeddings and cosine similarity have become standard in
+modern deep learning, making the unit sphere a natural output space.
+vMF mixture density networks---where a neural network outputs the
+parameters of a vMF mixture conditioned on the input---arise in
+several active areas:
+\emph{(i)}~probabilistic 3D orientation and pose estimation, where
+multimodal angular predictions are modelled by vMF
+mixtures~\cite{prokudin2018deep,liu2024probabilistic};
+\emph{(ii)}~molecular property prediction with uncertainty
+quantification via spherical mixture density
+networks~\cite{han2023sphericalmdn};
+and \emph{(iii)}~directional prediction in particle physics
+detectors~\cite{ghrear2024direction}.
+Linear mode connectivity guarantees are directly relevant whenever
+such models are independently trained and subsequently merged, e.g.\
+in federated or distributed learning scenarios.
+
+The key finding of this section is that the semi-convexity constant
+is a \emph{universal constant}, independent of all model parameters.
+
+\paragraph{Architecture and loss.}
+A vMF mixture network models conditional densities on
+$S^{d_y-1} \subset \R^{d_y}$:
+\[
+  p(y \mid x) = \sum_{k=1}^K \pi_k(x)\;
+  C_{d_y}\!\bigl(\kappa_k(x)\bigr)\,
+  \exp\!\bigl(\kappa_k(x)\,\mu_k(x)^\top y\bigr),
+\]
+where $\mu_k \in S^{d_y-1}$ is the mean direction,
+$\kappa_k \ge 0$ the concentration, and
+$C_{d_y}(\kappa) =
+\kappa^{d_y/2-1}\bigl/\bigl((2\pi)^{d_y/2}\,
+I_{d_y/2-1}(\kappa)\bigr)$
+the normalising constant
+($I_\nu$: modified Bessel function of the first kind).
+We adopt the \emph{natural parameterisation}
+$\eta_k \coloneqq \kappa_k\mu_k \in \R^{d_y}$
+(so that $\kappa_k=\|\eta_k\|$, $\mu_k=\eta_k/\|\eta_k\|$).
+The two-layer network output is
+$z(x) = \frac{1}{N}\sum_{i=1}^N v_i\,\sigma(w_i^\top x)
+\in \R^{K(1+d_y)}$,
+partitioned as $z = (z_\pi,\,\eta_1,\ldots,\eta_K)$ with
+$z_\pi \in \R^K$ and $\eta_k \in \R^{d_y}$.
+The NLL is
+\begin{equation}\label{eq:vmf_loss}
+  \cL_{\vmf}(z,y)
+  = -\log\sum_{k=1}^K \pi_k\,
+    C_{d_y}(\|\eta_k\|)\,\exp(\eta_k^\top y),
+\end{equation}
+with $\pi_k = \softmax(z_\pi)_k$.
+Setting $u_k = \log\pi_k + \log C_{d_y}(\|\eta_k\|) + \eta_k^\top y$,
+the log-sum-exp Hessian
+decomposition~\eqref{eq:hess_decomp} applies verbatim.
+
+\paragraph{Component permutation symmetry.}
+As with MDNs, $\cL_{\vmf}(P_\tau z,\,y) = \cL_{\vmf}(z,\,y)$
+for any $\tau \in \cS_K$, so two-level alignment
+$(\nperm,\tau) \in \cS_N \times \cS_K$ applies.
+
+\begin{proposition}[vMF loss regularity]\label{prop:vmf_regularity}
+For $y \in S^{d_y-1}$ and any $z \in \R^{K(1+d_y)}$:
+\begin{equation}\label{eq:vmf_bounds}
+  C_{L,\vmf}^\infty \;\le\; 2 + 2\sqrt{d_y},
+  \qquad
+  \rho_{\vmf} \;\le\; 6.
+\end{equation}
+In particular, $\rho_{\vmf}$ is a universal constant---independent
+of $K$, $\kappa_k$, $R$, and all other model parameters.
+No architectural constraints (scale floors, concentration ceilings)
+are required.
+\end{proposition}
+
+\begin{proof}[Proof sketch]
+Because vMF belongs to the exponential family with natural parameter
+$\eta_k$ and sufficient statistic $y$, the per-component
+log-normaliser $\psi(\eta) \coloneqq -\log C_{d_y}(\|\eta\|)$ is
+convex, so
+$\nabla^2_{\eta_k} u_k = -\nabla^2\psi(\eta_k) \preceq 0$.
+Combined with the PSD softmax Hessian $C_\pi \succeq 0$, the
+weighted-Hessian term satisfies
+$-\sum_k \gamma_k \nabla^2 u_k \succeq 0$
+(cf.\ MDN, where this contributes $-1/s_{\min}^2$).
+For the covariance term, the gradient
+$\nabla_{\eta_k} u_k = y - A_{d_y}(\kappa_k)\,\mu_k$,
+where $A_{d_y}(\kappa) = I_{d_y/2}(\kappa)/I_{d_y/2-1}(\kappa)
+\in [0,1)$ is the mean resultant length.
+Since $\|y\|=1$ and $A_{d_y}(\kappa_k)\|\mu_k\|<1$, we have
+$\|\nabla_{\eta_k} u_k\| \le 2$.
+Together with the $z_\pi$-block bound $\|e_k-\pi\|\le\sqrt{2}$:
+$\max_k\|\nabla u_k\|^2 \le 6$, giving
+$\rho_{\vmf} \le 6$ via~\eqref{eq:hess_decomp}.
+The Lipschitz bound follows from
+$C_{L,\vmf}^\infty
+= \sup_z\|\nabla\cL_{\vmf}\|_1 \le 2 + 2\sqrt{d_y}$
+(full details in Appendix~\ref{app:vmf_proof}).
+\end{proof}
+
+Substituting~\eqref{eq:vmf_bounds} into
+Theorem~\ref{thm:general} with $p=K(1+d_y)$ yields:
+
+\begin{corollary}[vMF barrier under $W$-OT alignment]
+\label{cor:vmf_barrier}
+Under Assumptions~\ref{ass:activ}, \ref{ass:input_mom},
+\ref{ass:mf_law}, and~\ref{ass:subgauss}
+with $p = K(1+d_y)$ and $y \in S^{d_y-1}$,
+the vMF mixture barrier satisfies, with probability $\ge 1-\delta$:
+\begin{equation}\label{eq:vmf_rate}
+  \boxed{
+  \cB_{\vmf}
+  \;=\;
+  O\!\left((1+\sqrt{d_y})\,\kappa_W\sqrt{\frac{d}{N}}
+  + \frac{K}{N}\right)
+  }
+\end{equation}
+with prefactors that are universal constants---no dependence on
+$s_{\min}$, $\Lambda$, or domain-radius~$R$.
+\end{corollary}
+
+\paragraph{Comparison.}
+Table~\ref{tab:loss_comparison} contrasts the loss-geometry
+constants.
+The vMF case achieves dramatically better constants because
+(i)~the observation space is compact ($S^{d_y-1}$), bounding
+gradient norms without domain-radius factors, and
+(ii)~the exponential-family structure makes each $u_k$ concave
+in $\eta_k$, so the weighted Hessian contributes zero rather than
+$-1/s_{\min}^2$.
+
+\begin{table}[t]
+\centering\small
+\caption{Loss-geometry constants for the two mixture-model
+  applications of Theorem~\ref{thm:general}.}
+\label{tab:loss_comparison}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+ & \textbf{MDN (Gaussian)} & \textbf{vMF Mixture} \\
+\midrule
+Observation space & $\R$ (bounded by $Y_{\max}$) & $S^{d_y-1}$ (compact) \\
+Output dim per component & $3$ & $1+d_y$ \\
+$C_L^\infty$ & $O(\Lambda^2/s_{\min}^2)$ & $O(\sqrt{d_y})$ \\
+$\rho$ & $O(\Lambda^4/s_{\min}^4)$ & $\le 6$ (universal) \\
+Architectural constraint & scale floor $s_{\min}$ & none \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%======================================================================
+\section{Alignment Algorithms}
+\label{sec:algorithm}
+%======================================================================
+
+Theorem~\ref{thm:general} guarantees that
+\emph{some} pair $(\nperm, \tau) \in \cS_N \times \cS_K$ achieves a
+vanishing barrier.
+We first show that permutations are the \emph{only} barrier-relevant
+symmetries for softmax-based mixture models, then develop a practical
+alignment algorithm.
+
+\subsection{Symmetry and Barrier Neutrality}\label{sec:symmetry}
+
+Beyond $\cS_N$ and $\cS_K$, any softmax-based mixture model
+(including both MDNs and vMF mixtures) has a continuous symmetry:
+\emph{softmax translation}
+$v_i \mapsto v_i + \delta_i\, e_\pi$
+(where $e_\pi = (\mathbf{1}_K, \mathbf{0}_{p-K}) \in \R^{p}$)
+adds a common-mode shift to the $\pi$-logits, which softmax absorbs.
+The full symmetry group is
+$\cS_N \times \cS_K \times \R^N_\pi$
+(Proposition~\ref{prop:symmetry}, Appendix~\ref{app:symmetry_full}).
+Crucially, softmax translation is barrier-neutral:
+
+\begin{proposition}[Barrier neutrality of softmax translation]
+\label{prop:barrier_neutrality}
+For any mixture-model parameter sets $\theta^A, \theta^B$ and arbitrary
+$\delta \in \R^N$, setting
+$\theta^{B'} = \{(w_i^B, v_i^B + \delta_i\,e_\pi)\}$ yields
+$\cB(\theta^A, \theta^{B'}) = \cB(\theta^A, \theta^B)$.
+\end{proposition}
+
+\noindent
+The proof (Appendix~\ref{app:proof_neutrality}) is a direct
+interpolation calculation.
+The alignment task therefore reduces to finding the permutation
+pair $(\nperm, \tau)$.
+
+\subsection{Hellinger-Affinity Matching}\label{sec:hellinger}
+
+The key design choice is \emph{how to measure component correspondence}:
+weight matching~\cite{ainsworth2023} compares raw parameter
+vectors, but two components with different weight vectors can produce
+nearly identical conditional Gaussians.
+We instead match components at the \emph{distributional level} via the
+Hellinger affinity.
+
+Given calibration inputs $\{x_n\}_{n=1}^{n_{\mathrm{cal}}}$, define the
+\emph{Hellinger affinity} between component $j$ of network $A$ and
+component $k$ of network $B$ as
+\begin{equation}\label{eq:hellinger_cost}
+  H_{jk} = \sum_{n=1}^{n_{\mathrm{cal}}}
+    \underbrace{\sqrt{\pi_{A,j}(x_n)\,\pi_{B,k}(x_n)}}_{\text{weight similarity}}
+    \cdot\;
+    \underbrace{\mathrm{BC}\!\bigl(
+      \cN(\mu_{A,j}(x_n),\,s_{A,j}(x_n)^2),\;
+      \cN(\mu_{B,k}(x_n),\,s_{B,k}(x_n)^2)
+    \bigr)}_{\text{shape similarity}},
+\end{equation}
+where
+\[
+  \mathrm{BC}\!\bigl(\cN(\mu_1,s_1^2),\cN(\mu_2,s_2^2)\bigr)
+  = \sqrt{\frac{2s_1 s_2}{s_1^2+s_2^2}}\,
+    \exp\!\Bigl(-\frac{(\mu_1-\mu_2)^2}{4(s_1^2+s_2^2)}\Bigr)
+\]
+is the Bhattacharyya coefficient between two 1-D Gaussians.
+Each term in~\eqref{eq:hellinger_cost} is the geometric mean of the
+two components' mixture weights $\sqrt{\pi_{A,j}\pi_{B,k}}$ multiplied
+by their distributional similarity $\mathrm{BC}$, both evaluated at
+input $x_n$.
+(Note: $\pi_{A,j}(x_n)$ here denotes the softmax mixture weight output
+by network $A$, distinct from the EM responsibilities
+$\gamma_k(x,y)$ used in the Hessian analysis of Section~\ref{sec:output_geometry}.)
+$H_{jk}$ is large when components $j$ and $k$ model similar
+conditional distributions across the calibration set.
+The BC formula above is for 1-D Gaussians (MDN); for other
+mixture families (e.g.\ vMF), one substitutes the appropriate
+Bhattacharyya coefficient.
+The component permutation is then found by solving the LAP:
+\[
+  \tau \leftarrow \arg\max_{q \in \cS_K}\sum_{k=1}^K H_{k,q(k)},
+\]
+which finds the bijective matching that maximises total distributional
+affinity across components.
+Because the output distribution is invariant to hidden-neuron
+permutation, $H_{jk}$ is also invariant to $\nperm$, so it can be
+computed independently and reused across algorithms.
+
+The theoretical bound (Theorem~\ref{thm:hp}) uses $\tau = \mathrm{id}$,
+which already gives $\Delta_N = O(1/N)$ under the common mean-field
+law.
+In practice, the Hellinger-affinity $\tau$ can further reduce
+$\Delta_N$ at finite~$N$; a formal guarantee that it minimises
+$\Delta_N$ is left as an open problem.
+
+\paragraph{Full algorithm.}
+Combining activation correlation for hidden neurons
+(following Ainsworth et al.~\cite{ainsworth2023}) with the Hellinger
+affinity for components yields Algorithm~\ref{alg:am}.
+Because $H_{jk}$ is invariant to $\nperm$, the two stages are
+independent and no iteration is needed.
+
+\begin{algorithm}[t]
+\caption{Activation Matching with Hellinger Head (AM)}
+\label{alg:am}
+\begin{algorithmic}[1]
+\REQUIRE Mixture-model parameters $\theta_A, \theta_B$; components $K$;
+  calibration set $\{x_n\}_{n=1}^{n_{\mathrm{cal}}}$.
+\ENSURE $\nperm \in \cS_N$, $\tau \in \cS_K$.
+\STATE \textbf{Hidden permutation} (activation-space):
+  form the $N \times N$ inner-product matrix
+  $C_{ij}^{\mathrm{AM}} = \sum_{n=1}^{n_{\mathrm{cal}}} \sigma(w_{A,i}^\top x_n)\,\sigma(w_{B,j}^\top x_n)$.
+  Solve $\nperm \leftarrow \arg\max_{q \in \cS_N}\sum_i C_{i,q(i)}^{\mathrm{AM}}$
+  via the Hungarian algorithm.
+  \hfill\COMMENT{$O(n_{\mathrm{cal}}N^2 + N^3)$}
+\STATE \textbf{Component permutation} (distribution-space):
+  compute $H$ via~\eqref{eq:hellinger_cost}.
+  Solve $\tau \leftarrow \arg\max_{q \in \cS_K}\sum_k H_{k,q(k)}$.
+  \hfill\COMMENT{$O(n_{\mathrm{cal}}K^2 + K^3)$}
+\RETURN $(\nperm, \tau)$.
+\end{algorithmic}
+\end{algorithm}
+
+%======================================================================
+\section{Experiments}\label{sec:experiments}
+%======================================================================
+
+We validate the framework empirically on both MDN and vMF mixture
+models.
+
+\paragraph{Setup.}
+Throughout this section we fix the alignment backend of
+Algorithm~\ref{alg:am} ($W$-OT hidden matching $+$ Hellinger
+component matching) and compare \emph{initialisation schemes}
+for the MDN heads:
+\textbf{random}, \textbf{$k$-means} (initial means are set by
+$k$-means and then trained), and \textbf{$k$-means frozen}
+(the same initial means, kept fixed during training).
+The reported runs use the two synthetic benchmarks already employed in
+Appendix~\ref{app:assumption_validation},
+\texttt{synthetic} and \texttt{synthetic\_transpose},
+with $K=5$, widths
+$N \in \{512, 1024, 2048, 4096\}$,
+full-batch gradient descent, and $10$ random seeds per setting.
+For each $(\text{dataset}, N, \text{init})$ combination we evaluate
+the $5$ seed pairs
+$(0\text{--}1, 2\text{--}3, \ldots, 8\text{--}9)$
+already cached in the numerical study.
+We record the aligned barrier $\cB$, the unaligned barrier,
+the effective scale floor $s_{\min}$, and the transfer-side
+diagnostics $M_{\Delta \tilde V}^\infty$ and $Q_N$ from the refined
+coupling of Proposition~\ref{prop:transfer_refined}.
+These diagnostics \emph{probe} the head-regularity route of
+Corollary~\ref{cor:struct_rate}; they do not by themselves verify the
+full structural hypothesis, since $\mathcal{R}_N$ is not estimated
+directly.
+
+\paragraph{Experimental questions.}
+\begin{enumerate}[label=(\arabic*),leftmargin=*,itemsep=2pt]
+  \item \emph{Component anchoring and barrier reduction
+    (Figure~\ref{fig:kmeans_diag}, Table~\ref{tab:kmeans_rep}):}
+    does symmetry breaking at initialisation materially lower the
+    aligned barrier, even when the matching backend is held fixed?
+  \item \emph{Transfer-side diagnostics
+    (Figure~\ref{fig:kmeans_diag}, Table~\ref{tab:kmeans_rep}):}
+    do the initialisations that reduce $\cB$ also improve
+    $s_{\min}$, $M_{\Delta \tilde V}^\infty$, and $Q_N$,
+    moving the models toward the regime suggested by
+    Proposition~\ref{prop:transfer_struct}?
+  \item \emph{Qualitative component stability
+    (Figure~\ref{fig:kmeans_components}):}
+    do anchored initialisations produce more persistent component
+    identities across random seeds?
+\end{enumerate}
+
+\paragraph{Barrier and diagnostic trends.}
+Figure~\ref{fig:kmeans_diag} summarises the width dependence of the
+aligned barrier, the effective scale floor $s_{\min}$, and the
+gauge-fixed head mismatch $M_{\Delta \tilde V}^\infty$.
+The main empirical pattern is that $k$-means-based initialisation can
+substantially improve the post-training geometry, but the strongest
+variant is \emph{dataset-dependent}.
+On \texttt{synthetic}, the frozen anchor is best: at $N=1024$ the
+aligned barrier drops from $8.92$ (random) to $0.202$, while
+$M_{\Delta \tilde V}^\infty$ falls from $41.6$ to $15.4$ and
+$Q_N$ from $3.03 \times 10^5$ to $1.18 \times 10^5$.
+On \texttt{synthetic\_transpose}, the learnable $k$-means
+initialisation is clearly superior: at $N=1024$ the aligned barrier
+drops from $5.81$ to $0.229$, $s_{\min}$ rises from
+$1.75 \times 10^{-5}$ to $1.19 \times 10^{-3}$, and
+$Q_N$ falls by roughly one order of magnitude.
+Because the unaligned barriers remain large
+(Table~\ref{tab:kmeans_rep}),
+the gain is not merely that the trained models become trivially close
+before alignment; the initialisation changes the geometry of the final
+solutions in a way the alignment can exploit.
+
+\begin{table}[t]
+\centering
+\small
+\renewcommand{\arraystretch}{1.12}
+\caption{Representative $K=5$, full-batch results at $N=1024$
+  (average over $5$ aligned seed pairs).
+  Lower $\cB$, $M_{\Delta \tilde V}^\infty$, and $Q_N$ are better;
+  larger $s_{\min}$ indicates a wider effective scale floor.}
+\label{tab:kmeans_rep}
+\begin{tabular}{llccccc}
+\toprule
+Dataset & Init & $\cB$ & $\cB_{\mathrm{unal.}}$ & $s_{\min}$ &
+$M_{\Delta \tilde V}^\infty$ & $Q_N$ \\
+\midrule
+\texttt{synthetic}
+  & random & 8.92 & 41.8 & $7.85 \times 10^{-5}$ & 41.6 & $3.03 \times 10^5$ \\
+\texttt{synthetic}
+  & $k$-means & 7.65 & 121 & $\mathbf{1.33 \times 10^{-4}}$ & 39.0 & $1.75 \times 10^5$ \\
+\texttt{synthetic}
+  & $k$-means frozen & $\mathbf{0.202}$ & 40.6 & $1.08 \times 10^{-4}$ & $\mathbf{15.4}$ & $\mathbf{1.18 \times 10^5}$ \\
+\midrule
+\texttt{synthetic\_transpose}
+  & random & 5.81 & $1.23 \times 10^3$ & $1.75 \times 10^{-5}$ & 94.1 & $5.52 \times 10^6$ \\
+\texttt{synthetic\_transpose}
+  & $k$-means & $\mathbf{0.229}$ & 87.7 & $\mathbf{1.19 \times 10^{-3}}$ & $\mathbf{41.1}$ & $\mathbf{5.50 \times 10^5}$ \\
+\texttt{synthetic\_transpose}
+  & $k$-means frozen & 6.45 & 65.7 & $2.62 \times 10^{-5}$ & 58.5 & $5.71 \times 10^6$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{kmeans_init_diagnostics_full_batch.pdf}
+\caption{Full-batch $K=5$ diagnostics with fixed
+  $W$-OT $+$ Hellinger alignment.
+  Columns show the aligned empirical barrier, the effective scale floor
+  $s_{\min}$, and the refined head mismatch
+  $M_{\Delta \tilde V}^\infty$ as width varies.
+  The best anchored variant depends on the dataset, but the variants
+  with the smallest barrier also improve the transfer-side
+  diagnostics, which is qualitatively consistent with the
+  head-regularity route.}
+\label{fig:kmeans_diag}
+\end{figure}
+
+\paragraph{Qualitative component geometry.}
+Figure~\ref{fig:kmeans_components} shows the learned mixture
+components across all $10$ seeds at $N=1024$.
+For \texttt{synthetic}, random initialisation often yields visibly
+redundant or poorly separated heads, whereas the frozen anchor produces
+cleaner, more persistent component families.
+For \texttt{synthetic\_transpose}, the learnable $k$-means
+initialisation produces markedly more stable seed-to-seed component
+trajectories than the random baseline.
+We therefore interpret the practical benefit not as a single universal
+``best'' initialiser, but as \emph{component anchoring}:
+better symmetry breaking at initialisation can steer training toward
+solutions with lower aligned barrier and better transfer diagnostics.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.49\textwidth]{synthetic/K5/full_batch/predictive/w1024_components.png}
+\hfill
+\includegraphics[width=0.49\textwidth]{synthetic/K5_kmeans_frozen/full_batch/predictive/w1024_components.png}
+
+\vspace{0.6em}
+
+\includegraphics[width=0.49\textwidth]{synthetic_transpose/K5/full_batch/predictive/w1024_components.png}
+\hfill
+\includegraphics[width=0.49\textwidth]{synthetic_transpose/K5_kmeans/full_batch/predictive/w1024_components.png}
+\caption{Component plots at $N=1024$ for the two datasets.
+  Top row: \texttt{synthetic} with random initialisation (left) and
+  $k$-means frozen (right).
+  Bottom row: \texttt{synthetic\_transpose} with random initialisation
+  (left) and learnable $k$-means (right).
+  Each panel aggregates all $10$ seeds.
+  The anchored initialisations yield visibly more stable component
+  identities across seeds.}
+\label{fig:kmeans_components}
+\end{figure}
+
+\subsection{vMF Mixture Experiments}\label{sec:vmf_experiments}
+
+We now validate the vMF instantiation
+(Corollary~\ref{cor:vmf_barrier}) on synthetic directional data on
+$S^1$ ($d_y = 2$), using the same two-level alignment backend.
+
+\paragraph{Setup.}
+We generate a \texttt{rotating} dataset: $K$ vMF components on $S^1$
+whose mean directions rotate with the input $x \in [-1,1]$, with
+varying concentration~$\kappa$.
+Training follows the MDN protocol: 10K epochs of full-batch Adam with
+cosine annealing, widths $N \in \{512, 1024, 2048, 4096\}$, and 10
+random seeds.
+We compute barriers for 5~seed pairs and report averages.
+
+\paragraph{Bound quality.}
+Table~\ref{tab:mdn_vmf_comparison} contrasts the barrier
+\emph{bound quality} (ratio $\cB_{\mathrm{wc}}/\cB_{\mathrm{emp}}$)
+across the two loss families.
+The settings differ ($K$, dataset, output dimension), so absolute
+barrier values are not directly comparable.
+The key contrast is in the constants: $\rho_{\vmf} = 6$ versus
+the MDN's $\rho \sim 10^{20}$, and $C_L^\infty = 4.83$ versus
+$\sim\!6 \times 10^4$.
+Consequently, the worst-case bound-to-empirical ratio drops from
+$\sim\!10^{21}$ (MDN) to $\sim\!3 \times 10^3$ (vMF).
+The data-dependent ratios are more comparable ($\sim\!6 \times 10^3$
+vs.\ $\sim\!1.3 \times 10^3$), but the vMF achieves this
+\emph{without any architectural constraints} (no scale floor,
+no clipping).
+
+\input{table_comparison_draft.tex}
+
+Figure~\ref{fig:vmf_barrier_scaling} shows the barrier-vs-width
+scaling for both $K = 1$ and $K = 3$.
+For $K = 1$, the aligned barrier decays cleanly from $0.019$ at
+$N = 512$ to $0.004$ at $N = 4096$, consistent with the predicted
+$O(1/N)$ rate.
+For $K = 3$, the aligned barrier is approximately flat around $1.0$
+at the tested widths; the output-space mismatch $\Delta_N$ is not yet
+converging, indicating that the component alignment quality---rather
+than width---is the bottleneck at these scales.
+In both cases, alignment reduces the barrier by one to two orders of
+magnitude relative to the unaligned baseline.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.49\textwidth]{rotating/K1/full_batch/barrier_scaling.pdf}
+\hfill
+\includegraphics[width=0.49\textwidth]{rotating/K3/full_batch/barrier_scaling.pdf}
+\caption{vMF barrier scaling on $S^1$ (\texttt{rotating} dataset).
+  Left: $K = 1$; the aligned barrier (blue) decays as $\sim 1/N$.
+  Right: $K = 3$; the aligned barrier is flat at the tested widths,
+  dominated by the component-mismatch $O(K/N)$ term.
+  Theoretical worst-case and data-dependent bounds (triangles) both
+  track the empirical barrier with a gap of $\sim\!10^3$.}
+\label{fig:vmf_barrier_scaling}
+\end{figure}
+
+\paragraph{Real-data validation.}
+We also run the vMF pipeline on a real directional-data task: predicting
+wind direction (on~$S^1$) from temperature, pressure, and humidity
+in the Jena Climate dataset~\cite{jena_climate}.
+With $K = 1$, 3 seed pairs, and $N \in \{512, 1024\}$, the aligned
+barrier decays from $0.29$ to $0.21$, consistent with the synthetic
+results.
+The data-dependent bound ($\sim\!850$--$990$) and bound-to-empirical
+ratio ($\sim\!3{,}400$--$4{,}000$) mirror the synthetic experiment,
+confirming that the vMF framework produces meaningful bounds on
+real data.
+
+%======================================================================
+\section{Conclusion}\label{sec:conclusion}
+%======================================================================
+
+We have established a general linear mode connectivity framework for
+two-layer networks with semi-convex losses
+(Theorem~\ref{thm:general}), removing the convexity assumption that
+underpins all prior theoretical guarantees.
+The framework decomposes the barrier into a loss-independent transfer
+term and a semi-convexity penalty, both vanishing with width.
+Instantiating the framework on MDNs yields a barrier of
+$O(\kappa_W\sqrt{d/N}+K/N)$ via a log-sum-exp Hessian decomposition
+that avoids the doubly-exponential dependence on $p_{\min}$.
+A second instantiation on vMF mixtures demonstrates the framework's
+generality: the exponential-family structure yields a \emph{universal}
+$\rho \le 6$ with no architectural constraints, producing clean,
+parameter-free barrier bounds.
+Experiments on synthetic $S^1$ data illustrate the framework:
+for $K = 1$, the aligned barrier decays as $\sim 1/N$
+(Figure~\ref{fig:vmf_barrier_scaling}), and the vMF worst-case bound
+is finite and width-dependent, in contrast to the MDN's
+vacuous $\sim\!10^{21}$
+(Table~\ref{tab:mdn_vmf_comparison}).
+For $K = 3$, the barrier does not yet decay at the tested widths,
+suggesting that the component-alignment quality is the practical
+bottleneck.
+A conditional head-regularity hypothesis improves the rate
+to $O(d/N + K/N)$ for both families.
+
+\paragraph{Scope of the mean-field framework.}
+Under the mean-field parameterisation, both the transfer term
+and the semi-convexity penalty vanish as $N\to\infty$
+regardless of loss convexity, so the asymptotic conclusion
+$\cB\to 0$ holds for any $\rho$-semi-convex loss with finite~$\rho$.
+The contribution of the present work is therefore not the
+asymptotic conclusion itself, but the \emph{finite-width,
+loss-specific} barrier decomposition.
+The semi-convexity constant~$\rho$ enters the bound through
+the output-interpolation inequality---a property of the loss
+function, independent of the weight distribution---and
+determines the barrier at practical widths: the semi-convexity
+penalty $\rho\cdot O(p/N)$ can dominate the transfer term
+$O(\sqrt{d/N})$ when $\rho$ is large.
+This is visible in the MDN vs.\ vMF contrast:
+$\rho_{\mathrm{MDN}} = O(\Lambda^4/s_{\min}^4)$ yields
+a vacuous bound ($\sim\!10^{21}$, Table~\ref{tab:mdn_vmf_comparison})
+at moderate widths, whereas the universal
+$\rho_{\vmf} \le 6$ gives a finite, width-dependent bound,
+a prediction confirmed experimentally
+(Figure~\ref{fig:vmf_barrier_scaling}).
+The gap between mean-field theory and practical (finite-width,
+trained) networks is shared by all works in this line, including
+ours; closing this gap remains an important open problem.
+
+\paragraph{Limitations.}
+Our theory is restricted to two-layer networks under the $1/N$
+mean-field parameterisation; extending to deeper architectures
+requires layer-wise propagation of the semi-convexity bound.
+For MDNs, the loss regularity constants
+(Proposition~\ref{prop:loss_regularity}) depend polynomially on
+$1/s_{\min}$; the practical tightness depends on the trained
+$s_{\min}$.
+The mean-field i.i.d.\ assumption (Assumption~\ref{ass:mf_law})
+is justified via propagation of chaos but becomes less accurate
+for long training horizons or narrow networks.
+The theoretical bound uses $\tau = \mathrm{id}$, which suffices
+under the common mean-field law; the Hellinger affinity criterion
+used in practice lacks a formal guarantee of minimising $\Delta_N$
+at finite~$N$.
+
+\paragraph{Future work.}
+Natural extensions include:
+(i)~multi-layer networks using iterated output-coupling,
+(ii)~further mixture-model instantiations (Poisson, Beta, Gamma
+mixtures) that share the log-sum-exp structure,
+(iii)~extension to multivariate MDNs ($y \in \R^p$, $p > 1$)
+and vMF mixtures on products of spheres,
+(iv)~a formal link between Hellinger affinity and $\Delta_N$
+minimisation, and
+(v)~validation on real directional-data benchmarks beyond synthetic $S^1$.
+
+%======================================================================
+% APPENDICES
+%======================================================================
+\clearpage
+\appendix
+
+%======================================================================
+\section{Notation Reference}\label{app:notation}
+%======================================================================
+
+Table~\ref{tab:notation} collects all notation.
+All norms $\|\cdot\|$ are Euclidean ($\ell_2$) unless noted;
+all logarithms are natural.
+\emph{Subscript conventions:}
+a numeric subscript $k$ indexes mixture components ($\pi_k, \mu_k, s_k$);
+a subscript $i$ indexes neurons ($v_i, w_i$);
+a subscript $*$ denotes an asymptotic ($N\!\to\!\infty$) limiting quantity
+($m_{2,*}, m_{\infty,*}, \mathfrak{m}_*$);
+a subscript $N$ denotes a finite-sample ($N$-neuron) empirical quantity
+($A_N, B_N, \Delta_N, \eta_N$).
+
+\begin{table}[H]
+\centering
+\caption{Complete notation reference.}\label{tab:notation}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.05}
+\begin{multicols}{2}
+\noindent
+\begin{tabular}[t]{@{}lp{4.6cm}@{}}
+\toprule
+\textbf{Symbol} & \textbf{Description} \\
+\midrule
+\addlinespace[2pt]
+\multicolumn{2}{@{}l}{\textbf{Architecture \& dimensions}} \\
+\addlinespace[1pt]
+$N \in \N$     & Network width \\
+$d \in \N$     & Input dimension \\
+$p \in \N$     & Output dimension ($3K$ for MDN, $K(1\!+\!d_y)$ for vMF) \\
+$K \in \N$     & Number of mixture components \\
+$\sigma\colon\R\!\to\!\R$ & Activation function (not to be confused with $\kappa_W$) \\
+$v_i \in \R^{p}$ & Head weight for neuron $i$ \\
+$w_i \in \R^d$    & Input weight for neuron $i$ \\
+$\theta_i\!=\!(w_i,v_i) \in \R^{d+p}$ & Full parameter for neuron $i$ \\
+$z(x) \in \R^{p}$ & Raw network output \\
+$z_\pi \in \R^K$ & Mixing-weight block (shared by all mixture losses) \\
+\addlinespace[3pt]
+\multicolumn{2}{@{}l}{\textbf{MDN-specific quantities}} \\
+\addlinespace[1pt]
+$z_\mu, z_s \in \R^K$ & Mean, log-scale blocks (MDN) \\
+$[v]_{(k)} \in \R^3$ & $k$-th component block of $v$ (MDN) \\
+$\pi_k \in [0,1]$ & Mixture weight; $\softmax(z_\pi)_k$ \\
+$\mu_k \in \R$ & Component mean; $z_{\mu,k}$ \\
+$s_k \in \R_{>0}$ & Component std.\ dev.; $e^{z_{s,k}}$ \\
+$s_{\min} \in \R_{>0}$ & Scale floor; $\min_k s_k$ (not a component) \\
+$\varphi_k \in \R_{>0}$ & Gaussian $\cN(y;\mu_k,s_k^2)$ \\
+$u_k \in \R$   & $\log(\pi_k\varphi_k)$ \\
+$\gamma_k \in [0,1]$ & Responsibility; $e^{u_k}/\!\sum_j e^{u_j}$ \\
+\addlinespace[3pt]
+\multicolumn{2}{@{}l}{\textbf{Loss \& barrier}} \\
+\addlinespace[1pt]
+$\ell(z,y) \in \R$ & Loss function (general) \\
+$\cL_{\mathrm{MDN}}(z,y)$ & MDN negative log-likelihood \\
+$\cL_{\vmf}(z,y)$ & vMF negative log-likelihood \\
+$\cE(\theta) \in \R$ & Population loss \\
+$\cB \in \R$  & Interpolation barrier \\
+$M_t \in \R^{N(p+d)}$ & Interpolated params; $(1\!-\!t)\theta_A\!+\!t\theta_B$ \\
+$z_{M_t} \in \R^{p}$ & Output along param.\ path \\
+$\hat z_t \in \R^{p}$ & Output interpolation; $(1\!-\!t)z_A\!+\!tz_B$ \\
+\addlinespace[3pt]
+\multicolumn{2}{@{}l}{\textbf{Loss-geometry constants}} \\
+\addlinespace[1pt]
+$C_L^\infty \in \R_+$ & $\ell_\infty$-Lipschitz const.\ ($\|\nabla\cL\|_1$) \\
+$\bar C_L \in \R_+$ & Data-dep.\ Lipschitz const.~\eqref{eq:CL_dd} (App.~\ref{app:data_dep_barrier}) \\
+$C_L \in \R_+$ & $\ell_2$-Lipschitz const.\ on $\cD_R$ \\
+$\rho \in \R_+$ & Semi-conv.\ const.; $\nabla^2\cL\!\succeq\!{-}\rho I$ \\
+$\rho_{\mathrm{dir}}(x,y) \in \R_+$ & Directional semi-conv.\ cost~\eqref{eq:rho_dir} (App.~\ref{app:data_dep_barrier}) \\
+$\bar\chi \in [0,1]$ & Competition mass; $\sum_k\gamma_k(1\!-\!\gamma_k)$ \\
+$Q(a) \in \R^{2\times 2}$ & Hessian building block; $\bigl(\begin{smallmatrix}1 & 2a\\2a & 2a^2\end{smallmatrix}\bigr)$ \\
+$R \in \R_+$  & Output-domain radius; $S_\sigma M_V^\infty$ \\
+$Y_{\max} \in \R_+$ & Response bound; $|y|\!\le\! Y_{\max}$ \\
+$\Lambda \in \R_+$ & $Y_{\max}+R$ \\
+$S_\sigma \in \R_+$ & Activation bound; $|\sigma|\!\le\! S_\sigma$ \\
+$L_\sigma \in \R_+$ & Activation Lipschitz const. \\
+$L_{\sigma'} \in \R_+$ & $\|\sigma''\|_\infty$; curvature const. \\
+$M_V^\infty \in \R_+$ & Per-coord.\ head moment~\eqref{eq:head_moment_inf} \\
+$\bar M_{V,N} \in \R_+$ & RMS head norm; $(\frac{1}{N}\!\sum_i\!\|P_\tau v_{B,\nperm(i)}\|^2)^{1/2}$ \\
+$M_x \in \R_+$ & Input moment bound; $\sqrt{\E_P[\|x\|^2]}$ \\
+$M_{x,4} \in \R_+$ & 4th input moment; $(\E_P[\|x\|^4])^{1/4}$ \\
+$\kappa_W \in \R_+$ & Sub-Gaussian param.\ of $\mathfrak{m}_{*,W}$ \\
+$\Sigma_x \in \R^{d\times d}$ & Input covariance; $\E_P[xx^\top]$ \\
+\bottomrule
+\end{tabular}
+
+\columnbreak
+
+\noindent
+\begin{tabular}[t]{@{}lp{4.6cm}@{}}
+\toprule
+\textbf{Symbol} & \textbf{Description} \\
+\midrule
+\addlinespace[2pt]
+\multicolumn{2}{@{}l}{\textbf{Domains \& norms}} \\
+\addlinespace[1pt]
+$\cD_R \subset \R^{p}$ & $\{z : \|z\|_\infty\!\le\! R\}$ \\
+$\cD_{R,s_{\min}} \subset \cD_R$ & additionally $\min_k e^{z_{s,k}}\!\ge\! s_{\min}$ \\
+$\|\cdot\|$ & Euclidean ($\ell_2$) norm \\
+$\|\cdot\|_\infty$ & $\ell_\infty$ norm \\
+$\|\cdot\|_{\mathrm{op}}$ & Operator (spectral) norm \\
+\addlinespace[3pt]
+\multicolumn{2}{@{}l}{\textbf{Alignment \& mismatch}} \\
+\addlinespace[1pt]
+$A, B$    & Network labels (distinct from $A_N, B_N$) \\
+$\cS_N, \cS_K$ & Symmetric groups on $N$, $K$ elts \\
+$\nperm \in \cS_N$ & Neuron perm.\ ($W$-OT) \\
+$\tau \in \cS_K$ & Component permutation \\
+$P_\tau \in \R^{p\times p}$ & Block permutation matrix \\
+$e_\pi \in \R^{p}$ & $(\mathbf{1}_K,\mathbf{0}_{p-K})$; softmax-translation dir. \\
+$\R^N_\pi$ & Softmax-translation group; Sec.~\ref{sec:symmetry} \\
+$A_N \in \R_+$ & Head-weight mismatch; $\frac{1}{N}\!\sum_i\!\|\Delta v_i\|^2$ \\
+$B_N \in \R_+$ & Input-weight mismatch; $\frac{1}{N}\!\sum_i\!\|\Delta w_i\|^2$ \\
+$\tilde B_N \in \R_+$ & $\Sigma_x$-weighted input mismatch (App.~\ref{app:additional}) \\
+$\Delta_N \in \R_+$ & Endpoint output mismatch \\
+$\Delta w_i, \Delta v_i$ & Weight-difference vectors (prefix $\Delta$) \\
+$\tilde v_i \in \R^{p}$ & Centred head weight~\eqref{eq:centred_head} \\
+$M_{\Delta \tilde V}^\infty$ & Gauge-fixed head mismatch moment~\eqref{eq:head_mismatch_inf} \\
+$\mathcal R_N(\nperm,\tau)$ & Residual head mismatch~\eqref{eq:head_residual_mismatch} \\
+$Q_N \in \R_+$ & 4th-moment input mismatch; $\frac{1}{N}\sum_i\E_P[(\Delta w_i^\top x)^4]$ \\
+\addlinespace[3pt]
+\multicolumn{2}{@{}l}{\textbf{Mean-field \& probability}} \\
+\addlinespace[1pt]
+$\mathfrak{m}_* \in \mathcal{P}(\R^{p+d})$ & Mean-field law; $\mathfrak{m}_* = \mathfrak{m}_T$ \\
+$\mathfrak{m}_{*,W} \in \mathcal{P}(\R^d)$ & $W$-marginal of $\mathfrak{m}_*$ \\
+$\mathfrak{m}_{*,U} \in \mathcal{P}(\R^d)$ & Whitened marginal of $U\!=\!\Sigma_x^{1/2}W$ (App.~\ref{app:cov_aware}) \\
+$z_*(x) \in \R^{p}$ & Limiting output \\
+$g:\R^d \to \R^{p}$ & Conditional head map in Prop.~\ref{prop:transfer_struct} \\
+$m_{2,*} \in \R_+$ & Head 2nd moment; $\int\!\|V\|^2 d\mathfrak{m}_*$ \\
+$m_{4,*} \in \R_+$ & Per-coord.\ head 4th moment \\
+$m_{\infty,*} \in \R_+$ & Per-coord.\ limiting moment; $\max_j\!\sqrt{\E[(V)_j^2]}$ \\
+$\hat\nu_W^A, \hat\nu_W^B \in \mathcal{P}(\R^d)$ & Empirical $W$-marginals \\
+$\hat\nu_U^A, \hat\nu_U^B \in \mathcal{P}(\R^d)$ & Empirical whitened marginals (App.~\ref{app:cov_aware}) \\
+$\eta_N \in \R_+$ & $\cW_2$ convergence rate; $O(\kappa_W\sqrt{d/N})$ under \ref{ass:subgauss} \\
+$d_{\Sigma} \in \R_+$ & Intrinsic dimension of the whitened law (Cor.~\ref{cor:sigma_ot}) \\
+$\varepsilon_N(\delta) \in \R_+$ & Chebyshev correction; $\sqrt{6p\,m_{4,*}/(N\delta)}$ \\
+$\cW_2$  & 2-Wasserstein distance \\
+$P$      & Data distribution over $(x,y)$ \\
+$\E_P$   & Expectation under $P$ \\
+$\E$     & Expectation over network params \\
+$\Prob$  & Probability over network params \\
+$\delta \in (0,1)$ & Failure probability (also $\delta\!\in\!\R^N$ for softmax translation in Sec.~\ref{sec:symmetry}) \\
+\addlinespace[3pt]
+\multicolumn{2}{@{}l}{\textbf{Barrier-rate constants}} \\
+\addlinespace[1pt]
+$C_{\mathrm{tr}}(\delta,N) \in \R_+$ & Transfer-term prefactor \\
+$C_{\mathrm{sc}}(\delta,N) \in \R_+$ & Semi-convexity prefactor \\
+$\hat M_V(\delta,N) \in \R_+$ & High-prob.\ head moment; $(m_{\infty,*}^2\!+\!\varepsilon_N)^{1/2}$ \\
+$\xi \in \R_+$ & Target barrier threshold \\
+\addlinespace[3pt]
+\multicolumn{2}{@{}l}{\textbf{vMF-specific quantities}} \\
+\addlinespace[1pt]
+$d_y \in \N$ & Ambient dim.\ of sphere $S^{d_y-1}$ \\
+$\eta_k \in \R^{d_y}$ & Natural parameter; $\kappa_k\mu_k$ \\
+$\kappa_k \in \R_+$ & Concentration; $\|\eta_k\|$ \\
+$\mu_k \in S^{d_y-1}$ & Mean direction \\
+$C_{d_y}(\kappa)$ & vMF normalising constant \\
+$I_\nu(\kappa)$ & Modified Bessel fn.\ of first kind \\
+$A_{d_y}(\kappa)$ & Mean resultant length; $I_{d_y/2}/I_{d_y/2-1}$ \\
+\addlinespace[3pt]
+\multicolumn{2}{@{}l}{\textbf{Asymptotic notation}} \\
+\addlinespace[1pt]
+$O(\cdot), \Omega(\cdot)$ & Standard asymptotic bounds \\
+$O_T(\cdot)$ & Const.\ depends on $T$, not $N,K$ \\
+\addlinespace[3pt]
+\multicolumn{2}{@{}l}{\textbf{Appendix-only symbols}} \\
+\addlinespace[1pt]
+$\alpha \in \R_+$ & Learning rate (App.~\ref{app:mf_sgd}) \\
+$b \in \N$ & Mini-batch size (App.~\ref{app:mf_sgd}) \\
+$s \in [0,T]$ & Training time (distinct from $s_k$) \\
+\bottomrule
+\end{tabular}
+\end{multicols}
+\vspace{-6pt}
+\end{table}
+
+
+
+
+%======================================================================
+\section{Proofs of Main Results}\label{app:proofs}
+%======================================================================
+
+\subsection{Proof of Proposition~\ref{prop:loss_regularity}}\label{sec:proof_loss_regularity}
+
+\begin{proof}
+The proof proceeds in two parts: the Lipschitz bound and the
+semi-convexity bound. Throughout, we use $s_k \ge s_{\min}$ in place of the
+crude bound $s_k \ge e^{-R}$.
+
+\paragraph{Part 1: Lipschitz bound.}
+Writing $\gamma_k$ for the responsibilities and
+$\psi_k = (y-\mu_k)^2/s_k^2$, the gradient decomposes into three
+orthogonal blocks:
+\begin{align*}
+  \partial\cL/\partial z_{\pi,k} &= -(\gamma_k - \pi_k), \\
+  \partial\cL/\partial z_{\mu,k} &= -\gamma_k (y-\mu_k)/s_k^2, \\
+  \partial\cL/\partial z_{s,k}   &= -\gamma_k(\psi_k - 1).
+\end{align*}
+Bounding each block's squared norm:
+\begin{itemize}
+  \item \textbf{$z_\pi$-block:}
+    Since $\gamma_k, \pi_k \ge 0$ for all $k$, the inner product
+    $\gamma \cdot \pi = \sum_k \gamma_k \pi_k \ge 0$, so
+    $\|\gamma - \pi\|_2^2 = \|\gamma\|_2^2 - 2\gamma\cdot\pi + \|\pi\|_2^2
+    \le \|\gamma\|_2^2 + \|\pi\|_2^2 \le \|\gamma\|_1 + \|\pi\|_1 = 2$,
+    using $\|\cdot\|_2^2 \le \|\cdot\|_1$ for probability vectors.
+    This bound does not involve $K$.
+  \item \textbf{$z_\mu$-block:}
+    $\textstyle\sum_k \gamma_k^2 (y-\mu_k)^2/s_k^4
+    \le \Lambda^2/s_{\min}^4\cdot\textstyle\sum_k \gamma_k^2
+    \le \Lambda^2/s_{\min}^4$,
+    using $\sum_k \gamma_k^2 \le \sum_k \gamma_k = 1$
+    (since $0 \le \gamma_k \le 1$ implies $\gamma_k^2 \le \gamma_k$).
+  \item \textbf{$z_s$-block:}
+    $\textstyle\sum_k \gamma_k^2(\psi_k-1)^2
+    \le (\Lambda^2/s_{\min}^2+1)^2\cdot\textstyle\sum_k\gamma_k^2
+    \le (\Lambda^2/s_{\min}^2+1)^2$.
+\end{itemize}
+Hence $\|\nabla\cL\|^2 = \sum_{k}\bigl[(\gamma_k-\pi_k)^2
++ \gamma_k^2(y-\mu_k)^2/s_k^4
++ \gamma_k^2(\psi_k-1)^2\bigr]$ satisfies
+\begin{equation}\label{eq:grad_sq_bound}
+  \|\nabla \cL\|^2
+  \le 2 + \Lambda^2/s_{\min}^4
+  + \bigl(\Lambda^2/s_{\min}^2 + 1\bigr)^2,
+\end{equation}
+and $C_L = O\!\bigl(\Lambda^2/s_{\min}^2\bigr)$.
+
+\textbf{$\ell_\infty$-Lipschitz constant.}
+For $C_L^\infty = \|\nabla\cL\|_1 = \sum_k (|\gamma_k-\pi_k|
++ \gamma_k|y-\mu_k|/s_k^2 + \gamma_k|\psi_k-1|)$, we bound each
+block's $\ell_1$ norm.
+The $z_\pi$-block: $\sum_k |\gamma_k - \pi_k| \le \sum_k(\gamma_k+\pi_k) = 2$.
+The $z_\mu$-block:
+$\sum_k \gamma_k|y-\mu_k|/s_k^2
+\le \Lambda/s_{\min}^2\sum_k \gamma_k = \Lambda/s_{\min}^2$.
+The $z_s$-block:
+$\sum_k \gamma_k|\psi_k-1|
+\le (\Lambda^2/s_{\min}^2+1)\sum_k \gamma_k
+= \Lambda^2/s_{\min}^2+1$.
+Summing gives $C_L^\infty \le 3 + \Lambda/s_{\min}^2
++ \Lambda^2/s_{\min}^2 = O\!\bigl(\Lambda^2/s_{\min}^2\bigr)$.
+
+\paragraph{Part 2: Semi-convexity bound.}
+We need $\lambda_{\min}(\nabla^2 \cL_{\mathrm{MDN}}) \ge -\rho$.
+By~\eqref{eq:hess_decomp} and Weyl's inequality:
+\begin{equation}\label{eq:weyl_split}
+  \lambda_{\min}(\nabla^2 \cL_{\mathrm{MDN}})
+  \ge \lambda_{\min}\!\Bigl(-\sum_k \gamma_k \nabla^2 u_k\Bigr)
+  - \|\mathrm{Cov}_\gamma(\nabla u_k)\|_{\mathrm{op}}.
+\end{equation}
+
+We bound each term in~\eqref{eq:weyl_split} separately.
+For the weighted Hessian $-\sum_k \gamma_k \nabla^2 u_k$,
+since $u_k = \log \pi_k + \log \varphi_k$, where $\log\pi_k$ depends
+only on $z_\pi$ and $\log\varphi_k$ depends only on $(z_{\mu,k},z_{s,k})$,
+all cross-derivatives $\partial^2 u_k/\partial z_{\pi,j}\,\partial z_{\mu,k} = 0$
+and $\partial^2 u_k/\partial z_{\pi,j}\,\partial z_{s,k} = 0$.
+Hence $\nabla^2 u_k$ is block-diagonal:
+\begin{itemize}[leftmargin=*,itemsep=0pt]
+\item \emph{$z_\pi$-block}: $(\nabla^2 u_k)_{z_\pi}
+  = \nabla^2_{z_\pi}\log\pi_k = -C_\pi$
+  where $C_\pi = \mathrm{diag}(\pi)-\pi\pi^\top$ is the softmax
+  covariance matrix (PSD since
+  $v^\top C_\pi v = \mathrm{Var}_\pi(v) \ge 0$; same for all $k$
+  because $\nabla^2_{z_\pi}\log\pi_k$ is independent of~$k$).
+  Its eigenvalues lie in $[0,1]$ (each $\pi_k(1-\pi_k) \le 1/4$).
+  Therefore $(-\sum_k\gamma_k\nabla^2 u_k)_{z_\pi} = +C_\pi \succeq 0$.
+\item \emph{$(z_{\mu,k},z_{s,k})$-block}: Direct computation gives
+  \[
+    (\nabla^2 u_k)_{(z_{\mu,k},z_{s,k})}
+    = -\frac{1}{s_k^2} Q(a_k),
+    \quad a_k \coloneqq y - \mu_k,\quad
+    Q(a) \coloneqq \begin{pmatrix} 1 & 2a \\ 2a & 2a^2 \end{pmatrix}.
+  \]
+  For $j \ne k$ the $(z_{\mu,j},z_{s,j})$-block of $\nabla^2 u_k$ is zero.
+  Hence the $(z_{\mu,j},z_{s,j})$-block of $-\sum_k\gamma_k\nabla^2 u_k$
+  equals $\dfrac{\gamma_j}{s_j^2} Q(a_j)$.
+\end{itemize}
+
+The key algebraic fact is that $\lambda_{\min}(Q(a)) \ge -1$ for all $a \in \R$.
+The characteristic polynomial gives
+$\lambda_{\min}(Q(a)) = \frac{(1+2a^2)-\sqrt{(1+2a^2)^2+8a^2}}{2}$,
+and $\lambda_{\min}(Q(a)) \ge -1$ is equivalent to
+$(3+2a^2) \ge \sqrt{(1+2a^2)^2+8a^2}$.
+Squaring (both sides positive):
+$(3+2a^2)^2 = 9+12a^2+4a^4 \ge 1+12a^2+4a^4 = (1+2a^2)^2+8a^2$.
+This reduces to $9 \ge 1$.
+
+It follows from $\lambda_{\min}(Q(a)) \ge -1$ that
+\[
+  \lambda_{\min}\!\Bigl(\frac{\gamma_j}{s_j^2} Q(a_j)\Bigr)
+  = \frac{\gamma_j}{s_j^2}\lambda_{\min}(Q(a_j))
+  \ge -\frac{\gamma_j}{s_j^2}
+  \ge -\frac{1}{s_j^2}
+  \ge -1/s_{\min}^2.
+\]
+Since the $z_\pi$-block contributes non-negatively,
+\begin{equation}\label{eq:step1_bound}
+  \lambda_{\min}\!\Bigl(-\sum_k \gamma_k \nabla^2 u_k\Bigr) \;\ge\; -1/s_{\min}^2.
+\end{equation}
+
+It remains to bound the covariance term
+$\|\mathrm{Cov}_\gamma(\nabla u_k)\|_{\mathrm{op}}$.
+Writing $g_k = \nabla u_k$, for any unit vector $\omega$:
+\begin{align*}
+  \omega^\top \mathrm{Cov}_\gamma(g)\, \omega
+  &= \mathrm{Var}_\gamma(\omega^\top g_k)
+   = \E_\gamma[(\omega^\top g_k)^2] - (\E_\gamma[\omega^\top g_k])^2
+   \le \E_\gamma[(\omega^\top g_k)^2] \\
+  &\le \E_\gamma[\|g_k\|^2]
+   \le \max_k \|g_k\|^2.
+\end{align*}
+Here the first inequality uses $\mathrm{Var}(X) \le \E[X^2]$, and the
+second uses the Cauchy--Schwarz bound $(\omega^\top g_k)^2 \le \|\omega\|^2\|g_k\|^2
+= \|g_k\|^2$. Taking the supremum over $\omega$:
+\[
+  \|\mathrm{Cov}_\gamma(g)\|_{\mathrm{op}}
+  \le \max_k \|g_k\|^2.
+\]
+Each $\|g_k\|^2 = \|\nabla u_k\|^2$ is bounded by the same
+per-component argument as in Part~1
+(where the same three blocks appear with identical bounds):
+the $z_\pi$-component contributes $\|e_k-\pi\|^2 \le 2$;
+the $z_{\mu,k}$-component contributes $(y-\mu_k)^2/s_k^4 \le \Lambda^2/s_{\min}^4$;
+the $z_{s,k}$-component contributes $(\psi_k-1)^2 \le (\Lambda^2/s_{\min}^2+1)^2$.
+Hence $\|\nabla u_k\|^2 \le G^2$ where
+$G^2 \coloneqq 2 + \Lambda^2/s_{\min}^4 + (\Lambda^2/s_{\min}^2+1)^2
+= O(\Lambda^4/s_{\min}^4)$.
+
+A tighter bound uses the pairwise-variance identity:
+\begin{equation}\label{eq:pairwise_identity}
+  \|\mathrm{Cov}_\gamma(g)\|_{\mathrm{op}}
+  \;\le\; 2\bar\chi\,\max_k\|g_k\|^2,
+  \qquad
+  \bar\chi \coloneqq \sum_k\gamma_k(1-\gamma_k)\in[0,(K{-}1)/K],
+\end{equation}
+which follows from the representation
+$\mathrm{Cov}_\gamma(g)
+= \sum_{j<k}\gamma_j\gamma_k(g_j-g_k)(g_j-g_k)^\top$
+and $\sum_{j<k}\gamma_j\gamma_k = \bar\chi/2$.
+Taking the universal bound $\bar\chi \le 1$, the covariance
+contribution is at most $2G^2$.
+
+Combining~\eqref{eq:step1_bound} and the covariance bound via~\eqref{eq:weyl_split}:
+\begin{equation}\label{eq:rho_bound}
+  \rho \;\le\; 1/s_{\min}^2 + 2G^2
+  \;=\; 1/s_{\min}^2 + 2\bigl(2 + \Lambda^2/s_{\min}^4
+  + (\Lambda^2/s_{\min}^2+1)^2\bigr).
+\end{equation}
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{prop:symmetry}
+  (Symmetry characterisation)}\label{app:proof_symmetry}
+
+We first state the genericity condition referenced in the main text.
+
+\begin{definition}[Generic position]\label{def:generic}
+Two parameter sets $\{(w_i, v_i)\}_{i=1}^N$ and
+$\{(w_i', v_i')\}_{i=1}^{N'}$ are in \emph{generic position}
+if (i)~the input weights of the \emph{union}
+$\{w_1,\ldots,w_N,w_1',\ldots,w_{N'}'\}$
+are pairwise non-proportional:
+$w \ne \alpha\, w'$ for every distinct pair $(w,w')$ in the union
+and every $\alpha \in \R$
+(this includes both within-network and cross-network pairs),
+and (ii)~the Gaussian components induced by distinct component indices
+are distinct:
+$(\mu_k(x), s_k(x)) \ne (\mu_\ell(x), s_\ell(x))$ for $k \ne \ell$
+on a set of inputs of positive $P$-measure.
+\end{definition}
+
+When the initialisation law $\mathfrak{m}_0$ is absolutely continuous
+(e.g.\ Gaussian, He, or Xavier), generic position holds almost
+surely for the i.i.d.\ draws from $\mathfrak{m}_*$:
+condition~(i) because the input weights are
+absolutely continuous, both within each network and across the two
+networks drawn independently from the same law,
+and condition~(ii) because distinct head-weight
+components produce distinct ridge-function combinations
+$P$-almost everywhere.
+
+\begin{proof}[Proof of Proposition~\ref{prop:symmetry}]
+Suppose $\{(w_i, v_i)\}_{i=1}^N$ and $\{(w_i', v_i')\}_{i=1}^{N'}$
+are in generic position and define the same conditional density
+$p(y \mid x)$ for $P$-a.e.\ $x$.
+We proceed in two stages.
+
+\medskip\noindent\textbf{Stage 1: Component permutation via Gaussian
+mixture identifiability.}
+For $P$-a.e.\ $x$, the two parameter sets produce two finite Gaussian
+mixtures with the same density:
+\[
+  \sum_{k=1}^K \pi_k(x)\,\cN(y;\,\mu_k(x),s_k(x)^2)
+  = \sum_{k=1}^K \pi_k'(x)\,\cN(y;\,\mu_k'(x),s_k'(x)^2)
+  \qquad \forall\,y.
+\]
+By the identifiability theorem for finite Gaussian
+mixtures~\cite{yakowitz1968}, the two mixtures have the same number
+of components ($K = K$) and there exists a permutation
+$\tau_x \in \cS_K$ such that
+$\pi_k(x) = \pi_{\tau_x(k)}'(x)$,
+$\mu_k(x) = \mu_{\tau_x(k)}'(x)$,
+$s_k(x) = s_{\tau_x(k)}'(x)$.
+Since the generic-position assumption ensures that the Gaussian
+component functions $(\mu_k(\cdot), s_k(\cdot))$ are distinct as
+functions of $x$, the permutation $\tau_x$ is independent of $x$;
+call it $\tau \in \cS_K$.
+Hence, for each component index $k$ and $P$-a.e.\ $x$:
+\begin{equation}\label{eq:component_match}
+  \mu_k(x) = \mu_{\tau(k)}'(x), \qquad
+  s_k(x) = s_{\tau(k)}'(x), \qquad
+  \pi_k(x) = \pi_{\tau(k)}'(x).
+\end{equation}
+
+\medskip\noindent\textbf{Stage 2: Neuron matching via ridge-function
+linear independence.}
+The $\mu$ and $\log s$ equalities in~\eqref{eq:component_match}
+give, for each component $k$:
+\[
+  \frac{1}{N}\sum_{i=1}^N (v_i)_{\mu,k}\,\sigma(w_i^\top x)
+  = \frac{1}{N'}\sum_{i=1}^{N'} (v_i')_{\mu,\tau(k)}\,\sigma(w_i'{}^\top x)
+  \qquad P\text{-a.e.}
+\]
+(and analogously for the $\log s$ block).
+Combining all $2K$ such equalities (over both $\mu$ and $\log s$
+blocks) yields a linear relation among the ridge functions
+$\{\sigma(w_i^\top \cdot)\}_{i=1}^N \cup
+\{\sigma(w_j'{}^\top \cdot)\}_{j=1}^{N'}$.
+Since $\sigma$ is continuous and non-polynomial (bounded polynomials
+on $\R$ are constant) and $d \ge 2$, the ridge-function
+linear-independence theorem~\cite{pinkus1999} implies that functions
+$\sigma(w^\top x)$ with pairwise non-proportional weight vectors are
+linearly independent over $L^2(P)$.
+By the pairwise non-proportionality in the generic-position
+assumption, the only way the relation can hold is if $N' = N$ and
+there exists a permutation $\nperm \in \cS_N$ with
+$w_i' = w_{\nperm(i)}$
+and the head-weight coordinates in the $\mu$ and $\log s$ blocks
+satisfy
+$(v_i')_{\mu,\tau(k)} = (v_{\nperm(i)})_{\mu,k}$,
+$(v_i')_{s,\tau(k)} = (v_{\nperm(i)})_{s,k}$
+for all $i, k$.
+
+It remains to determine the $\pi$-block.
+The equality $\pi_k(x) = \pi_{\tau(k)}'(x)$ means
+\[
+  \mathrm{softmax}\!\Bigl(
+    \frac{1}{N}\sum_i (v_i)_{\pi}\,\sigma(w_i^\top x)
+  \Bigr)_k
+  = \mathrm{softmax}\!\Bigl(
+    \frac{1}{N}\sum_i (v_i')_{\pi}\,\sigma(w_{\nperm(i)}^\top x)
+  \Bigr)_{\tau(k)}.
+\]
+Since softmax is injective up to a common additive
+constant~\cite{luce1959}, the $\pi$-logit vectors satisfy
+\[
+  \frac{1}{N}\sum_i (v_i)_{\pi,k}\,\sigma(w_i^\top x)
+  = \frac{1}{N}\sum_i (v_i')_{\pi,\tau(k)}\,\sigma(w_{\nperm(i)}^\top x)
+  + c(x)
+  \qquad \forall\,k,
+\]
+where $c(x)$ is the same for all $k$.
+Applying ridge-function linear independence once more gives
+$(v_i')_{\pi,\tau(k)} = (v_{\nperm(i)})_{\pi,k} + \delta_{\nperm(i)}$
+for some constants $\delta_{\nperm(i)} \in \R$ independent of $k$.
+Assembling all three blocks, $v_i' = P_\tau v_{\nperm(i)}
++ \delta_{\nperm(i)}\,e_\pi$.
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{prop:barrier_neutrality}
+  (Barrier neutrality)}\label{app:proof_neutrality}
+
+\begin{proof}
+The interpolated head weights are
+$v_i^{t'} = (1-t)\,v_i^A + t\,(v_i^B + \delta_i\,e_\pi)
+= v_i^t + t\,\delta_i\,e_\pi$,
+while $w_i^{t'} = w_i^t$.
+Hence the $\pi$-logits satisfy
+\[
+  z_\pi^{t'}(x)
+  = z_\pi^t(x)
+    + t\,\underbrace{\frac{1}{N}\sum_{i=1}^N
+      \delta_i\,\sigma(w_i^{t\top} x)}_{h(x)}
+    \cdot\mathbf{1}_K.
+\]
+Because $h(x)\cdot\mathbf{1}_K$ is a common-mode shift,
+$\mathrm{softmax}(z_\pi^{t'}) = \mathrm{softmax}(z_\pi^t)$,
+so the mixing weights coincide at every $t$.
+The $\mu$ and $\log s$ components are unchanged.
+Therefore the conditional density---and hence the loss---is identical
+along the two paths.
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{prop:transfer}}\label{sec:transfer}
+\begin{proof}
+Let $w_i(t) = (1-t)w_{A,i} + tw_{B,\nperm(i)}$ and set
+$\Delta w_i = w_{A,i} - w_{B,\nperm(i)}$.  The key decomposition is
+\begin{align*}
+  z_{M_t}(x) - \hat z_t(x)
+  &= \frac{1}{N}\sum_i \Bigl[
+    (1-t)v_{A,i}\bigl(\sigma(w_i(t)^\top x) - \sigma(w_{A,i}^{\top}x)\bigr) \\
+  &\qquad\qquad
+    + tP_\tau v_{B,\nperm(i)}\bigl(\sigma(w_i(t)^\top x)
+      - \sigma(w_{B,\nperm(i)}^{\top}x)\bigr)
+  \Bigr].
+\end{align*}
+Since $w_i(t) - w_{A,i} = -t\Delta w_i$ and
+$w_i(t) - w_{B,\nperm(i)} = (1-t)\Delta w_i$, the Lipschitz bound on
+$\sigma$ (Assumption~\ref{ass:activ}) gives
+\[
+  |\sigma(w_i(t)^\top x) - \sigma(w_{A,i}^{\top}x)|
+  \le L_\sigma t\,|\Delta w_i^\top x|, \quad
+  |\sigma(w_i(t)^\top x) - \sigma(w_{B,\nperm(i)}^{\top}x)|
+  \le L_\sigma(1-t)\,|\Delta w_i^\top x|.
+\]
+Taking the $\ell_\infty$ norm coordinate-by-coordinate: for each
+coordinate~$j$,
+\[
+  |(z_{M_t}(x) - \hat z_t(x))_j|
+  \le \frac{t(1-t)L_\sigma}{N}
+    \sum_i \bigl(|(v_{A,i})_j| + |(P_\tau v_{B,\nperm(i)})_j|\bigr)|\Delta w_i^\top x|.
+\]
+Applying Cauchy--Schwarz twice ($|\Delta w_i^\top x| \le \|\Delta w_i\|\,\|x\|$,
+then over~$i$):
+\[
+  \frac{1}{N}\sum_i |(v_{A,i})_j|\,|\Delta w_i^\top x|
+  \le \|x\|\Bigl(\frac{1}{N}\sum_i (v_{A,i})_j^2\Bigr)^{1/2}
+    \Bigl(\frac{1}{N}\sum_i\|\Delta w_i\|^2\Bigr)^{1/2}
+  \le M_V^\infty\,\|x\|\sqrt{B_N},
+\]
+using~\eqref{eq:head_moment_inf}.
+The same bound holds for the $P_\tau v_{B,\nperm(i)}$ term, giving
+\[
+  \|z_{M_t}(x) - \hat z_t(x)\|_\infty
+  \le 2t(1-t)\,L_\sigma M_V^\infty\,\|x\|\sqrt{B_N}.
+\]
+Squaring, taking $\E_P$ (using $\E_P[\|x\|^2] \le M_x^2$),
+and $\sup_t 4t^2(1-t)^2 = 1/4$, yields~\eqref{eq:transfer}.
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{prop:transfer_refined}}
+\label{sec:proof_transfer_refined}
+
+\begin{proof}
+We use the following \emph{exact} decomposition of the transfer gap.
+Writing $v_i(t) = (1-t)v_{A,i} + tP_\tau v_{B,\nperm(i)}$,
+$\Delta v_i = v_{A,i} - P_\tau v_{B,\nperm(i)}$,
+and $\Delta\sigma_i(x) = \sigma(w_{B,\nperm(i)}^\top x)
+- \sigma(w_{A,i}^\top x)$, one verifies algebraically that
+\begin{equation}\label{eq:exact_decomp}
+  z_{M_t}(x) - \hat z_t(x)
+  = \frac{1}{N}\sum_{i=1}^N \Bigl[
+    v_i(t)\,\mathcal{C}_i(x,t)
+    + t(1-t)\,\Delta v_i\,\Delta\sigma_i(x)
+  \Bigr],
+\end{equation}
+where
+\[
+  \mathcal{C}_i(x,t) \;\coloneqq\;
+  \sigma(w_i(t)^\top x)
+  - \bigl[(1-t)\sigma(w_{A,i}^\top x) + t\sigma(w_{B,\nperm(i)}^\top x)\bigr]
+\]
+is the \emph{curvature gap} of $\sigma$ at the interpolated point.
+For linear $\sigma$, $\mathcal{C}_i \equiv 0$ and only the cross-term remains.
+
+\paragraph{Cross-term.}
+By the Lipschitz bound (Assumption~\ref{ass:activ}\,(ii)),
+$|\Delta\sigma_i(x)| \le L_\sigma |\Delta w_i^\top x|$.
+For each coordinate~$j$:
+\[
+  \Bigl|\frac{1}{N}\sum_i (\Delta v_i)_j \Delta\sigma_i(x)\Bigr|
+  \le \frac{L_\sigma}{N}\sum_i |(\Delta v_i)_j|\,|\Delta w_i^\top x|
+  \le L_\sigma\,M_{\Delta \tilde V}^\infty\,\sqrt{\tilde B_N(x)},
+\]
+by Cauchy--Schwarz with~\eqref{eq:head_mismatch_inf}.
+Squaring, taking $\E_P$, and using $\E_P[\tilde B_N(x)] = \tilde B_N$
+gives the cross-term contribution
+$t(1-t) L_\sigma M_{\Delta \tilde V}^\infty \sqrt{\tilde B_N}$.
+
+\paragraph{Curvature term.}
+Since $\sigma \in C^2$ (Assumption~\ref{ass:activ}\,(iii)),
+the convexity-gap bound gives
+\[
+  |\mathcal{C}_i(x,t)|
+  \;\le\; \tfrac{1}{2}\,L_{\sigma'}\,t(1-t)\,(\Delta w_i^\top x)^2.
+\]
+(This follows from writing $\mathcal{C}_i$ as
+$t[\sigma(w_i(t)^\top x) - \sigma(w_{B}^\top x)]
++ (1-t)[\sigma(w_i(t)^\top x) - \sigma(w_{A}^\top x)]$
+and applying the $C^2$ mean-value remainder to each bracket.)
+For each coordinate~$j$:
+\[
+  \Bigl|\frac{1}{N}\sum_i (v_i(t))_j\,\mathcal{C}_i(x,t)\Bigr|
+  \le \frac{L_{\sigma'}}{2}\,t(1-t)\,
+  \frac{1}{N}\sum_i |(v_i(t))_j|\,(\Delta w_i^\top x)^2.
+\]
+Applying Cauchy--Schwarz over~$i$:
+\[
+  \frac{1}{N}\sum_i |(v_i(t))_j|\,(\Delta w_i^\top x)^2
+  \le M_V^\infty\,\sqrt{Q_N(x)},
+\]
+where
+$Q_N(x) = \frac{1}{N}\sum_i (\Delta w_i^\top x)^4$.
+Taking $\E_P$ of $Q_N(x)$ gives
+$Q_N = \frac{1}{N}\sum_i \E_P[(\Delta w_i^\top x)^4]$,
+using the fourth-moment condition $\E_P[\|x\|^4] \le M_{x,4}^4$.
+
+\paragraph{Assembly.}
+Combining both terms in~\eqref{eq:exact_decomp},
+taking the $\ell_\infty$ norm, squaring, and taking $\E_P$:
+\[
+  \bigl(\E_P[\|z_{M_t} - \hat z_t\|_\infty^2]\bigr)^{1/2}
+  \le t(1-t)\bigl[
+    L_\sigma\,M_{\Delta \tilde V}^\infty\sqrt{\tilde B_N}
+    + \tfrac{1}{2}\,L_{\sigma'}\,M_V^\infty\sqrt{Q_N}
+  \bigr].
+\]
+Since $\sup_t t(1-t) = 1/4$,
+this yields~\eqref{eq:transfer_refined}.
+\end{proof}
+
+\subsection{Proof of Corollary~\ref{cor:sigma_ot}}
+\begin{proof}
+By definition of~\eqref{eq:OT_perm_sigma},
+\[
+  \tilde B_N
+  = \frac{1}{N}\sum_{i=1}^N
+    \bigl\|\Sigma_x^{1/2}(w_{A,i} - w_{B,\nperm_{\Sigma}(i)})\bigr\|^2
+  = \frac{1}{N}\sum_{i=1}^N
+    \|u_{A,i} - u_{B,\nperm_{\Sigma}(i)}\|^2,
+\]
+where $u_{X,i} = \Sigma_x^{1/2} w_{X,i}$.
+This is precisely the empirical $\cW_2^2$ cost between
+$\hat\nu_U^A$ and $\hat\nu_U^B$, so $\nperm_{\Sigma}$ minimises
+$\tilde B_N$ among all hidden permutations.
+The refined barrier bounds in this appendix depend on the hidden
+alignment through $\tilde B_N$
+(Propositions~\ref{prop:transfer_refined} and~\ref{prop:dir_barrier}),
+so any high-probability rate for the whitened empirical measures
+substitutes directly for the Euclidean $W$-marginal rate.
+(The main-body bounds use $B_N$, for which
+$\tilde B_N \le \lambda_{\max}(\Sigma_x)\,B_N$.)
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{prop:transfer_struct}}
+\begin{proof}
+For each coordinate $j$,
+\[
+  \bigl(\tilde v_{A,i} - P_\tau \tilde v_{B,\nperm(i)}\bigr)_j
+  =
+  \bigl(g_j(w_{A,i}) - g_j(w_{B,\nperm(i)})\bigr)
+  + \bigl(r_{A,i} - P_\tau r_{B,\nperm(i)}\bigr)_j.
+\]
+Taking the empirical $L^2$ norm over $i$ and applying Minkowski's
+inequality gives
+\[
+  \Bigl(
+    \frac{1}{N}\sum_{i=1}^N
+    \bigl(\tilde v_{A,i} - P_\tau \tilde v_{B,\nperm(i)}\bigr)_j^2
+  \Bigr)^{1/2}
+  \le
+  \Bigl(
+    \frac{1}{N}\sum_{i=1}^N
+    \bigl(g_j(w_{A,i}) - g_j(w_{B,\nperm(i)})\bigr)^2
+  \Bigr)^{1/2}
+  + \mathcal R_N(\nperm,\tau).
+\]
+Maximising over $j$ and using the Lipschitz condition
+~\eqref{eq:head_reg_lip},
+\[
+  M_{\Delta \tilde V}^\infty
+  \le
+  L_g \Bigl(\frac{1}{N}\sum_{i=1}^N
+    \|w_{A,i} - w_{B,\nperm(i)}\|^2\Bigr)^{1/2}
+  + \mathcal R_N(\nperm,\tau)
+  = L_g \sqrt{B_N} + \mathcal R_N(\nperm,\tau),
+\]
+which is~\eqref{eq:head_mismatch_struct}.
+Substituting into Proposition~\ref{prop:transfer_refined}
+(Appendix~\ref{app:refined_coupling}),
+the transfer term becomes
+$O(L_\sigma(L_g\sqrt{B_N}+\mathcal R_N)\sqrt{\tilde B_N}
++ L_{\sigma'} M_V^\infty \sqrt{Q_N})$,
+with $\tilde B_N \le \lambda_{\max}(\Sigma_x) B_N$.
+If $\mathcal R_N(\nperm,\tau) = O(\sqrt{B_N})$ and
+$Q_N = O(B_N^2)$, both terms are $O(B_N)$, proving the claim.
+\end{proof}
+
+\subsection{Proofs of Theorems~\ref{thm:general} and~\ref{thm:main}}\label{sec:proof_main}
+
+Both proofs use two auxiliary lemmas
+(domain containment and endpoint-mismatch control)
+together with Proposition~\ref{prop:transfer}.
+
+\begin{lemma}[Path-domain containment]\label{lem:auto_path_domain}
+Under Assumptions~\ref{ass:arch} and~\ref{ass:activ},
+let $M_V^\infty$ be the per-coordinate head moment~\eqref{eq:head_moment_inf}
+and set $R = S_\sigma M_V^\infty$.
+Then
+$\|z_A(x)\|_\infty,\;\|P_\tau z_B(x)\|_\infty,\;
+\|z_{M_t}(x)\|_\infty,\;\|\hat z_t(x)\|_\infty \le R$ for all
+$x$, $t \in [0,1]$, and $(\nperm, \tau) \in \cS_N \times \cS_K$.
+\end{lemma}
+\begin{proof}
+For any output $z(x) = \frac{1}{N}\sum_i v_i \sigma(w_i^\top x)$ with
+$v_i \in \R^{p}$, each output coordinate $j$ satisfies
+\[
+  |z_j(x)|
+  = \Bigl|\frac{1}{N}\sum_i (v_i)_j\,\sigma(w_i^\top x)\Bigr|
+  \le S_\sigma\,\frac{1}{N}\sum_i |(v_i)_j|
+  \le S_\sigma\!\Bigl(\frac{1}{N}\sum_i (v_i)_j^2\Bigr)^{\!1/2}
+  \le S_\sigma M_V^\infty,
+\]
+using $|\sigma|\le S_\sigma$, Jensen's inequality
+$(\frac{1}{N}\sum_i |a_i|)^2 \le \frac{1}{N}\sum_i a_i^2$
+(concavity of $\sqrt{\cdot}$ applied to the empirical mean), and the definition of
+$M_V^\infty$~\eqref{eq:head_moment_inf}.
+Hence $\|z(x)\|_\infty \le S_\sigma M_V^\infty = R$.
+
+Applying this to $v_i = v_{A,i}$ gives $\|z_A(x)\|_\infty \le R$;
+to $v_i = P_\tau v_{B,\nperm(i)}$ gives $\|P_\tau z_B(x)\|_\infty \le R$.
+For the interpolated network, the time-dependent weights
+$v_i(t) = (1-t)v_{A,i} + tP_\tau v_{B,\nperm(i)}$ satisfy
+$\max_j \frac{1}{N}\sum_i (v_i(t))_j^2 \le (M_V^\infty)^2$ by convexity
+of $(\cdot)^2$ and~\eqref{eq:head_moment_inf}, giving
+$\|z_{M_t}(x)\|_\infty \le R$.
+Finally, $\hat z_t(x) = (1-t)z_A(x)+tP_\tau z_B(x)$ satisfies
+$\|\hat z_t(x)\|_\infty \le (1-t)\|z_A(x)\|_\infty+t\|P_\tau z_B(x)\|_\infty
+\le R$ by convexity of $\cD_R$ (an $\ell^\infty$ ball is convex).
+\end{proof}
+
+\begin{lemma}[Endpoint output mismatch]\label{lem:delta_control}
+The endpoint mismatch
+$\Delta_N = \E_P[\|z_A(x) - P_\tau z_B(x)\|^2]$ satisfies
+\[
+  \Delta_N \;\le\; 2 S_\sigma^2 A_N
+  + 2 L_\sigma^2 M_x^2 \bar M_{V,N}^2 B_N,
+\]
+where $A_N = \frac{1}{N}\sum_i \|v_{A,i} - P_\tau v_{B,\nperm(i)}\|^2$
+and $\bar M_{V,N}^2 = \frac{1}{N}\sum_i \|P_\tau v_{B,\nperm(i)}\|^2$.
+\end{lemma}
+\begin{proof}
+Write
+$z_A(x) - P_\tau z_B(x)
+= \frac{1}{N}\sum_i [v_{A,i} \sigma(w_{A,i}^\top x)
+- P_\tau v_{B,\nperm(i)} \sigma(w_{B,\nperm(i)}^\top x)]$.
+Add and subtract $P_\tau v_{B,\nperm(i)} \sigma(w_{A,i}^\top x)$:
+\[
+  z_A - P_\tau z_B
+  = \frac{1}{N}\sum_i \Delta v_i \cdot \sigma(w_{A,i}^\top x)
+  + \frac{1}{N}\sum_i P_\tau v_{B,\nperm(i)}
+  [\sigma(w_{A,i}^\top x) - \sigma(w_{B,\nperm(i)}^\top x)],
+\]
+where $\Delta v_i = v_{A,i} - P_\tau v_{B,\nperm(i)}$. Taking the squared
+$\ell^2$ norm (using $(a+b)^2 \le 2a^2 + 2b^2$) and applying
+Cauchy--Schwarz over $i$: the first term gives
+$\le S_\sigma^2 \cdot \frac{1}{N}\sum_i \|\Delta v_i\|^2 = S_\sigma^2 A_N$;
+the second term gives (using Lipschitz continuity of $\sigma$)
+$\le L_\sigma^2 \|x\|^2 (\frac{1}{N}\sum_i \|P_\tau v_{B,\nperm(i)}\|^2)
+(\frac{1}{N}\sum_i \|\Delta w_i\|^2)
+\le L_\sigma^2 \|x\|^2 \bar M_{V,N}^2 B_N$.
+Taking expectations (using $\E_P\|x\|^2 \le M_x^2$) and the factor of~2:
+\begin{equation}\label{eq:delta_bound}
+  \Delta_N \le 2 S_\sigma^2 A_N
+  + 2 L_\sigma^2 M_x^2 \bar M_{V,N}^2 B_N.
+\end{equation}
+\end{proof}
+
+\begin{proof}[Proof of Theorem~\ref{thm:general}]
+By Lemma~\ref{lem:auto_path_domain}, all outputs
+$z_A$, $P_\tau z_B$, $z_{M_t}$, $\hat z_t$ lie in $\cD_R$.
+Proposition~\ref{prop:transfer} gives
+$(\E_P[\|z_{M_t} - \hat z_t\|_\infty^2])^{1/2}
+\le \tfrac{1}{2} L_\sigma M_V^\infty M_x \sqrt{B_N}$.
+Since $\ell$ is $C_L^\infty$-Lipschitz on $\cD_R$:
+\[
+  \E_P[\ell(z_{M_t}, y)]
+  \le \E_P[\ell(\hat z_t, y)]
+  + \tfrac{1}{2}\,C_L^\infty L_\sigma M_V^\infty M_x \sqrt{B_N}.
+\]
+Since $\ell$ is $\rho$-semi-convex on $\cD_R$
+and $\hat z_t = (1-t)z_A + tP_\tau z_B$ with both endpoints in $\cD_R$:
+\[
+  \ell(\hat z_t, y)
+  \le (1-t)\,\ell(z_A, y) + t\,\ell(P_\tau z_B, y)
+  + \tfrac{\rho}{2}\,t(1-t)\,\|z_A - P_\tau z_B\|^2.
+\]
+Component permutation invariance gives
+$\ell(P_\tau z_B, y) = \ell(z_B, y)$.
+Combining and taking expectations yields~\eqref{eq:general_bound}
+after $\sup_t t(1-t) = 1/4$.
+\end{proof}
+
+\begin{proof}[Proof of Theorem~\ref{thm:main}]
+Theorem~\ref{thm:main} is the instantiation of
+Theorem~\ref{thm:general} with $\ell = \cL_{\mathrm{MDN}}$,
+$p = 3K$, and the constants from
+Proposition~\ref{prop:loss_regularity}.
+The only additional detail is the scale-floor clamp: by
+Assumption~\ref{ass:arch}, the log-standard-deviation outputs are
+clamped to $z_{s,k} \ge \log s_{\min}$, ensuring
+$s_k \ge s_{\min}$ for all outputs including interpolated ones.
+Proposition~\ref{prop:transfer} applied with the given $M_V^\infty$
+and $B_N$ gives the output approximation
+\[
+  \sup_t \bigl(\E_P[\|z_{M_t} - \hat z_t\|_\infty^2]\bigr)^{1/2}
+  \le \tfrac{1}{2}\,L_\sigma M_V^\infty M_x \sqrt{B_N}.
+\]
+Next, by Lemma~\ref{lem:auto_path_domain} both $z_{M_t}(x)$ and
+$\hat z_t(x)$ lie in $\cD_R$ for all $t, x$.
+By the architectural clamp (Assumption~\ref{ass:arch}), both
+clamped outputs satisfy $s_k \ge s_{\min}$; since $\hat z_t$ is a convex
+combination of clamped endpoint outputs, $(\hat z_t)_{s,k} \ge
+\log s_{\min}$ and the clamp does not activate on $\hat z_t$.
+For the segment from the clamped $z_{M_t}$ to $\hat z_t$:
+all points lie in $\cD_R$ (convexity) with $s_k \ge s_{\min}$
+(the set $\{z : z_{s,k} \ge \log s_{\min}\}$ is convex),
+so the $\ell_\infty$-Lipschitz bound of
+Proposition~\ref{prop:loss_regularity} applies.
+Moreover, the clamp is $1$-Lipschitz
+($|\!\max(a,c)-\max(b,c)| \le |a-b|$), so the transfer gap
+satisfies $\|\tilde z_{M_t} - \hat z_t\|_\infty
+\le \|z_{M_t} - \hat z_t\|_\infty$
+(where $\tilde z_{M_t}$ denotes the clamped interpolated-network
+output).  Hence:
+\[
+  \E_P[\cL_{\mathrm{MDN}}(z_{M_t}, y)]
+  \le \E_P[\cL_{\mathrm{MDN}}(\hat z_t, y)]
+  + \tfrac{1}{2}\,C_L^\infty L_\sigma M_V^\infty M_x \sqrt{B_N}.
+\]
+We now apply the semi-convexity bound (Proposition~\ref{prop:loss_regularity})
+to the output interpolation $\hat z_t$.
+By Lemma~\ref{lem:auto_path_domain}, both endpoints
+$z_A(x), P_\tau z_B(x) \in \cD_R$ for all $x$;
+since $\cD_R$ is convex, the interpolant
+$\hat z_t(x) = (1-t)z_A(x) + tP_\tau z_B(x) \in \cD_R$
+as well, so Proposition~\ref{prop:loss_regularity} applies on $\cD_R$ with
+$z_1 = z_A(x)$, $z_2 = P_\tau z_B(x)$:
+\[
+  \cL_{\mathrm{MDN}}(\hat z_t, y)
+  \le (1-t)\,\cL_{\mathrm{MDN}}(z_A, y)
+  + t\,\cL_{\mathrm{MDN}}(P_\tau z_B, y)
+  + \frac{\rho}{2}\,t(1-t)\,\|z_A - P_\tau z_B\|^2.
+\]
+Finally, component permutation invariance
+$\cL_{\mathrm{MDN}}(P_\tau z_B, y) = \cL_{\mathrm{MDN}}(z_B, y)$
+(Section~\ref{sec:mdn})
+allows us to combine these bounds;
+taking expectations yields~\eqref{eq:main_bound}.
+\end{proof}
+
+\begin{proof}[Proof of Proposition~\ref{prop:dir_barrier}]
+\textbf{Transfer step (data-dependent).}
+By the mean value theorem, for each $x$:
+\[
+  \cL(z_{M_t}, y) - \cL(\hat z_t, y)
+  = \nabla_z \cL(\tilde z_t, y)^\top (z_{M_t} - \hat z_t),
+\]
+where $\tilde z_t(x)$ lies on the segment $[z_{M_t}(x), \hat z_t(x)]$.
+Hence
+$|\cL(z_{M_t}, y) - \cL(\hat z_t, y)|
+\le \|\nabla_z \cL(\tilde z_t, y)\|_1\,\|z_{M_t} - \hat z_t\|_\infty$.
+Taking $\E_P$ and applying Cauchy--Schwarz:
+\[
+  \E_P[\cL(z_{M_t}, y) - \cL(\hat z_t, y)]
+  \le \sqrt{\E_P\!\bigl[\|\nabla_z \cL(\tilde z_t, y)\|_1^2\bigr]}
+  \;\cdot\;
+  \sqrt{\E_P\!\bigl[\|z_{M_t} - \hat z_t\|_\infty^2\bigr]}.
+\]
+By the same decomposition as in the proof of
+Proposition~\ref{prop:transfer}, retaining the directional bound
+$|\Delta w_i^\top x|$ (rather than $\|\Delta w_i\|\|x\|$) and
+using $\E_P[(\Delta w_i^\top x)^2] = \Delta w_i^\top \Sigma_x\,\Delta w_i$,
+the second factor is bounded by
+$\tfrac{1}{2}\,L_\sigma M_V^\infty \sqrt{\tilde B_N}$.
+Taking $\sup_t$ and using~\eqref{eq:CL_dd}:
+\[
+  \sup_t\;\E_P[\cL(z_{M_t}, y) - \cL(\hat z_t, y)]
+  \;\le\; \tfrac{1}{2}\,\bar C_L\, L_\sigma M_V^\infty \sqrt{\tilde B_N}.
+\]
+
+\textbf{Semi-convexity step (directional).}
+For the semi-convexity step,
+write $\Delta z = z_A(x) - P_\tau z_B(x)$ and
+$H(t,x,y) = \nabla^2_z \ell(\hat z_t(x),y)$.
+By a second-order Taylor expansion with integral remainder,
+the pointwise convexity deficit is
+\[
+  \cL(\hat z_t, y)
+  - (1-t)\cL(z_A, y) - t\cL(z_B, y)
+  = -\frac{t(1-t)}{2}\,
+    \Delta z^\top H(\xi_t, x, y)\,\Delta z
+\]
+for some $\xi_t \in [0,1]$
+(here we use the fact that $\hat z_t$ is a linear interpolation and
+$\cL$ is $C^2$ on $\cD_R$).
+Bounding the right-hand side from above:
+\[
+  -\Delta z^\top H(\xi_t)\,\Delta z
+  \;\le\;
+  \Delta z^\top (-H(\xi_t))_+ \,\Delta z
+  \;\le\;
+  \sup_{t'} \Delta z^\top (-H(t'))_+\, \Delta z
+  = \rho_{\mathrm{dir}}(x,y).
+\]
+Hence
+$\cL(\hat z_t, y)
+\le (1-t)\cL(z_A, y) + t\cL(z_B, y)
+  + \frac{t(1-t)}{2}\,\rho_{\mathrm{dir}}(x,y)$.
+Taking $\E_P$, then $\sup_t t(1-t) = 1/4$,
+yields~\eqref{eq:dir_bound}.
+\end{proof}
+
+\subsection{Proof of Theorem~\ref{thm:hp}}
+\begin{proof}
+The neuron permutation $\nperm$ is the $W$-OT coupling~\eqref{eq:OT_perm},
+defined deterministically.
+The component permutation is set to $\tau = \mathrm{id}$
+for the theoretical bound; this is justified because both networks
+share the same mean-field law~$\mathfrak{m}_*$, so the expected
+output $z_*(x)$ is identical for both, and the identity permutation
+already makes $\E[\Delta_N] = O(1/N)$ (see Event~3 below).
+In practice, a Hellinger-affinity matching
+(Section~\ref{sec:algorithm}) can further reduce $\Delta_N$
+for finite $N$, but the theoretical rate does not require it.
+
+\textbf{Probability budget.}
+We allocate the failure probability $\delta$ across three events,
+each allowed failure probability $\delta/3$, and apply a union bound.
+
+\textbf{Event 1 ($\Omega_N$): $W$-marginal convergence.}
+Define
+\begin{align}\label{eq:event_def}
+  \Omega_{N}^{W,A}
+    &:= \bigl\{\cW_2(\hat\nu_W^A,\mathfrak{m}_{*,W}) \le \eta_N\bigr\},
+    \notag\\
+  \Omega_{N}^{W,B}
+    &:= \bigl\{\cW_2(\hat\nu_W^B,\mathfrak{m}_{*,W}) \le \eta_N\bigr\},
+\end{align}
+and $\Omega_N := \Omega_N^{W,A} \cap \Omega_N^{W,B}$.
+By hypothesis,
+$\Prob(\cW_2(\hat\nu_W^X,\mathfrak{m}_{*,W}) > \eta_N) \le \delta/6$
+for each network $X$.
+By a union bound over the two networks,
+$\Pr(\Omega_N^c) \le \delta/3$.
+
+On $\Omega_N$, by the $W$-OT definition and triangle inequality:
+\begin{equation}\label{eq:W_OT_rate}
+  B_N = \cW_2^2(\hat\nu_W^A,\hat\nu_W^B)
+  \le \bigl(\cW_2(\hat\nu_W^A,\mathfrak{m}_{*,W})
+           +\cW_2(\hat\nu_W^B,\mathfrak{m}_{*,W})\bigr)^2
+  \le 4\eta_N^2.
+\end{equation}
+
+\textbf{Event 2 ($E_V$): per-coordinate head-moment control.}
+We bound $(M_V^\infty)^2 = \max_j \frac{1}{N}\sum_i (v_i)_j^2$
+directly, coordinate by coordinate.
+For each network $X \in \{A,B\}$ and coordinate $j \in \{1,\ldots,p\}$,
+the sample mean $\bar{S}_{X,j} \coloneqq \frac{1}{N}\sum_{i=1}^N (v_{X,i})_j^2$
+has expectation $\E[\bar{S}_{X,j}] = \E_{\mathfrak{m}_*}[(V)_j^2]
+\le m_{\infty,*}^2$ and variance
+$\mathrm{Var}(\bar{S}_{X,j}) \le m_{4,*}/N$
+(since $\mathrm{Var}(Z^2) \le \E[Z^4]$ for any $Z$).
+By Chebyshev's inequality,
+$\Pr\!\bigl(\bar{S}_{X,j} > m_{\infty,*}^2 + t\bigr)
+\le m_{4,*}/(Nt^2)$.
+Setting $t$ so that the right-hand side equals $\delta/(6p)$
+(to allow a union bound over $2$ networks $\times$ $p$ coordinates),
+we need $t = \sqrt{6p\,m_{4,*}/(N\delta)}$.
+Define $\varepsilon_N(\delta) \coloneqq \sqrt{6p\,m_{4,*}/(N\delta)}$ and
+$E_V \coloneqq \bigl\{(M_{V,X}^\infty)^2 \le m_{\infty,*}^2 + \varepsilon_N(\delta)
+\;\;\forall\, X \in \{A,B\}\bigr\}$.
+By the union bound over $2p$ events,
+$\Pr(E_V^c) \le \delta/3$.
+On $E_V$, $(M_V^\infty)^2 \le m_{\infty,*}^2 + \varepsilon_N(\delta)$,
+and as $N \to \infty$, $\varepsilon_N(\delta) \to 0$, so
+$(M_V^\infty)^2 \to m_{\infty,*}^2$ at the SLLN rate---without the
+crude $\ell_2$-to-$\ell_\infty$ relaxation of the Markov approach.
+
+\textbf{Mean-field CLT bound.}
+Under the common mean-field law $\mathfrak{m}_*$
+(Assumption~\ref{ass:mf_law}), both $z_A(x)$ and $z_B(x)$
+are sample means of $N$ i.i.d.\ draws, converging to the same limit
+$z_*(x) \coloneqq \E_{\mathfrak{m}_*}[\sigma(W^\top x)V]$.
+Writing
+$z_X(x) - z_*(x) = N^{-1}\sum_i \xi_i(x)$ with
+$\xi_i(x) = \sigma(W_{X,i}^\top x)V_{X,i} - z_*(x)$ i.i.d.\ mean-zero
+under $\mathfrak{m}_*$, the variance of the sample mean gives
+\begin{equation}\label{eq:CLT_var}
+  \E\!\bigl[\E_P[\|z_X(x)-z_*(x)\|^2]\bigr]
+  \;\le\; \frac{S_\sigma^2\,m_{2,*}}{N}
+\end{equation}
+for each $X\in\{A,B\}$.
+Since both networks share $\mathfrak{m}_*$ and are drawn independently,
+taking $\tau = \mathrm{id}$ and using the bias-variance decomposition:
+\begin{equation}\label{eq:Delta_CLT}
+  \E_{A,B}[\Delta_N]
+  \;\le\; \E_{A,B}\!\bigl[\E_P[\|z_A(x)-z_B(x)\|^2]\bigr]
+  \;=\; \E_P\!\bigl[\mathrm{Var}_A(z_A(x)) + \mathrm{Var}_B(z_B(x))\bigr]
+  \;\le\; \frac{2S_\sigma^2\,m_{2,*}}{N},
+\end{equation}
+where the equality uses the independence of $A$ and $B$
+(the cross term $\E_A[z_A]\cdot\E_B[z_B] = z_*\cdot z_*$ cancels),
+and each variance term is bounded by~\eqref{eq:CLT_var}.
+This improves the na\"{\i}ve triangle-inequality factor from $4$ to $2$.
+
+\textbf{Event 3 ($E_\Delta$): mismatch control.}
+By~\eqref{eq:Delta_CLT}, $\E[\Delta_N] \le 2S_\sigma^2 m_{2,*}/N$.
+Markov's inequality gives
+$\Pr(\Delta_N > 6S_\sigma^2 m_{2,*}/(N\delta)) \le \delta/3$;
+call this event $E_\Delta$.
+
+\textbf{Conclusion.}
+By the union bound,
+$\Pr(\Omega_N \cap E_V \cap E_\Delta) \ge 1 - \delta/3 - \delta/3 - \delta/3 = 1-\delta$.
+On this joint event all three bounds hold simultaneously, and
+Theorem~\ref{thm:general} yields the barrier inequality~\eqref{eq:general_bound}.
+\end{proof}
+
+\subsection{Proof of Corollary~\ref{cor:asymptotic}}
+\begin{proof}
+All three events $\Omega_N$, $E_V$, $E_\Delta$ of Theorem~\ref{thm:hp}
+hold simultaneously with probability $\ge 1-\delta$.
+
+On $\Omega_N$, the $W$-OT bound~\eqref{eq:W_OT_rate} gives $B_N \le 4\eta_N^2$,
+so $M_x\sqrt{B_N} \le 2M_x\eta_N$.
+Under Assumption~\ref{ass:subgauss}, the sub-Gaussian moment condition
+gives, via covering-number bounds~\cite{lei2020}
+(see also~\cite[Theorem~2]{weed2019} under $T_2$),
+$\E[\cW_2(\hat\nu_W^X,\mathfrak{m}_{*,W})]
+\le C\kappa_W\sqrt{d/N}$;
+combined with sub-Gaussian concentration of $\cW_2$
+around its mean~\cite[Theorem~3.1]{weed2019},
+we may set
+$\eta_N = C'\kappa_W\sqrt{d/N}
++ C''\kappa_W\sqrt{\log(6/\delta)/N}$
+(which is $O(\kappa_W\sqrt{d/N})$ for fixed $\delta$)
+to satisfy the hypothesis of Theorem~\ref{thm:hp},
+yielding the transfer term $C_{\mathrm{tr}}(\delta,N)\,\kappa_W\sqrt{d/N}$.
+
+On $E_V$,
+$(M_V^\infty)^2 \le m_{\infty,*}^2 + \varepsilon_N(\delta)$
+with $\varepsilon_N(\delta) = \sqrt{6p\,m_{4,*}/(N\delta)}$,
+which controls
+$R(\delta,N) = S_\sigma \hat M_V(\delta,N)$
+and hence $C_L^\infty$ and $\rho$ via the loss-specific regularity
+proposition (Proposition~\ref{prop:loss_regularity} for MDN,
+Proposition~\ref{prop:vmf_regularity} for vMF).
+As $N \to \infty$, $\hat M_V \to m_{\infty,*}$ and the prefactors
+converge to the limits $C_{\mathrm{tr}}^*$, $C_{\mathrm{sc}}^*$.
+
+On $E_\Delta$, $\Delta_N \le 6S_\sigma^2 m_{2,*}/(N\delta)$, yielding
+the semi-convexity term $C_{\mathrm{sc}}(\delta,N) \cdot m_{2,*}/N$.
+
+For fixed $K$, $m_{2,*} = O(1)$, so $C_{\mathrm{tr}}(\delta,N) \to C_{\mathrm{tr}}^*$
+and $C_{\mathrm{sc}}(\delta,N) \to C_{\mathrm{sc}}^*$ stabilise and
+$\cB = O(\kappa_W\sqrt{d/N} + N^{-1})$.
+For growing $K$ with $m_{\infty,*}^2 = O(1)$,
+$m_{2,*} = O(K)$ (Section~\ref{sec:asymptotic_rate}),
+$\varepsilon_N(\delta) = O(\sqrt{K/N})$, and
+$\cB = O(\kappa_W\sqrt{d/N} + K/N)$.
+\end{proof}
+
+\begin{proof}[Proof of Corollary~\ref{cor:struct_rate}]
+On the same high-probability event as Theorem~\ref{thm:hp},
+\[
+  B_N \le 4\eta_N^2,
+  \qquad
+  M_x\sqrt{B_N} \le 2M_x\eta_N,
+  \qquad
+  M_V^\infty \le \hat M_V(\delta,N),
+  \qquad
+  \Delta_N \le \frac{6S_\sigma^2 m_{2,*}}{N\delta}.
+\]
+By the auxiliary bounds~\eqref{eq:struct_aux},
+\[
+  \mathcal R_N(\nperm,\tau) \le C_R\,\eta_N,
+  \qquad
+  \sqrt{Q_N} \le \sqrt{C_Q}\,\eta_N^2.
+\]
+Repeating the proof of Theorem~\ref{thm:general} with
+Proposition~\ref{prop:transfer_struct} in place of
+Proposition~\ref{prop:transfer} gives
+\begin{align*}
+  \cB
+  &\le
+  C_L^\infty \!\left[
+    \tfrac{1}{4}L_\sigma
+    \bigl(2L_g\eta_N + C_R\eta_N\bigr)
+    2M_x\,\eta_N
+    + \tfrac{1}{8}L_{\sigma'} \hat M_V(\delta,N)\sqrt{C_Q}\,\eta_N^2
+  \right]
+  + C_{\mathrm{sc}}(\delta,N)\,\frac{m_{2,*}}{N} \\
+  &=
+  C_{\mathrm{fast}}(\delta,N)\,\eta_N^2
+  + C_{\mathrm{sc}}(\delta,N)\,\frac{m_{2,*}}{N},
+\end{align*}
+which is~\eqref{eq:struct_rate}.
+Under Assumption~\ref{ass:subgauss},
+$\eta_N = O(\kappa_W\sqrt{d/N})$
+by Corollary~\ref{cor:asymptotic}, so
+$\eta_N^2 = O(\kappa_W^2 d/N)$ and
+the asymptotic rate in~\eqref{eq:struct_rate} follows.
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{prop:vmf_regularity}
+  (vMF loss regularity)}\label{app:vmf_proof}
+
+\begin{proof}
+We follow the same Hessian-decomposition strategy as
+Proposition~\ref{prop:loss_regularity}, using
+$u_k = \log\pi_k + \log C_{d_y}(\|\eta_k\|) + \eta_k^\top y$
+so that
+$\cL_{\vmf} = -\log\sum_k e^{u_k}$
+and~\eqref{eq:hess_decomp} gives
+$\nabla^2\cL_{\vmf}
+= -\sum_k\gamma_k\nabla^2 u_k - \mathrm{Cov}_\gamma(\nabla u_k)$.
+
+\paragraph{Gradient bounds.}
+The gradient of $u_k$ splits into a $z_\pi$-block and an $\eta_k$-block.
+
+\emph{$z_\pi$-block.}
+$\nabla_{z_\pi} u_k = e_k - \pi$ (identical to MDN).
+$\|e_k - \pi\|^2 \le 2$.
+
+\emph{$\eta_k$-block.}
+Since the vMF distribution belongs to the exponential family with
+natural parameter $\eta_k$ and sufficient statistic $y$,
+the log-partition function is
+$\psi(\eta) = -\log C_{d_y}(\|\eta\|)$
+(convex, with gradient
+$\nabla_\eta\psi(\eta) = A_{d_y}(\|\eta\|)\,\eta/\|\eta\|$
+where $A_{d_y}(\kappa)=I_{d_y/2}(\kappa)/I_{d_y/2-1}(\kappa)$
+is the mean resultant length~\cite{mardia2000}).
+Therefore
+\[
+  \nabla_{\eta_k} u_k
+  = y - \nabla_\eta\psi(\eta_k)
+  = y - A_{d_y}(\kappa_k)\,\mu_k.
+\]
+Since $\|y\|=1$, $\|\mu_k\|=1$, and $0 \le A_{d_y}(\kappa)<1$
+for all $\kappa \ge 0$:
+\begin{equation}\label{eq:vmf_grad_bound}
+  \|\nabla_{\eta_k} u_k\| \le \|y\| + A_{d_y}(\kappa_k) \le 2.
+\end{equation}
+At $\kappa_k=0$, $\nabla_{\eta_k} u_k = y$ (the uniform limit),
+which is well-defined with $\|y\|=1$.
+
+Combining both blocks:
+$\|\nabla u_k\|^2 \le 2 + 4 = 6$ for all $k$.
+
+\paragraph{Lipschitz bound.}
+$C_{L,\vmf}^\infty = \sup_z \|\nabla\cL_{\vmf}\|_1$.
+The $z_\pi$-block contributes
+$\|\gamma-\pi\|_1 \le 2$ (as in MDN).
+The $\eta$-blocks contribute
+$\sum_k \gamma_k\|y-A_{d_y}(\kappa_k)\mu_k\|_1
+\le \sum_k \gamma_k \cdot \sqrt{d_y}\cdot 2 = 2\sqrt{d_y}$,
+where $\|v\|_1 \le \sqrt{d_y}\|v\|_2$ for $v \in \R^{d_y}$.
+Hence $C_{L,\vmf}^\infty \le 2 + 2\sqrt{d_y}$.
+
+\paragraph{Semi-convexity bound.}
+\emph{Weighted Hessian.}
+The $z_\pi$-block:
+$(-\sum_k\gamma_k\nabla^2 u_k)_{z_\pi} = C_\pi \succeq 0$
+(identical to MDN).
+
+The $\eta_k$-block:
+$\nabla^2_{\eta_k} u_k = -\nabla^2\psi(\eta_k)$.
+Since $\psi$ is the log-partition function of an exponential family,
+$\nabla^2\psi(\eta_k) = \mathrm{Cov}_{\vmf(\mu_k,\kappa_k)}[y]
+\succeq 0$
+(Fisher information matrix).
+Therefore
+\[
+  -\gamma_k\nabla^2_{\eta_k} u_k
+  = \gamma_k\nabla^2\psi(\eta_k) \succeq 0
+  \qquad \text{for each } k.
+\]
+Cross-blocks ($\eta_j$ vs $\eta_k$, $j \ne k$) are zero since
+$u_k$ depends only on $\eta_k$.
+Hence
+\begin{equation}\label{eq:vmf_weighted_hess}
+  \lambda_{\min}\!\Bigl(-\sum_k\gamma_k\nabla^2 u_k\Bigr) \ge 0.
+\end{equation}
+This is the key contrast with MDN, where the same quantity is
+$\ge -1/s_{\min}^2$.
+
+\emph{Covariance term.}
+By the same argument as in the MDN proof
+(using $\mathrm{Var}_\gamma(X) \le \E_\gamma[X^2]$):
+\[
+  \|\mathrm{Cov}_\gamma(\nabla u_k)\|_{\mathrm{op}}
+  \le \max_k \|\nabla u_k\|^2 \le 6.
+\]
+
+\emph{Assembly.}
+By~\eqref{eq:weyl_split}:
+\[
+  \rho_{\vmf}
+  \le 0 + 6 = 6. \qedhere
+\]
+\end{proof}
+
+%======================================================================
+\section{Additional Theoretical Results}\label{app:additional}
+%======================================================================
+
+This appendix collects results that complement the main theorems
+but are not needed for the core barrier bounds.
+Throughout this appendix, we use the
+\emph{$\Sigma_x$-weighted input mismatch}
+$\tilde B_N \coloneqq \frac{1}{N}\sum_{i=1}^N
+\Delta w_i^\top \Sigma_x\,\Delta w_i$
+(where $\Sigma_x = \E_P[xx^\top]$),
+which satisfies $\tilde B_N \le M_x^2 B_N$
+and yields sharper bounds when the data covariance is anisotropic.
+
+\subsection{Full Symmetry Characterisation}\label{app:symmetry_full}
+
+\begin{proposition}[Symmetry characterisation]\label{prop:symmetry}
+Let $\sigma$ be bounded and non-polynomial (e.g.\ any activation
+satisfying Assumption~\ref{ass:activ}), and let $d \ge 2$.
+Assume the two parameter sets are in generic position
+(Definition~\ref{def:generic}).
+If they define the same
+conditional density $p(y \mid x)$, then they are related by
+a neuron permutation $\nperm \in \cS_N$, a component permutation
+$\tau \in \cS_K$, and a softmax translation $\delta \in \R^N$.
+The symmetry group of the mixture-model parameterisation is
+$\cS_N \times \cS_K \times \R^N_\pi$.
+\end{proposition}
+
+The proof (Appendix~\ref{app:proof_symmetry}) uses a two-level
+identification: Gaussian mixture
+identifiability~\cite{yakowitz1968} recovers $\tau$, then
+ridge-function linear independence~\cite{pinkus1999} recovers
+$\nperm$ and $\delta$.
+
+\subsection{Covariance-Aware Hidden Alignment}\label{app:cov_aware}
+
+Define the \textbf{$\Sigma_x$-aware coupling}
+\begin{equation}\label{eq:OT_perm_sigma}
+  \nperm_{\Sigma}
+  \;\coloneqq\;
+  \argmin_{q \in \cS_N}
+  \frac{1}{N}\sum_{i=1}^N
+  \bigl\|\Sigma_x^{1/2}(w_{A,i} - w_{B,q(i)})\bigr\|^2.
+\end{equation}
+
+\begin{corollary}[Covariance-aware hidden alignment]\label{cor:sigma_ot}
+Let $U = \Sigma_x^{1/2}W$ and choose the hidden permutation
+$\nperm_{\Sigma}$ by~\eqref{eq:OT_perm_sigma}.
+Then $\nperm_{\Sigma}$ minimises the transfer quantity
+$\tilde B_N$ over all hidden-layer permutations, and
+$\tilde B_N = \cW_2^2(\hat\nu_U^A,\hat\nu_U^B)$.
+In particular, whenever $U$ admits a sub-Gaussian $\cW_2$ rate in an
+intrinsic dimension $d_{\Sigma}$, the transfer term scales as
+$O(\sqrt{d_{\Sigma}/N})$.
+\end{corollary}
+
+\subsection{Refined Output Coupling}\label{app:refined_coupling}
+
+Define the \emph{per-coordinate gauge-fixed head mismatch}
+\begin{equation}\label{eq:head_mismatch_inf}
+  M_{\Delta \tilde V}^\infty
+  \;\coloneqq\;
+  \max_{j=1,\ldots,p}
+  \Bigl(\frac{1}{N}\sum_{i=1}^N
+  \bigl(\tilde v_{A,i} - P_\tau \tilde v_{B,\nperm(i)}\bigr)_j^2\Bigr)^{\!1/2}.
+\end{equation}
+
+\begin{proposition}[Refined output coupling]\label{prop:transfer_refined}
+Under Assumptions~\ref{ass:arch} and~\ref{ass:activ}\,(i)--(iii),
+and~\ref{ass:input_mom} (including the fourth-moment condition
+$\E_P[\|x\|^4] \le M_{x,4}^4$):
+\begin{equation}\label{eq:transfer_refined}
+  \sup_{t\in[0,1]}
+  \bigl(\E_P[\|z_{M_t}(x) - \hat z_t(x)\|_\infty^2]\bigr)^{1/2}
+  \;\le\;
+  \tfrac{1}{4}\,L_\sigma\,M_{\Delta \tilde V}^\infty\,\sqrt{\tilde B_N}
+  \;+\;
+  \tfrac{1}{8}\,L_{\sigma'}\,M_V^\infty\,\sqrt{Q_N},
+\end{equation}
+where $Q_N = \frac{1}{N}\sum_{i} \E_P[(\Delta w_i^\top x)^4]$.
+Under $W$-only alignment, $M_{\Delta \tilde V}^\infty$ can be as large as
+$2M_V^\infty$.
+\end{proposition}
+
+\subsection{Data-Dependent Barrier}\label{app:data_dep_barrier}
+
+\begin{proposition}[Data-dependent barrier]\label{prop:dir_barrier}
+Under the same hypotheses as Theorem~\ref{thm:general},
+define the \emph{directional semi-convexity cost}
+\begin{equation}\label{eq:rho_dir}
+  \rho_{\mathrm{dir}}(x,y)
+  \;\coloneqq\;
+  \sup_{t\in[0,1]}\;
+  \Delta z(x)^\top
+  \bigl(-\nabla^2_z \ell(\hat z_t(x),\,y)\bigr)_{\!+}\;
+  \Delta z(x),
+\end{equation}
+and the \emph{data-dependent Lipschitz constant}
+\begin{equation}\label{eq:CL_dd}
+  \bar C_L
+  \;\coloneqq\;
+  \sup_{t\in[0,1]}
+  \sqrt{\E_P\!\bigl[\|\nabla_z \ell(\tilde z_t(x),\,y)\|_1^2\bigr]}.
+\end{equation}
+Then:
+\begin{equation}\label{eq:dir_bound}
+  \cB \;\le\;
+  \tfrac{1}{2}\,\bar C_L\, L_\sigma M_V^\infty \sqrt{\tilde B_N}
+  \;+\; \frac{1}{8}\,\E_P\!\bigl[\rho_{\mathrm{dir}}(x,y)\bigr],
+\end{equation}
+with $\bar C_L \le C_L^\infty$, so~\eqref{eq:dir_bound} is at least
+as sharp as~\eqref{eq:barrier_form}.
+The transfer term replaces the worst-case $C_L^\infty$ by
+the data-averaged gradient norm;
+for well-fitted models this yields a $\sim\!5000\times$ reduction
+(Appendix~\ref{app:nonvacuous_detail}).
+\end{proposition}
+
+%======================================================================
+\section{Mean-Field Justification of Assumption~\ref{ass:mf_law}}\label{app:A4_mf}
+%======================================================================
+
+Assumption~\ref{ass:mf_law} requires that the post-training neuron
+parameters of both networks are i.i.d.\ draws from a common law
+$\mathfrak{m}_*$.
+This appendix justifies the assumption via propagation of chaos,
+first under gradient flow (Section~\ref{app:mf_gf}) and then under
+SGD (Section~\ref{app:mf_sgd}), and summarises the resulting
+validity conditions (Section~\ref{app:mf_summary}).
+
+Throughout, the training-time variable is $s \in [0,T]$
+(distinct from the interpolation parameter $t \in [0,1]$) and
+$f = O_T(g)$ means $|f| \le C_T g$ for a constant $C_T$ depending
+on $T$ but not on $N$ or $K$.
+
+%----------------------------------------------------------------------
+\subsection{Gradient Flow}\label{app:mf_gf}
+%----------------------------------------------------------------------
+
+The argument proceeds in three steps: (i)~verify the Lipschitz
+condition on the mean-field drift, (ii)~deduce McKean--Vlasov uniqueness,
+(iii)~apply propagation of chaos.
+
+\paragraph{Step 1: Lipschitz drift for the mixture-model loss.}
+Define the mean-field drift
+$b(\theta,\mathfrak{m})
+\coloneqq -\E_P[\nabla_\theta\ell(z_{\mathfrak{m}}(x),y)]$.
+The mixture-model loss is non-convex, but propagation of chaos requires only
+that $b$ be Lipschitz in
+$(\theta,\mathfrak{m})$~\cite{mei2018meanfield,rotskoff2022},
+not convexity.
+Under Assumptions~\ref{ass:bdd_resp}, \ref{ass:activ},
+and~\ref{ass:input_mom}, Proposition~\ref{prop:loss_regularity}
+controls the output-space gradient on any compact domain $\cD_R$.
+Hence, along finite-time trajectories whose mean-field outputs remain
+in some $\cD_R$, the head drift is bounded and the input-weight drift
+has at most linear growth in $\|v\|$
+(cf.~Proposition~\ref{prop:a6_auto}).
+This is the finite-time regularity regime in which the standard
+propagation-of-chaos heuristics apply.
+
+\paragraph{Step 2: McKean--Vlasov uniqueness.}
+Under the $1/N$ mean-field parameterisation, per-neuron gradient flow
+converges to the McKean--Vlasov equation
+$\partial_s\mathfrak{m}_s
+= -\nabla\cdot(\mathfrak{m}_s\,b(\cdot,\mathfrak{m}_s))$.
+Because $b$ is Lipschitz, Cauchy--Lipschitz uniqueness on
+$(\mathcal{P}_2,\cW_2)$~\cite{carmona2018probabilistic} gives a
+unique trajectory $(\mathfrak{m}_s)_{s\in[0,T]}$ from any initial law
+$\mathfrak{m}_0$.
+Given $\mathfrak{m}_0$, both networks follow the same deterministic
+flow and reach the \emph{same} limiting measure $\mathfrak{m}_T$,
+regardless of whether $\mathfrak{m}_T$ is a global or local stationary
+point.
+The individual parameters $\theta^i_A, \theta^j_B$ are different
+realisations, but their empirical distributions both converge to
+$\mathfrak{m}_T$.
+
+\paragraph{Step 3: Propagation of chaos.}
+A standard coupling argument (i.i.d.\ initialisation from
+$\mathfrak{m}_0$, Lipschitz drift, Gr\"{o}nwall) gives
+\begin{equation}\label{eq:coupling_poc}
+  E_N(T)
+  \;\coloneqq\;
+  \tfrac{1}{N}\sum_i\E[\|\theta_{i,T}-\bar\theta_{i,T}\|^2]
+  \;=\; O_T(N^{-1}),
+\end{equation}
+where $\bar\theta_{i,T}$ is the mean-field limit trajectory for
+neuron $i$ and the $O_T$ constant is
+$C_T = O(e^{C_L T})$~\cite{mei2018meanfield,rotskoff2022}.
+As $N$ grows, the neurons decouple and
+Assumption~\ref{ass:mf_law} holds with $\mathfrak{m}_* = \mathfrak{m}_T$.
+
+%----------------------------------------------------------------------
+\subsection{Extension to SGD}\label{app:mf_sgd}
+%----------------------------------------------------------------------
+
+Practical training uses SGD with finite learning rate $\alpha$ and
+mini-batch size $b$, introducing two additional error sources beyond
+the finite-width error of~\eqref{eq:coupling_poc}.
+The total approximation error decomposes as
+\begin{equation}\label{eq:sgd_error}
+  \cW_2(\hat\mu_{\mathrm{SGD}}^N,\,\mathfrak{m}_T)
+  \;\le\;
+  \underbrace{O_T(N^{-1/2})}_{\text{finite width}}
+  \;+\; \underbrace{O_T(\alpha)}_{\text{time discret.}}
+  \;+\; \underbrace{O_T(b^{-1/2})}_{\text{mini-batch}}.
+\end{equation}
+All three $O_T$ constants inherit the Lipschitz
+constant $C_L$ (Proposition~\ref{prop:loss_regularity}).
+We now discuss the theoretical basis for each term.
+
+\paragraph{Learning-rate regimes.}
+De~Bortoli et al.~\cite{debortoli2020} establish quantitative
+propagation of chaos for a continuous-time SGD counterpart applied to
+two-layer overparameterised networks, with the learning rate scaling
+as $\alpha = \Theta(N^\beta)$ in the $1/N$ parameterisation.
+They identify two regimes:
+\begin{itemize}[itemsep=2pt]
+  \item \textbf{Regime~1} ($\beta < 1$):
+    the SGD noise averages out at rate $O(N^{\beta-1})$, and the
+    limiting dynamics is the \emph{same deterministic}
+    McKean--Vlasov ODE as gradient flow.
+    Propagation of chaos holds with the standard $O_T(N^{-1})$ rate.
+  \item \textbf{Regime~2} ($\beta = 1$):
+    the SGD noise survives in the limit, yielding a
+    McKean--Vlasov SDE with data-dependent diffusion---an implicitly
+    regularised optimisation.
+\end{itemize}
+Standard practice uses $\alpha = O(1)$ (constant, independent of $N$),
+corresponding to $\beta = 0 < 1$, squarely in Regime~1.
+
+\paragraph{Law of large numbers and CLT.}
+Sirignano and Spiliopoulos~\cite{sirignano2020lln} prove a law of
+large numbers for networks trained by SGD: the empirical parameter
+distribution converges to the solution of a nonlinear PDE in the
+joint limit of large width and many iterations.
+The accompanying CLT~\cite{sirignano2020clt} characterises
+the $O(N^{-1/2})$ fluctuations around this deterministic limit.
+Both results require Lipschitz regularity of the loss gradient,
+supplied for each application by the loss regularity analysis
+(Proposition~\ref{prop:loss_regularity} for MDN,
+Proposition~\ref{prop:vmf_regularity} for vMF).
+
+\paragraph{Non-convexity and finer-grained objects.}
+Convexity is not required: Nguyen and
+Pham~\cite{nguyen2023multilayer} treat non-convex losses explicitly;
+any mixture-model loss with bounded gradient qualifies since its drift is Lipschitz
+(Propositions~\ref{prop:loss_regularity} and~\ref{prop:vmf_regularity}).
+For finer-grained analysis, stochastic modified
+flows~\cite{gess2024smf} capture residual SGD fluctuations, and
+mean-field Langevin bounds~\cite{suzuki2023mfld} avoid the
+$e^{C_L T}$ blow-up under log-Sobolev conditions.
+
+%----------------------------------------------------------------------
+\subsection{Validity Conditions and Limitations}\label{app:mf_summary}
+%----------------------------------------------------------------------
+
+Table~\ref{tab:a5_validity} collects the conditions under which
+Assumption~\ref{ass:mf_law} is justified.
+
+\begin{table}[H]
+\centering\small
+\renewcommand{\arraystretch}{1.15}
+\caption{Validity conditions for Assumption~\ref{ass:mf_law}.}
+\label{tab:a5_validity}
+\begin{tabular}{@{}p{3.8cm}p{5.2cm}p{3.6cm}@{}}
+\toprule
+\textbf{Condition} & \textbf{Role} & \textbf{Practical status} \\
+\midrule
+Same initialisation distribution $\mathfrak{m}_0$
+  & McKean--Vlasov uniqueness: same $\mathfrak{m}_0 \Rightarrow$ same trajectory $\mathfrak{m}_T$
+  & Satisfied by standard init.\ schemes \\
+\addlinespace
+Same training recipe (lr, batch, schedule)
+  & Different recipes $\Rightarrow$ different drifts $\Rightarrow$ different $\mathfrak{m}_T$
+  & Satisfied in model merging / FL \\
+\addlinespace
+Learning rate $\alpha = o(N)$
+  & Regime~1~\cite{debortoli2020}: SGD noise vanishes, gradient-flow limit applies
+  & $\alpha = O(1)$: trivially satisfied \\
+\addlinespace
+Width $N \gg e^{C_L T}$
+  & Propagation of chaos: $E_N(T) = O(e^{C_L T}/N)$
+  & Bottleneck for long training \\
+\addlinespace
+Lipschitz drift
+  & Required for propagation of chaos; \emph{not} convexity
+  & Props.~\ref{prop:loss_regularity},~\ref{prop:vmf_regularity}: $C_L$ indep.\ of $K$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{When the approximation is weakest.}
+Two regimes deserve attention:
+\begin{enumerate}[label=(\roman*),leftmargin=*,itemsep=2pt]
+  \item \emph{Diffuse responsibilities} ($\gamma_k \approx 1/K$):
+    the shared softmax denominator creates inter-neuron correlations;
+    propagation of chaos still holds (the Lipschitz condition is
+    unaffected by curvature), but the $O_T$ constant may be larger.
+    This regime is typically transient: gradient descent drives
+    components to specialise, decreasing
+    $\bar\chi = \sum_k \gamma_k(1-\gamma_k)$ along the training
+    trajectory.
+  \item \emph{Long training horizon} ($T \gg 1$):
+    the Gr\"{o}nwall constant $C_T = O(e^{C_L T})$ grows
+    exponentially.
+    Uniform-in-time bounds require additional structure (log-Sobolev
+    inequalities~\cite{suzuki2023mfld} or dissipativity).
+    In practice, early-stopped or converged networks have moderate
+    effective $T$.
+\end{enumerate}
+
+\paragraph{Implications for the barrier bound.}
+Under the conditions of Table~\ref{tab:a5_validity},
+substituting~\eqref{eq:sgd_error} into the $\cW_2$ rate of
+Corollary~\ref{cor:asymptotic} shows that the barrier
+$\cB = O(\kappa_W\sqrt{d/N} + K/N)$ remains valid for SGD-trained networks,
+provided the time-discretisation and mini-batch errors are dominated
+by the finite-width term---a condition easily met by taking
+$\alpha = O(1)$ and $b = \Omega(\sqrt{N})$.
+
+%======================================================================
+\section{Empirical Validation of Assumptions~\ref{ass:mf_law}--\ref{ass:subgauss}}\label{app:assumption_validation}
+%======================================================================
+
+This appendix provides empirical evidence supporting the
+mean-field assumptions (\ref{ass:mf_law}--\ref{ass:subgauss}) using a mean-field MDN
+training setup.
+Networks are trained with $1/N$ mean-field scaling,
+sigmoid activation ($S_\sigma = 1$, $L_\sigma = 1/4$),
+Gaussian initialisation, and full-batch gradient descent
+(lr $= 10^{-2}$, $10{,}000$ epochs)
+on the
+\texttt{synthetic} ($y \mid x \sim 0.5\,\cN(x, 0.3^2)
++ 0.5\,\cN(-x, 0.3^2)$) and
+\texttt{synthetic\_transpose} datasets
+with $K \in \{1, 5\}$ and
+$N \in \{1024, 2048, 4096, 8192, 16384\}$ (10 seeds each).
+
+%----------------------------------------------------------------------
+\subsection{\ref{ass:mf_law}: Mean-field limiting law}\label{app:a5_validation}
+%----------------------------------------------------------------------
+
+Assumption~\ref{ass:mf_law} posits that post-training neuron parameters
+are i.i.d.\ draws from a common law $\mathfrak{m}_*$.
+Figure~\ref{fig:a5_overlay} overlays the neuron density estimates
+$(w_i, v_i)$ from two independently seeded networks at the same width.
+At $N = 4096$ the density contours from different seeds are visibly
+closer than at $N=1024$, qualitatively consistent with propagation of
+chaos driving both sets of neurons toward the same $\mathfrak{m}_T$.
+The quantitative mismatch diagnostics in
+Appendix~\ref{app:nonvacuous_detail} show, however, that for
+$K=5$ the range $N \le 16384$ is still pre-asymptotic.
+Figure~\ref{fig:a5_predictive} compares the predictive densities
+$p(y \mid x)$ across seeds; again the outputs converge as $N$ grows.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.48\textwidth]{synthetic/K5/full_batch/overlay/w1024_s0_s1.png}
+\hfill
+\includegraphics[width=0.48\textwidth]{synthetic/K5/full_batch/overlay/w4096_s0_s1.png}
+\caption{Neuron density overlays (seed 0 vs.\ seed 1) at
+  $N=1024$ (left) and $N=4096$ (right) for
+  \texttt{synthetic}, $K=5$.
+  As width increases, the two distributions move closer.
+  This provides qualitative support for
+  Assumption~\ref{ass:mf_law}.}
+\label{fig:a5_overlay}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.48\textwidth]{synthetic/K5/full_batch/predictive/w1024_predictive.png}
+\hfill
+\includegraphics[width=0.48\textwidth]{synthetic/K5/full_batch/predictive/w4096_predictive.png}
+\caption{Predictive density $p(y \mid x)$ for two seeds at
+  $N=1024$ (left) and $N=4096$ (right).
+  Functional convergence accompanies the qualitative parameter-space
+  convergence shown in Figure~\ref{fig:a5_overlay}.}
+\label{fig:a5_predictive}
+\end{figure}
+
+%----------------------------------------------------------------------
+\subsection{Finite moments from finite training time under bounded outputs}\label{app:a6_proposition}
+%----------------------------------------------------------------------
+
+The moment quantities $m_{2,*}$, $m_{4,*}$ appearing in the barrier
+bounds are finite under suitable a priori control of the mean-field
+output trajectory.
+The following proposition gives a sufficient criterion.
+
+\begin{proposition}[Finite moments under gradient flow with bounded outputs]\label{prop:a6_auto}
+Suppose the network is trained by gradient flow
+$\dot\theta_i(s) = b(\theta_i(s), \mathfrak{m}_s)$ for
+$s \in [0,T]$, with $\mathfrak{m}_0$ satisfying
+$\E_{\mathfrak{m}_0}[\|\theta\|^4] < \infty$
+(e.g.\ Gaussian, He, or Xavier initialisation).
+Assume additionally that there exists $R < \infty$ such that
+$z_{\mathfrak{m}_s}(x) \in \cD_R$ for all $s \in [0,T]$ and
+$P$-almost every $x$.
+Under Assumptions~\ref{ass:bdd_resp}, \ref{ass:activ},
+and~\ref{ass:input_mom}:
+\begin{enumerate}[label=(\roman*),leftmargin=*,itemsep=2pt]
+  \item The head-weight drift is uniformly bounded:
+    $\|b_v(\theta, \mathfrak{m})\| \le C_b$
+    for a constant $C_b$ depending on $R$, $S_\sigma$, $Y_{\max}$,
+    and $s_{\min}$, but not on $\|v\|$ or $\|w\|$.
+  \item $\E_{\mathfrak{m}_T}[\|V\|^4] < \infty$;
+    in particular, $m_{2,*} = \int\|V\|^2\,d\mathfrak{m}_T < \infty$
+    and $m_{4,*} = \max_j \E_{\mathfrak{m}_T}[(V)_j^4] < \infty$.
+  \item For the input weights, $\|w_i(s)\|$ grows at most linearly
+    in $\|v_i(s)\|$:
+    $\|w_i(T)\| \le \|w_i(0)\| + C'(\|v_i(0)\|T + C_b T^2)$,
+    so $\E_{\mathfrak{m}_T}[\|W\|^2] < \infty$.
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+\textbf{Part (i).}
+The mean-field drift for the head weights is
+$b_v(\theta, \mathfrak{m})
+= -\E_P[\sigma(w^\top x)\,\nabla_z \ell(z_\mathfrak{m}(x),\, y)]$,
+where $z_\mathfrak{m}(x) = \int \sigma(W^\top x)\,V\,d\mathfrak{m}$
+is determined by the distribution $\mathfrak{m}$, not by the
+individual particle $(v,w)$.
+By hypothesis, $z_{\mathfrak{m}_s}(x) \in \cD_R$.
+Since $|\sigma| \le S_\sigma$ (Assumption~\ref{ass:activ}(i)) and
+$\|\nabla_z \ell\|$ is bounded on $\cD_R$
+(by the loss-specific $C_L^\infty$),
+$\|b_v\|$ is bounded by a constant $C_b$ that depends on
+$R$, $S_\sigma$, and the loss regularity constants, but crucially not on
+$\|v\|$ or $\|w\|$.
+
+\textbf{Part (ii).}
+Since $\dot v(s) = b_v(\theta(s), \mathfrak{m}_s)$ with
+$\|b_v\| \le C_b$, we have
+$\|v(T)\| \le \|v(0)\| + C_b T$.
+Hence
+$\|v(T)\|^4 \le 8(\|v(0)\|^4 + (C_b T)^4)$, so
+$\E[\|V_T\|^4] \le 8(\E[\|V_0\|^4] + (C_b T)^4) < \infty$
+under the hypothesis $\E[\|\theta_0\|^4] < \infty$.
+Since $m_{2,*} \le (\E[\|V_T\|^4])^{1/2}$ and
+$m_{4,*} \le \E[\|V_T\|^4]$ by Jensen, both are finite.
+
+\textbf{Part (iii).}
+The input-weight drift is
+$b_w(\theta, \mathfrak{m})
+= -\E_P[\sigma'(w^\top x)\,x\cdot
+  v^\top\nabla_z \ell(z_\mathfrak{m}(x),\,y)]$.
+Since $|\sigma'| \le L_\sigma$, $\E_P[\|x\|] \le M_x$, and
+$\|\nabla_z \ell\|$ is bounded on the output domain,
+$\|b_w(\theta, \mathfrak{m})\| \le C_w(1 + \|v\|)$
+for a constant $C_w$.
+Integrating:
+$\|w(T)\| \le \|w(0)\| + \int_0^T C_w(1 + \|v(s)\|)\,ds
+\le \|w(0)\| + C_w T + C_w T(\|v(0)\| + C_b T)$.
+Squaring and taking expectations,
+$\E[\|W_T\|^2]$ is controlled by $\E[\|\theta_0\|^2]$
+(and hence by $\E[\|\theta_0\|^4]^{1/2}$), which is finite.
+\end{proof}
+
+%----------------------------------------------------------------------
+\subsection{\ref{ass:subgauss}: Sub-Gaussian input weights}\label{app:a7_validation}
+%----------------------------------------------------------------------
+
+Assumption~\ref{ass:subgauss} requires that the $W$-marginal of
+$\mathfrak{m}_*$ be sub-Gaussian.
+Unlike the moment conditions (for which
+Proposition~\ref{prop:a6_auto} gives a sufficient finite-time
+criterion),
+sub-Gaussianity cannot be shown to hold automatically:
+preserving sub-Gaussianity under the
+gradient flow requires the flow map
+$\theta_0 \mapsto \theta_T$ to be \emph{globally} Lipschitz
+(so that the Gaussian concentration of the initialisation is inherited
+by the push-forward), but the mixture-model flow map is only \emph{locally}
+Lipschitz---the drift $b_w$ depends linearly on $\|v\|$
+(Proposition~\ref{prop:a6_auto}, Part~(iii)),
+making the Jacobian of the flow grow with $\|v_0\|$.
+
+Empirically, however, the trained hidden-weight marginals remain
+compatible with sub-Gaussian tails across the mean-field experiments.
+Figure~\ref{fig:a7_kappa2} plots the empirical sub-Gaussian parameter
+$\hat\kappa^2 \coloneqq \max_\lambda 2\log M(\lambda)/\lambda^2$
+(estimated via the moment-generating function on random projections)
+across widths.
+The values remain moderate ($\hat\kappa^2 \le 1.5$) and do not grow
+with width.
+Figure~\ref{fig:a7_hist} compares the standardised weight histograms
+against the $\cN(0,1)$ reference for an easy case
+(\texttt{synthetic}, $K=1$) and the hardest case
+(\texttt{synthetic\_transpose}, $K=5$).
+In the latter, the post-training law deviates substantially from a
+Gaussian shape (reflecting component specialisation in the
+multimodal target), yet the tails remain no heavier than those of a
+sub-Gaussian distribution with a moderately inflated constant.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.65\textwidth]{a7/a7_kappa2.png}
+\caption{Empirical sub-Gaussian parameter $\hat\kappa^2$ across widths.
+  The dashed line marks the Gaussian baseline ($\hat\kappa^2 = 1$).
+  Values remain bounded across all settings, supporting
+  Assumption~\ref{ass:subgauss} in practice.}
+\label{fig:a7_kappa2}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.48\textwidth]{a7/a7_hist_synthetic_K1.png}
+\hfill
+\includegraphics[width=0.48\textwidth]{a7/a7_hist_synthetic_transpose_K5.png}
+\caption{Standardised weight histograms vs.\ $\cN(0,1)$ reference.
+  Left: \texttt{synthetic}, $K=1$ (easy case; close to Gaussian).
+  Right: \texttt{synthetic\_transpose}, $K=5$ (hardest case;
+  non-Gaussian shape but compatible sub-Gaussian tails).}
+\label{fig:a7_hist}
+\end{figure}
+
+%======================================================================
+\section{Detailed Numerical Evaluation}\label{app:nonvacuous_detail}
+%======================================================================
+
+We evaluate the worst-case bound~\eqref{eq:barrier_form} and
+the data-dependent bound~\eqref{eq:dir_bound}
+on mean-field MDN models from the assumption-validation experiments
+(Appendix~\ref{app:assumption_validation}).
+
+\paragraph{Setup.}
+Two-layer MDNs with sigmoid activation
+($S_\sigma = 1$, $L_\sigma = 1/4$, $d = 1$)
+and $1/N$ mean-field scaling
+are trained on the \texttt{synthetic} and \texttt{synthetic\_transpose}
+datasets for $10{,}000$ epochs of full-batch gradient descent
+(lr $= 10^{-2}$),
+with $K \in \{1, 5\}$ and $N \in \{1024, 2048, 4096, 8192, 16384\}$.
+For each $(K, N)$ combination, 10 seeds are trained and
+5 seed pairs $(0\text{--}1, 2\text{--}3, \ldots, 8\text{--}9)$
+are aligned via $W$-OT (hidden) $+$ Hellinger (component).
+All quantities below are averaged over seed pairs.
+
+%----------------------------------------------------------------------
+\paragraph{Measured parameters ($K=1$, \texttt{synthetic}, $N=1024$).}
+$s_{\min} = 0.062$,
+$M_V^\infty = 13.4$,
+$m_{2,*} = 260$,
+$Y_{\max} = 1.43$,
+$\kappa_W = 19.4$,
+$\lambda_{\max}(\Sigma_x) = 0.36$.
+These give $R = S_\sigma M_V^\infty = 13.4$,
+$\Lambda = Y_{\max} + R = 14.8$.
+
+\emph{Worst-case bound~\eqref{eq:barrier_form}.}
+Substituting into Proposition~\ref{prop:loss_regularity}
+(with $K=1$, so $\rho_{K=1} \le 1/s_{\min}^2$):
+\begin{align*}
+  C_L^\infty
+  &\le 3 + \Lambda/s_{\min}^2 + \Lambda^2/s_{\min}^2
+  \approx 6.1 \times 10^4, \\
+  \rho
+  &\le 1/s_{\min}^2 \approx 261.
+\end{align*}
+The empirical mismatches are
+$\tilde B_N = 5.21$ and $\Delta_N = 6.4 \times 10^{-4}$.
+The worst-case bound is
+$\cB_{\mathrm{wc}} \approx 2.3 \times 10^5$,
+entirely dominated by the transfer term
+($\rho\,\Delta_N/8 \approx 0.02$ is negligible),
+versus the empirical barrier $\cB_{\mathrm{emp}} \approx 0.11$.
+
+\emph{Data-dependent bound~\eqref{eq:dir_bound}.}
+The data-dependent constants measured on the trained model pair are:
+\[
+  \bar C_L \approx 12
+  \quad(\text{vs.}\ C_L^\infty \approx 6.1 \times 10^4,
+  \;\text{a}\;\sim\!5000\times\;\text{reduction}),
+  \qquad
+  \E_P[\rho_{\mathrm{dir}}] \approx 3 \times 10^{-5}.
+\]
+The transfer contribution is
+$\tfrac{1}{2}\bar C_L L_\sigma M_V^\infty\sqrt{\tilde B_N}
+\approx \tfrac{1}{2} \times 12 \times 0.25 \times 13.4 \times 2.3
+\approx 45$.
+The semi-convexity contribution is
+$\tfrac{1}{8}\E_P[\rho_{\mathrm{dir}}] < 10^{-5}$---negligible.
+The combined data-dependent bound is
+$\cB_{\mathrm{dd}} \approx 45$,
+a $5000\times$ improvement over the worst-case bound,
+though still $\sim 400\times$ the empirical barrier.
+
+%----------------------------------------------------------------------
+\paragraph{Width-scaling behaviour.}
+Table~\ref{tab:bound_scaling} reports the bound components
+and empirical barrier across widths.
+
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.15}
+\caption{Width scaling of barrier bounds (5-pair average,
+  \texttt{synthetic} dataset).
+  $\cB_{\mathrm{dd}}^{\mathrm{tr}}$ and
+  $\cB_{\mathrm{dd}}^{\mathrm{sc}}$ denote the transfer
+  and semi-convexity terms of~\eqref{eq:dir_bound}.}
+\label{tab:bound_scaling}
+\begin{tabular}{c|r|rrr|rr}
+$K$ & $N$ & $\cB_{\mathrm{emp}}$ & $\cB_{\mathrm{dd}}$
+  & $\cB_{\mathrm{wc}}$
+  & $\tilde B_N$ & $\Delta_N$ \\
+\hline
+\multirow{5}{*}{1}
+  & 1024  & 0.105 & $4.5 \times 10^{1}$ & $2.3 \times 10^{5}$
+    & 5.21 & $6.4 \times 10^{-4}$ \\
+  & 2048  & 0.060 & $3.6 \times 10^{1}$ & $1.8 \times 10^{5}$
+    & 3.37 & $4.2 \times 10^{-4}$ \\
+  & 4096  & 0.026 & $2.8 \times 10^{1}$ & $1.4 \times 10^{5}$
+    & 2.11 & $1.3 \times 10^{-4}$ \\
+  & 8192  & 0.008 & $2.2 \times 10^{1}$ & $1.1 \times 10^{5}$
+    & 1.31 & $1.7 \times 10^{-4}$ \\
+  & 16384 & 0.004 & $1.7 \times 10^{1}$ & $8.7 \times 10^{4}$
+    & 0.80 & $3.7 \times 10^{-5}$ \\
+\hline
+\multirow{5}{*}{5}
+  & 1024  & 0.73  & $4.4 \times 10^{3}$ & $7.4 \times 10^{21}$
+    & 18.2 & 154 \\
+  & 2048  & 0.60  & $2.2 \times 10^{3}$ & $2.9 \times 10^{24}$
+    & 24.4 & 180 \\
+  & 4096  & 0.97  & $3.5 \times 10^{3}$ & $3.5 \times 10^{23}$
+    & 11.8 & 152 \\
+  & 8192  & 0.48  & $2.3 \times 10^{3}$ & $3.3 \times 10^{22}$
+    & 23.4 & 76 \\
+  & 16384 & 0.25  & $2.2 \times 10^{3}$ & $7.2 \times 10^{22}$
+    & 14.5 & 123 \\
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{barrier_scaling_full_batch.pdf}
+\caption{Barrier vs.\ width (log--log) for both datasets and $K \in \{1,5\}$.
+  Blue: empirical barrier after alignment;
+  orange: data-dependent bound~\eqref{eq:dir_bound};
+  green: empirical barrier without alignment.
+  Error bars show standard deviation over 5 seed pairs.
+  Dashed/dotted grey lines indicate $O(1/N)$ and $O(1/\sqrt{N})$ reference slopes.
+  For $K=1$, $\cB_{\mathrm{emp}}$ decays as $\sim N^{-1.3}$
+  (faster than $O(1/N)$), while $\cB_{\mathrm{dd}}$ follows
+  $\sim N^{-0.34}$ ($\approx O(1/\sqrt{N})$).
+  For $K=5$, neither quantity shows clear decay over this width range.}
+\label{fig:barrier_scaling}
+\end{figure}
+
+\emph{$K=1$ scaling.}
+The empirical barrier decays as $\cB_{\mathrm{emp}} \propto N^{-1.3}$,
+faster than the theoretical $O(1/N)$.
+The data-dependent bound decays as
+$\cB_{\mathrm{dd}} \propto N^{-0.34}$,
+consistent with the $O(\sqrt{\tilde B_N})$ rate since
+$\tilde B_N \propto N^{-0.68}$.
+The bound is entirely transfer-dominated
+($\cB_{\mathrm{dd}}^{\mathrm{sc}} < 10^{-5}$ across all widths)
+because $\Delta_N < 10^{-3}$.
+The gap $\cB_{\mathrm{dd}}/\cB_{\mathrm{emp}}$ grows from
+$\sim\!400\times$ to $\sim\!5000\times$ as $N$ increases,
+reflecting the different scaling exponents.
+
+\emph{$K=5$ scaling.}
+For $K=5$, neither $\tilde B_N$ nor $\Delta_N$ exhibits
+systematic $O(1/N)$ decay over the tested width range:
+$\tilde B_N$ varies between 12--24 and $\Delta_N$ between 76--180
+without a clear downward trend.
+This indicates that propagation of chaos has not converged
+at these widths for $K=5$,
+consistent with the neuron-density overlays in
+Figure~\ref{fig:a5_overlay}.
+Accordingly, $\cB_{\mathrm{dd}} \approx 2 \times 10^3$
+remains roughly flat across widths.
+The worst-case bound is astronomically vacuous
+($10^{21}$--$10^{24}$), driven by
+$s_{\min} \approx 10^{-4}$ pushing
+$\rho_{\mathrm{wc}}$ to $10^{20}$--$10^{22}$.
+In contrast, $\rho_{\mathrm{emp}} \approx 10^{4}$--$10^{6}$,
+a gap of $\sim\!10^{16}$.
+
+%----------------------------------------------------------------------
+\paragraph{Transfer-dominated regime.}
+A key empirical finding is that for all settings the
+data-dependent bound is dominated by the transfer term,
+not the semi-convexity term.
+Three factors explain why the semi-convexity contribution is small:
+\begin{enumerate}[leftmargin=*,itemsep=2pt]
+\item For $K=1$, $\Delta_N < 10^{-3}$ because the aligned outputs
+  are nearly identical, making $\rho\,\Delta_N/8$ negligible
+  regardless of $\rho$.
+\item For $K \ge 2$,
+  the $z_\pi$-block of $\nabla^2\cL$ is positive semidefinite
+  ($C_\pi \succeq 0$),
+  so the directional semi-convexity $\rho_{\mathrm{dir}}$
+  automatically discards the (potentially large) $\pi$-component
+  of $\|\Delta z\|^2$.
+\item At well-fitted data points, $|y-\mu_k|/s_k = O(1)$,
+  so the local Hessian eigenvalues are far from the $s_{\min}$-dependent
+  worst-case bounds.
+\end{enumerate}
+The bottleneck is thus the transfer term
+$\tfrac{1}{2}\bar C_L L_\sigma M_V^\infty \sqrt{\tilde B_N}$,
+whose magnitude is driven by $M_V^\infty$---the per-coordinate head
+moment, which grows substantially during training
+(from $\sim\!1$ at initialisation to $\sim\!13$--$33$ post-training).
+
+\paragraph{Results for \texttt{synthetic\_transpose}.}
+The same qualitative pattern holds:
+for $K=1$, $\cB_{\mathrm{dd}}$ decays from $181$ to $55$
+($\propto N^{-0.45}$)
+while $\cB_{\mathrm{emp}}$ decays from $0.056$ to $0.002$
+($\propto N^{-1.1}$).
+For $K=5$, $\cB_{\mathrm{dd}} \approx 5 \times 10^3$--$10^4$
+remains flat, with $\cB_{\mathrm{emp}} \approx 2.4$--$3.6$
+also showing no clear decay, again indicating
+the mean-field regime has not been reached for $K=5$
+at these widths.
+
+%======================================================================
+\subsection{vMF Numerical Evaluation}\label{app:vmf_numerical}
+%======================================================================
+
+We evaluate the vMF barrier bounds
+(Corollary~\ref{cor:vmf_barrier}) on synthetic directional data on
+$S^1$ ($d_y = 2$), with $K \in \{1, 3\}$ and
+$N \in \{512, 1024, 2048, 4096\}$
+using the \texttt{rotating} dataset
+(Section~\ref{sec:vmf_experiments}).
+
+\paragraph{Measured parameters ($K=1$, $N=1024$).}
+$M_V^\infty = 65.6$,
+$\bar C_L = 0.40$
+(vs.\ $C_{L,\vmf}^\infty \le 4.83$, a $12\times$ margin),
+$\rho = 6$ (universal).
+The empirical mismatches are
+$\tilde B_N = 5.4$ and $\Delta_N = 0.003$.
+The worst-case bound is
+$\cB_{\mathrm{wc}} \approx 257$
+and the data-dependent bound is
+$\cB_{\mathrm{dd}} \approx 21$,
+versus the empirical barrier $\cB_{\mathrm{emp}} \approx 0.013$.
+These ratios ($\sim\!20{,}000\times$ and $\sim\!1{,}600\times$
+respectively) are dramatically better than the MDN's $K=1$
+worst-case ratio of $\sim\!2 \times 10^6$.
+
+\paragraph{Width-scaling behaviour.}
+Table~\ref{tab:vmf_bound_scaling} reports the vMF bounds across widths.
+
+\begin{table}[H]
+\centering
+\small
+\renewcommand{\arraystretch}{1.15}
+\caption{Width scaling of vMF barrier bounds (5-pair average,
+  \texttt{rotating} dataset, $d_y = 2$).}
+\label{tab:vmf_bound_scaling}
+\begin{tabular}{c|r|rrrr}
+$K$ & $N$ & $\cB_{\mathrm{emp}}$ & $\cB_{\mathrm{dd}}$
+  & $\cB_{\mathrm{wc}}$
+  & $\cB_{\mathrm{dd}}/\cB_{\mathrm{emp}}$ \\
+\hline
+\multirow{4}{*}{1}
+  & 512   & 0.019 & 24.4 & 294
+    & 1300 \\
+  & 1024  & 0.013 & 21.4 & 257
+    & 1600 \\
+  & 2048  & 0.006 & 15.8 & 191
+    & 2500 \\
+  & 4096  & 0.004 & 12.0 & 144
+    & 3100 \\
+\hline
+\multirow{4}{*}{3}
+  & 512   & 1.02  & $1.8 \times 10^{3}$ & $3.8 \times 10^{3}$
+    & 1800 \\
+  & 1024  & 1.16  & $1.5 \times 10^{3}$ & $3.6 \times 10^{3}$
+    & 1300 \\
+  & 2048  & 0.83  & $1.9 \times 10^{3}$ & $3.7 \times 10^{3}$
+    & 2300 \\
+  & 4096  & 1.23  & $1.9 \times 10^{3}$ & $3.9 \times 10^{3}$
+    & 1600 \\
+\end{tabular}
+\end{table}
+
+\emph{$K=1$ scaling.}
+The empirical barrier decays from $0.019$ to $0.004$
+as $N$ grows from $512$ to $4096$, consistent with the predicted
+$O(1/N)$ rate.
+Both $\cB_{\mathrm{wc}}$ and $\cB_{\mathrm{dd}}$ also decay
+(by roughly $2\times$), confirming that the bounds track the empirical
+trend.
+The bound-to-empirical gap increases from $\sim\!1300\times$ to
+$\sim\!3100\times$, mirroring the MDN observation that the empirical
+barrier decays faster than the bounds.
+
+\emph{$K=3$ scaling.}
+The empirical barrier is approximately flat around $1.0$,
+while the bounds are flat at $\sim\!2{,}000$--$4{,}000$.
+The output-space mismatch $\Delta_N$ does not converge at these
+widths, indicating that the component alignment quality is the
+bottleneck.
+Unlike the MDN $K=5$ case, however, the vMF worst-case bound
+($\sim\!4 \times 10^3$) is only one order of magnitude above the
+data-dependent bound, whereas the MDN gap is $10^{18}$.
+
+%======================================================================
+
+\begin{thebibliography}{46}
+
+\bibitem{ferbach2024}
+D.~Ferbach, B.~Goujaud, G.~Gidel, and A.~Dieuleveut,
+``Proving linear mode connectivity of neural networks via optimal
+transport,'' in \emph{Proceedings of AISTATS}, 2024.
+arXiv:2310.19103.
+
+\bibitem{bishop1994}
+C.~M.~Bishop,
+``Mixture density networks,''
+Tech.\ Rep.\ NCRG/94/004, Aston University, 1994.
+
+\bibitem{frankle2020}
+J.~Frankle, G.~K.~Dziugaite, D.~Roy, and M.~Carlin,
+``Linear mode connectivity and the lottery ticket hypothesis,''
+in \emph{Proceedings of ICML}, 2020.
+
+\bibitem{entezari2022}
+R.~Entezari, S.~A.~Sedghi, O.~Saukh, and B.~Neyshabur,
+``The role of permutation invariance in linear mode connectivity of
+neural networks,'' in \emph{Proceedings of ICLR}, 2022.
+
+\bibitem{ainsworth2023}
+S.~K.~Ainsworth, J.~Hayase, and S.~Srinivasa,
+``Git re-basin: Merging models modulo permutation symmetries,''
+in \emph{Proceedings of ICLR}, 2023.
+
+\bibitem{tran2025moe}
+V.-H.~Tran, V.~H.~Trinh, K.~V.~Bui, and T.~M.~Nguyen,
+``On linear mode connectivity of mixture-of-experts architectures,''
+in \emph{Advances in Neural Information Processing Systems}, 2025.
+arXiv:2509.11348.
+
+\bibitem{zhan2025permutation}
+K.~Zhan, P.~Li, and L.~Wu,
+``Analyzing the role of permutation invariance in linear mode
+connectivity,'' in \emph{Proceedings of AISTATS}, 2025.
+arXiv:2503.06001.
+
+\bibitem{villani2009}
+C.~Villani,
+\emph{Optimal Transport: Old and New}.
+Springer, 2009.
+
+\bibitem{bobkov1999}
+S.~G.~Bobkov and F.~G\"otze,
+``Exponential integrability and transportation cost related to
+logarithmic Sobolev inequalities,''
+\emph{Journal of Functional Analysis}, 163(1):1--28, 1999.
+
+\bibitem{ledoux2001}
+M.~Ledoux,
+\emph{The Concentration of Measure Phenomenon},
+Mathematical Surveys and Monographs, vol.~89,
+American Mathematical Society, 2001.
+
+\bibitem{weed2019}
+J.~Weed and F.~Bach,
+``Sharp asymptotic and finite-sample rates of convergence of empirical
+measures in Wasserstein distance,''
+\emph{Bernoulli}, 25(4A):2620--2648, 2019.
+arXiv:1707.00087.
+
+\bibitem{facco2017}
+E.~Facco, M.~d'Errico, A.~Rodriguez, and A.~Laio,
+``Estimating the intrinsic dimension of datasets by a minimal neighborhood
+information,'' \emph{Scientific Reports}, 7:12140, 2017.
+
+\bibitem{rotskoff2022}
+G.~M.~Rotskoff and E.~Vanden-Eijnden,
+``Trainability and accuracy of artificial neural networks: An interacting
+particle system approach,'' \emph{Communications on Pure and Applied
+Mathematics}, 75(9):1889--1935, 2022.
+
+\bibitem{garipov2018}
+T.~Garipov, P.~Izmailov, D.~Podoprikhin, D.~Vetrov, and A.~G.~Wilson,
+``Loss surfaces, mode connectivity, and fast ensembling of {DNN}s,''
+in \emph{Advances in Neural Information Processing Systems}, 2018.
+arXiv:1802.10026.
+
+\bibitem{draxler2018}
+F.~Draxler, K.~Veschgini, M.~Salmhofer, and F.~A.~Hamprecht,
+``Essentially no barriers in neural network energy landscape,''
+in \emph{Proceedings of ICML}, 2018.
+arXiv:1803.00885.
+
+\bibitem{theus2025}
+M.~Theus, R.~M\"{u}ller, J.~Vogt, T.~Hofmann, and K.~Roth,
+``Generalized linear mode connectivity for transformers,''
+in \emph{Advances in Neural Information Processing Systems}, 2025.
+arXiv:2506.22712.
+
+\bibitem{wortsman2022soups}
+M.~Wortsman, G.~Ilharco, S.~Y.~Gadre, R.~Roelofs, R.~Gontijo-Lopes,
+A.~S.~Morcos, H.~Namkoong, H.~Fang, M.~Luca, L.~Schmidt, and
+A.~Farhadi,
+``Model soups: Averaging weights of multiple fine-tuned models improves
+accuracy and robustness,''
+in \emph{Proceedings of ICML}, 2022.
+arXiv:2203.05482.
+
+\bibitem{ilharco2023task}
+G.~Ilharco, M.~T.~Ribeiro, M.~Wortsman, S.~Gururangan, L.~Schmidt,
+H.~Hajishirzi, and A.~Farhadi,
+``Editing models with task arithmetic,''
+in \emph{Proceedings of ICLR}, 2023.
+arXiv:2212.04089.
+
+\bibitem{yadav2023ties}
+P.~Yadav, D.~Tam, L.~Choshen, C.~Raffel, and M.~Bansal,
+``{TIES}-Merging: Resolving interference when merging models,''
+in \emph{Advances in Neural Information Processing Systems}, 2023.
+arXiv:2306.01708.
+
+\bibitem{jacobs1991}
+R.~A.~Jacobs, M.~I.~Jordan, S.~J.~Nowlan, and G.~E.~Hinton,
+``Adaptive mixtures of local experts,''
+\emph{Neural Computation}, 3(1):79--87, 1991.
+
+\bibitem{shazeer2017}
+N.~Shazeer, A.~Mirhoseini, K.~Maziarz, A.~Davis, Q.~Le, G.~Hinton,
+and J.~Dean,
+``Outrageously large neural networks: The sparsely-gated
+mixture-of-experts layer,''
+in \emph{Proceedings of ICLR}, 2017.
+arXiv:1701.06538.
+
+\bibitem{kanoh2025dte}
+R.~Kanoh and M.~Sugiyama,
+``Linear mode connectivity in differentiable tree ensembles,''
+in \emph{Proceedings of ICLR}, 2025.
+arXiv:2405.14596.
+
+\bibitem{graves2013}
+A.~Graves,
+``Generating sequences with recurrent neural networks,''
+arXiv:1308.0850, 2013.
+
+\bibitem{ha2018worldmodels}
+D.~Ha and J.~Schmidhuber,
+``World models,''
+arXiv:1803.10122, 2018.
+
+\bibitem{makansi2019}
+O.~Makansi, E.~Ilg, O.~Cicek, and T.~Brox,
+``Overcoming limitations of mixture density networks: A sampling and
+fitting framework for multimodal future prediction,''
+in \emph{Proceedings of CVPR}, 2019.
+arXiv:1906.03631.
+
+\bibitem{papamakarios2016}
+G.~Papamakarios and I.~Murray,
+``Fast $\varepsilon$-free inference of simulation models with
+{B}ayesian conditional density estimation,''
+in \emph{Advances in Neural Information Processing Systems}, 2016.
+arXiv:1605.06376.
+
+\bibitem{mei2018meanfield}
+S.~Mei, A.~Montanari, and P.-M.~Nguyen,
+``A mean field view of the landscape of two-layer neural networks,''
+\emph{Proceedings of the National Academy of Sciences},
+115(33):E7665--E7671, 2018.
+arXiv:1804.06561.
+
+\bibitem{carmona2018probabilistic}
+R.~Carmona and F.~Delarue,
+\emph{Probabilistic Theory of Mean Field Games with Applications~I},
+Probability Theory and Stochastic Modelling, vol.~83,
+Springer, 2018.
+
+\bibitem{boyd2004}
+S.~Boyd and L.~Vandenberghe,
+\emph{Convex Optimization}.
+Cambridge University Press, 2004.
+
+\bibitem{debortoli2020}
+V.~De~Bortoli, A.~Durmus, X.~Fontaine, and U.~Simsekli,
+``Quantitative propagation of chaos for {SGD} in wide neural networks,''
+in \emph{Advances in Neural Information Processing Systems}, 2020.
+arXiv:2007.06352.
+
+\bibitem{sirignano2020lln}
+J.~Sirignano and K.~Spiliopoulos,
+``Mean field analysis of neural networks: A law of large numbers,''
+\emph{SIAM Journal on Applied Mathematics}, 80(2):725--752, 2020.
+arXiv:1805.01053.
+
+\bibitem{sirignano2020clt}
+J.~Sirignano and K.~Spiliopoulos,
+``Mean field analysis of neural networks: A central limit theorem,''
+\emph{Stochastic Processes and their Applications}, 130(3):1820--1852,
+2020.
+arXiv:1808.09372.
+
+\bibitem{gess2024smf}
+B.~Gess, S.~Kassing, and V.~Konarovskyi,
+``Stochastic modified flows, mean-field limits and dynamics of
+stochastic gradient descent,''
+\emph{Journal of Machine Learning Research}, 25(30):1--55, 2024.
+arXiv:2302.07125.
+
+\bibitem{nguyen2023multilayer}
+P.-M.~Nguyen and H.~T.~Pham,
+``A rigorous framework for the mean field limit of multilayer neural
+networks,''
+\emph{Mathematical Statistics and Learning}, 6(3):201--357, 2023.
+arXiv:2001.11443.
+
+\bibitem{suzuki2023mfld}
+T.~Suzuki, D.~Wu, and A.~Nitanda,
+``Convergence of mean-field {L}angevin dynamics: Time and space
+discretization, stochastic gradient, and variance reduction,''
+in \emph{Advances in Neural Information Processing Systems}, 2023.
+arXiv:2306.07221.
+
+\bibitem{yakowitz1968}
+S.~J.~Yakowitz and J.~D.~Spragins,
+``On the identifiability of finite mixtures,''
+\emph{The Annals of Mathematical Statistics},
+vol.~39, no.~1, pp.~209--214, 1968.
+
+\bibitem{pinkus1999}
+A.~Pinkus,
+``Approximation theory of the {MLP} model in neural networks,''
+\emph{Acta Numerica}, vol.~8, pp.~143--195, 1999.
+
+\bibitem{luce1959}
+R.~D.~Luce,
+\emph{Individual Choice Behavior: A Theoretical Analysis}.
+John Wiley \& Sons, 1959.
+
+\bibitem{lei2020}
+J.~Lei,
+``Convergence and concentration of empirical measures under
+{W}asserstein distance in unbounded functional spaces,''
+\emph{Bernoulli}, 26(1):767--798, 2020.
+
+\bibitem{banerjee2005}
+A.~Banerjee, I.~S.~Dhillon, J.~Ghosh, and S.~Sra,
+``Clustering on the unit hypersphere using von {M}ises-{F}isher
+distributions,''
+\emph{Journal of Machine Learning Research}, 6:1345--1382, 2005.
+
+\bibitem{gopal2014}
+S.~Gopal and Y.~Yang,
+``Von {M}ises-{F}isher clustering models,''
+in \emph{Proceedings of ICML}, 2014.
+
+\bibitem{mardia2000}
+K.~V.~Mardia and P.~E.~Jupp,
+\emph{Directional Statistics}.
+John Wiley \& Sons, 2000.
+
+\bibitem{prokudin2018deep}
+S.~Prokudin, P.~Gehler, and S.~Nowozin,
+``Deep directional statistics: Pose estimation with uncertainty
+quantification,''
+in \emph{Proceedings of ECCV}, 2018.
+arXiv:1805.03430.
+
+\bibitem{liu2024probabilistic}
+H.~Liu, Y.~Liu, Y.~Yang, and J.-F.~Yang,
+``Probabilistic rotation modeling based on directional mixture density
+networks,''
+\emph{Information Sciences}, 662:120225, 2024.
+
+\bibitem{han2023sphericalmdn}
+S.~Han, H.~Li, H.~Shi, and S.~Huang,
+``Uncertainty quantification in molecular property prediction through
+spherical mixture density networks,''
+\emph{Engineering Applications of Artificial Intelligence},
+126:106180, 2023.
+
+\bibitem{ghrear2024direction}
+M.~Ghrear, P.~Sadowski, and S.~E.~Vahsen,
+``Deep probabilistic direction prediction in {3D} with applications to
+directional dark matter detectors,''
+\emph{Machine Learning: Science and Technology}, 5(2):025048, 2024.
+arXiv:2403.15949.
+
+\bibitem{jena_climate}
+Max Planck Institute for Biogeochemistry,
+``Jena Climate dataset,'' 2016.
+Available at \url{https://www.bgc-jena.mpg.de/wetter/}.
+
+\end{thebibliography}
+
+\end{document}

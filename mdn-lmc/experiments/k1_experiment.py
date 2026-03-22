@@ -803,8 +803,10 @@ def alignment_statistics(
     variance_weights_b = table_b[:, 1]
 
     evaluation_probe_x = evaluation_probe_x.to(device)
-    raw_a = model_a.distribution(evaluation_probe_x)["raw"][:, 1].detach().cpu().numpy()
-    raw_b = model_b.distribution(evaluation_probe_x)["raw"][:, 1].detach().cpu().numpy()
+    raw_dist_a = model_a.distribution(evaluation_probe_x)["raw"].detach().cpu().numpy()
+    raw_dist_b = model_b.distribution(evaluation_probe_x)["raw"].detach().cpu().numpy()
+    raw_a = raw_dist_a[:, 1]
+    raw_b = raw_dist_b[:, 1]
 
     b_n = float(np.mean(np.sum((xi_a - xi_b) ** 2, axis=1)))
     delta_s = float(np.mean((raw_a - raw_b) ** 2))
@@ -820,6 +822,7 @@ def alignment_statistics(
     stats = {
         "B_N": b_n,
         "Delta_s_N": delta_s,
+        "Delta_raw_N": float(np.mean(np.sum((raw_dist_a - raw_dist_b) ** 2, axis=1))),
         "M_V_infty": m_v_infty,
     }
 
@@ -836,6 +839,23 @@ def alignment_statistics(
         stats["K_nabla"] = k_nabla
         stats["Y_star"] = y_star
         stats["effective_lambda_min"] = effective_lambda_min(config.variance_max)
+    elif config.precision_activation == "exp":
+        k_phi = 1.0
+        k_nabla = 0.25 * math.sqrt(config.x_max**2 + 1.0)
+        m_value = k_phi * m_v_infty
+        lambda_m = m_value + y_star
+        c_raw = lambda_m / config.variance_min + 0.5 + (lambda_m**2) / (2.0 * config.variance_min)
+        rho_raw = lambda_m / config.variance_min + (lambda_m**2) / (2.0 * config.variance_min)
+        theorem_bound = (
+            0.5 * c_raw * k_nabla * m_v_infty * math.sqrt(max(b_n, 0.0))
+            + 0.125 * rho_raw * stats["Delta_raw_N"]
+        )
+        stats["raw_k1_barrier_bound"] = theorem_bound
+        stats["K_phi"] = k_phi
+        stats["K_nabla"] = k_nabla
+        stats["Y_star"] = y_star
+        stats["raw_C"] = c_raw
+        stats["raw_rho"] = rho_raw
     return stats
 
 

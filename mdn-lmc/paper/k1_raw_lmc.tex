@@ -1,0 +1,2405 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{bm}
+\usepackage{mathrsfs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{microtype}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue
+}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\newtheorem{remark}[theorem]{Remark}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\supp}{\mathrm{supp}}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\abs}[1]{\left\lvert #1 \right\rvert}
+\newcommand{\mc}[1]{\mathcal{#1}}
+\newcommand{\cB}{\mathcal{B}}
+\newcommand{\cT}{\mathcal{T}}
+
+\title{Linear Mode Connectivity Beyond Convex Losses\\A Semi-Convex Framework with a Single-Gaussian Density-Network Instantiation}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Existing quantitative guarantees for linear mode connectivity (LMC) of wide
+neural networks rely on convex output losses. We argue that convexity is not
+the right structural boundary. A deterministic interpolation barrier can already
+be controlled under a weaker \emph{semi-convexity} condition, leading to a
+two-term decomposition into a transfer error and a semi-convexity penalty.
+This viewpoint isolates what convexity was doing in prior LMC proofs and shows
+how to go beyond it.
+
+We instantiate this framework on a single-Gaussian density network trained in
+mean/log-variance coordinates. For a mean/log-variance head with a variance
+floor, the Gaussian negative log-likelihood is explicitly Lipschitz and
+semi-convex on bounded output boxes. This yields a direct barrier theorem in
+mean/log-variance coordinates. On the training side, we verify that the same Gaussian
+head satisfies the bounded-support finite-horizon
+mean-field SGD hypotheses needed for a shared-law common-path argument. The
+result is a finite-horizon SGD-to-LMC theorem for a genuinely non-convex output
+loss.
+
+Beyond asymptotic rates, we derive an exact Gaussian conditional-risk modulus that
+keeps the path defects in pointwise form. This sharpened route produces
+non-vacuous deterministic certificates on matched mean-variance runs: at width
+$1024$, the exact Gaussian modulus is within a factor of about $2$ of the observed
+interpolation barrier, whereas the baseline worst-case semi-convex theorem is
+completely vacuous. The message is therefore twofold: semi-convexity is enough
+for LMC, and single-Gaussian density heads provide a concrete non-convex
+instantiation where the sharpened theory is already numerically meaningful.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Linear mode connectivity (LMC) asks whether two independently trained networks
+can be aligned so that the linear interpolation path between them stays at low
+loss. In wide two-layer networks, the mean-field perspective of
+Ferbach et al.~\cite{Ferbach2024} reduces this question to two ingredients: a
+shared deterministic training path and a deterministic barrier bound for aligned
+endpoints. In the existing quantitative theory, the second ingredient is driven
+by convexity of the output loss. This leaves open a central conceptual question:
+is convexity really necessary for LMC, or only a convenient way to control the
+interpolation barrier?
+
+Many practically relevant density-network heads are non-convex in the
+coordinates in which they are actually trained. Gaussian density regression is a
+simple example. If the aim is to understand LMC in the parameterization that is
+used in practice, the relevant question is whether one can work directly with
+the Gaussian head and
+still close the full finite-horizon SGD-to-LMC chain.
+
+This paper develops a positive answer in the simplest genuinely non-convex
+setting: a single-Gaussian density network with a two-dimensional output head.
+We work with a mean/log-variance parameterization
+\[
+  z_\Theta(x)=\bigl(m_\Theta(x),r_\Theta(x)\bigr),
+\]
+where $m_\Theta$ is the predictive mean and $r_\Theta$ is an unconstrained
+log-variance coordinate. The predictive variance is
+\[
+  v_\Theta(x):=v_{\min}+\exp(r_\Theta(x)),
+  \qquad
+  v_{\min}>0,
+\]
+so the model never approaches zero variance. The single-Gaussian case is already
+a genuine vector head, so the scalar-output convex-interpolation argument does
+not apply verbatim, but it avoids the additional responsibility-covariance terms
+that make mixture losses substantially harder. It is therefore the right place
+to isolate the role of semi-convexity.
+
+Our starting observation is simple: convexity is stronger than what the barrier
+argument actually needs. Once the loss is $\rho$-semi-convex on the relevant
+output domain, the aligned interpolation barrier decomposes into
+\[
+  \text{barrier}
+  \lesssim
+  \text{transfer error}
+  +
+  \rho\times \text{endpoint output mismatch}.
+\]
+The transfer term measures how far parameter interpolation deviates from output
+interpolation, while the second term quantifies the loss of convexity. In the
+convex case one has $\rho=0$, recovering the usual route. In the non-convex case
+the question becomes whether $\rho$ can still be controlled on the relevant
+output region.
+
+For the floor-regularized Gaussian head, the answer is yes. We prove explicit
+Lipschitz and semi-convexity bounds for the Gaussian loss on bounded output
+boxes, verify the finite-horizon mean-field SGD hypotheses directly in
+mean/log-variance coordinates, and combine the resulting shared-path estimate
+with Wasserstein alignment to obtain LMC in the original output coordinates.
+Under an additional head-regularity condition, the deterministic width-sequence
+rate improves from
+$O(\sqrt{d/N}+1/N)$ to $O(d/N+1/N)$, which is $O(1/N)$ in fixed dimension.
+
+The sharpened part of the story is equally important. A worst-case semi-convex
+theorem can be asymptotically correct and still numerically useless. To address
+this, we derive an exact Gaussian conditional-risk modulus that keeps the path
+defects and the endpoint interpolation defect in pointwise form. This produces
+non-vacuous certificates on matched mean-variance runs, showing that the
+semi-convex route is not only theoretically valid but also quantitatively
+meaningful.
+
+The contributions are therefore:
+\begin{itemize}[leftmargin=*,itemsep=2pt]
+  \item A deterministic LMC principle beyond convex losses, where the barrier is
+    controlled by a transfer term plus a semi-convexity penalty.
+  \item A single-Gaussian mean/log-variance instantiation establishing
+    finite-horizon LMC for a genuinely non-convex output loss.
+  \item A refined width-sequence analysis yielding an $O(1/N)$ barrier under
+    conditional head regularity.
+  \item An exact Gaussian conditional-risk modulus and a first non-vacuous
+    quantitative instantiation on matched mean-variance runs.
+\end{itemize}
+
+The rest of the paper is organized as follows. Section~\ref{sec:related}
+positions the paper relative to prior LMC theory. Section~\ref{sec:setup}
+introduces the model and assumptions. Section~\ref{sec:theory} presents the
+semi-convex framework, the single-Gaussian instantiation, and the finite-horizon
+LMC theorem. Section~\ref{sec:discussion} summarizes the quantitative picture
+and the current scope of the results. The appendices contain the model-specific
+proofs and the exact Gaussian conditional-risk modulus.
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Linear mode connectivity theory.}
+Empirical LMC was established through low-loss paths between independently
+trained networks by Garipov et al.\ and Draxler et al., and sharpened to linear
+paths after permutation by Frankle et al. Quantitative theory in the mean-field
+two-layer regime is due to Ferbach et al.~\cite{Ferbach2024}, whose argument
+combines a neuron-alignment step with convexity of the output loss. Our starting
+point is precisely the convexity bottleneck in that framework.
+
+\section{Preliminaries}
+\label{sec:setup}
+
+\begin{assumption}[Barrier-side regularity]
+\label{ass:barrier}
+Let $\mc{X}\subseteq\R^d$ be an input space and let $(X,Y)$ be a data pair. We
+assume $\abs{Y}\le Y_\ast$ almost surely. For notational simplicity, the hidden
+parameter is denoted by $\xi\in\R^d$. Fix a feature map
+$\varphi:\R^d\times\mc{X}\to\R$ satisfying
+\[
+  K_\varphi:=\sup_{\xi,x}\abs{\varphi(\xi,x)}<\infty,
+  \qquad
+  K_{\nabla}:=\sup_{\xi,x}\norm{\nabla_\xi \varphi(\xi,x)}<\infty.
+\]
+\end{assumption}
+
+\begin{assumption}[Second-order feature regularity]
+\label{ass:feature-second}
+Under Assumption~\ref{ass:barrier}, assume furthermore that
+$\nabla_\xi\varphi(\cdot,x)$ is globally Lipschitz in $\xi$, uniformly in $x$:
+\[
+  \norm{\nabla_\xi\varphi(\xi,x)-\nabla_\xi\varphi(\bar\xi,x)}
+  \le
+  L_{\nabla}\norm{\xi-\bar\xi}
+  \qquad
+  \forall \xi,\bar\xi\in\R^d,\ \forall x\in\mc{X}.
+\]
+\end{assumption}
+
+\begin{remark}
+In the common single-index case
+\[
+  \varphi(\xi,x)=\sigma(\langle \xi,x\rangle),
+  \qquad
+  \sup_{x\in\mc{X}}\norm{x}\le R_X,
+\]
+Assumption~\ref{ass:barrier} follows from boundedness of $\sigma$ and
+$\sigma'$, while Assumption~\ref{ass:feature-second} follows from global
+Lipschitz continuity of $\sigma'$.
+\end{remark}
+
+\subsection{Single-Gaussian Mean/Log-Variance Head}
+
+We consider width-$N$ two-layer networks with mean-field scaling
+\begin{equation}
+  z_\Theta(x)
+  =
+  \bigl(m_\Theta(x),r_\Theta(x)\bigr)
+  :=
+  \frac1N\sum_{i=1}^N (a_i,c_i)\,\varphi(\xi_i,x)
+  \in \R^2,
+  \label{eq:gaussian-head}
+\end{equation}
+where
+\[
+  \Theta=((a_i,c_i,\xi_i))_{i=1}^N\in(\R\times\R\times\R^d)^N.
+\]
+The predictive variance is
+\begin{equation}
+  v_\Theta(x):=v_{\min}+\exp(r_\Theta(x)),
+  \qquad
+  v_{\min}>0,
+  \label{eq:variance-map}
+\end{equation}
+and the pointwise Gaussian loss is
+\begin{equation}
+  \ell_{\rm G}(m,r;y)
+  :=
+  \frac12\log\!\bigl(2\pi(v_{\min}+e^r)\bigr)
+  +
+  \frac{(y-m)^2}{2(v_{\min}+e^r)}.
+  \label{eq:gaussian-loss}
+\end{equation}
+
+For a probability measure $\rho$ on $\R^2\times\R^d$, write
+\[
+  m_\rho(x)
+  :=
+  \int a\,\varphi(\xi,x)\,\rho(d a,d c,d\xi),
+  \qquad
+  r_\rho(x)
+  :=
+  \int c\,\varphi(\xi,x)\,\rho(d a,d c,d\xi),
+\]
+and set
+\[
+  v_\rho(x):=v_{\min}+\exp(r_\rho(x)).
+\]
+The population risk is
+\begin{equation}
+  \mc{R}(\rho)
+  :=
+  \E\bigl[\ell_{\rm G}(m_\rho(X),r_\rho(X);Y)\bigr].
+  \label{eq:population-risk}
+\end{equation}
+
+For a permutation $\varpi\in\mathfrak{S}_N$, write
+\[
+  \varpi\Theta_B
+  :=
+  ((a_{\varpi(i)}^B,c_{\varpi(i)}^B,\xi_{\varpi(i)}^B))_{i=1}^N.
+\]
+For two aligned endpoints
+\[
+  \Theta_A=((a_i^A,c_i^A,\xi_i^A))_{i=1}^N,
+  \qquad
+  \Theta_B=((a_i^B,c_i^B,\xi_i^B))_{i=1}^N,
+\]
+their parameter interpolation is
+\[
+  \Theta_t
+  :=
+  \bigl((1-t)a_i^A+t a_i^B,\ (1-t)c_i^A+t c_i^B,\ (1-t)\xi_i^A+t\xi_i^B\bigr)_{i=1}^N.
+\]
+The aligned barrier is
+\begin{equation}
+  \cB(\Theta_A,\Theta_B;\varpi)
+  :=
+  \sup_{t\in[0,1]}
+  \left\{
+    \begin{aligned}
+      &\E[\ell_{\rm G}(z_{\Theta_t^{\varpi}}(X);Y)]
+      \\
+      &\quad-
+      (1-t)\E[\ell_{\rm G}(z_{\Theta_A}(X);Y)]
+      -
+      t\E[\ell_{\rm G}(z_{\varpi\Theta_B}(X);Y)]
+    \end{aligned}
+  \right\}.
+  \label{eq:barrier-def}
+\end{equation}
+Here $\Theta_t^\varpi$ denotes the parameter interpolation between $\Theta_A$
+and $\varpi\Theta_B$.
+
+We use the per-coordinate head moment
+\begin{equation}
+  M_V^\infty
+  :=
+  \max\!\Biggl\{
+    \Bigl(\frac1N\sum_{i=1}^N (a_i^A)^2\Bigr)^{1/2},
+    \Bigl(\frac1N\sum_{i=1}^N (c_i^A)^2\Bigr)^{1/2},
+    \Bigl(\frac1N\sum_{i=1}^N (a_i^B)^2\Bigr)^{1/2},
+    \Bigl(\frac1N\sum_{i=1}^N (c_i^B)^2\Bigr)^{1/2}
+  \Biggr\}.
+  \label{eq:head-moment}
+\end{equation}
+
+\section{Theoretical Results}
+\label{sec:theory}
+
+The interpolation-side results use only Assumption~\ref{ass:barrier}. The
+training-side theorems additionally use Assumption~\ref{ass:feature-second}
+and the following finite-horizon SGD regime.
+
+\begin{assumption}[Finite-horizon SGD regime]
+\label{ass:sgd}
+Fix a horizon $T<\infty$. The step sizes satisfy
+\[
+  s_k=\varepsilon\,\zeta(k\varepsilon),
+\]
+where $\zeta:[0,\infty)\to(0,\infty)$ is bounded and Lipschitz. The data stream
+$Z_{k+1}=(X_{k+1},Y_{k+1})$ is i.i.d.\ with law $P$, and the initialization law
+$\rho_0$ on $\R^2\times\R^d$ has compact support.
+\end{assumption}
+
+\subsection{General Framework for Semi-Convex Losses}
+
+We first isolate the deterministic interpolation step from the density-network
+model. Let $p\ge 1$, let $u_A,u_B:\mc{X}\to\R^p$ be two endpoint predictors,
+and let $(u_t)_{t\in[0,1]}$ be any predictor path joining them. Write
+\[
+  \hat u_t:=(1-t)u_A+t u_B
+\]
+for the output-space linear interpolation. For a loss
+$\ell:\R^p\times\R\to\R$, define the interpolation barrier, transfer defect,
+and endpoint mismatch by
+\begin{align}
+  \cB_\ell(u_A,u_B,(u_t))
+  &:=
+  \sup_{t\in[0,1]}
+  \left\{
+    \E[\ell(u_t(X);Y)]
+    -
+    (1-t)\E[\ell(u_A(X);Y)]
+    -
+    t\E[\ell(u_B(X);Y)]
+  \right\},
+  \label{eq:generic-barrier}
+  \\
+  \cT_\ell(u_A,u_B,(u_t))
+  &:=
+  \sup_{t\in[0,1]}
+  \Bigl(
+    \E[\norm{u_t(X)-\hat u_t(X)}_\infty^2]
+  \Bigr)^{1/2},
+  \label{eq:generic-transfer}
+  \\
+  \Delta_\ell(u_A,u_B)
+  &:=
+  \E[\norm{u_A(X)-u_B(X)}^2].
+  \label{eq:generic-delta}
+\end{align}
+
+\begin{theorem}[Semi-convex barrier principle]
+\label{thm:semiconvex-barrier}
+Let $D\subseteq\R^p$ be convex. Suppose that for every $\abs{y}\le Y_\ast$,
+the map $u\mapsto \ell(u;y)$ is $C$-Lipschitz with respect to the
+$\ell_\infty$ norm and $\rho$-semi-convex on $D$. If, for every $t\in[0,1]$,
+\[
+  u_A(X),\ u_B(X),\ u_t(X),\ \hat u_t(X)\in D
+  \qquad
+  \text{almost surely,}
+\]
+then
+\begin{equation}
+  \cB_\ell(u_A,u_B,(u_t))
+  \le
+  C\,\cT_\ell(u_A,u_B,(u_t))
+  +
+  \frac{\rho}{8}\,\Delta_\ell(u_A,u_B).
+  \label{eq:semiconvex-barrier}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Appendix~B proves the claim by combining a one-step transfer estimate with the
+semi-convex interpolation inequality of Lemma~\ref{lem:semi-convex}.
+\end{proof}
+
+\begin{remark}
+Theorem~\ref{thm:semiconvex-barrier} is deterministic and loss-generic.
+Convexity corresponds to the special case $\rho=0$. Beyond convex losses, the
+only additional term is the endpoint mismatch penalty
+$\frac{\rho}{8}\Delta_\ell(u_A,u_B)$.
+\end{remark}
+
+\subsection{Single-Gaussian Output-Space Geometry}
+\label{sec:output-geometry}
+
+We now instantiate Theorem~\ref{thm:semiconvex-barrier} for the floor-regularized
+single-Gaussian head.
+
+The first ingredient is an explicit Gaussian-output regularity statement.
+
+\begin{proposition}[Gaussian-loss Lipschitz and semi-convexity]
+\label{prop:gaussian-regularity}
+Fix $M>0$ and define
+\[
+  D_M:=\{(m,r)\in\R^2:\ \abs{m}\le M,\ \abs{r}\le M\},
+  \qquad
+  \Lambda_M:=M+Y_\ast.
+\]
+On $D_M$ and for $\abs{y}\le Y_\ast$, define
+\begin{align}
+  C_{\rm G}(M,v_{\min},Y_\ast)
+  &:=
+  \frac{\Lambda_M}{v_{\min}}
+  +
+  \frac12
+  +
+  \frac{\Lambda_M^2}{2v_{\min}},
+  \label{eq:CG}
+  \\
+  \rho_{\rm G}(M,v_{\min},Y_\ast)
+  &:=
+  \frac{\Lambda_M}{v_{\min}}
+  +
+  \frac{\Lambda_M^2}{2v_{\min}}.
+  \label{eq:rhoG}
+\end{align}
+Then $\ell_{\rm G}$ is $C_{\rm G}$-Lipschitz with respect to the
+$\ell_\infty$ norm and $\rho_{\rm G}$-semi-convex on $D_M$, uniformly in
+$\abs{y}\le Y_\ast$.
+\end{proposition}
+
+The key point is that the loss is controlled directly in mean/log-variance
+coordinates.
+
+For aligned endpoints and a permutation $\varpi\in\mathfrak{S}_N$, write
+\[
+  \hat z_t^\varpi(x)
+  :=
+  (1-t)z_{\Theta_A}(x)+t z_{\varpi\Theta_B}(x),
+\]
+and define the transfer defect
+\begin{equation}
+  \cT_N(\Theta_A,\Theta_B;\varpi)
+  :=
+  \sup_{t\in[0,1]}
+  \Bigl(
+    \E\bigl[
+      \norm{z_{\Theta_t^\varpi}(X)-\hat z_t^\varpi(X)}_\infty^2
+    \bigr]
+  \Bigr)^{1/2}.
+  \label{eq:Tn}
+\end{equation}
+We also use
+\begin{align}
+  B_N
+  &:=
+  \frac1N\sum_{i=1}^N \norm{\xi_i^A-\xi_{\varpi(i)}^B}^2,
+  \label{eq:BN}
+  \\
+  \Delta_N
+  &:=
+  \E\bigl[\norm{z_{\Theta_A}(X)-z_{\varpi\Theta_B}(X)}^2\bigr].
+  \label{eq:DeltaN}
+\end{align}
+
+\begin{proposition}[Direct vector-head transfer]
+\label{prop:transfer}
+Under Assumption~\ref{ass:barrier},
+\begin{equation}
+  \cT_N(\Theta_A,\Theta_B;\varpi)
+  \le
+  \frac12 K_{\nabla}M_V^\infty \sqrt{B_N}.
+  \label{eq:transfer}
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+Appendix~B proves the claim coordinatewise and then takes the maximum over the
+two mean/log-variance coordinates.
+\end{proof}
+
+\subsection{Main Theorems}
+
+The semi-convex barrier principle is deterministic. The stochastic component
+of the LMC argument therefore enters only through the shared-law approximation
+for SGD and the alignment step that converts Wasserstein control into bounds on
+$B_N$ and $\Delta_N$.
+
+\begin{theorem}[Training-side shared mean-field path for SGD]
+\label{thm:shared-path}
+Assume Assumptions~\ref{ass:barrier}, \ref{ass:feature-second}, and
+\ref{ass:sgd}. Then there exist a deterministic measure-valued path
+$(\rho_t)_{t\in[0,T]}$ and a finite constant $C_T^{\rm mf}$ such that the
+following holds. For any two independent width-$N$ noiseless SGD runs of the
+Gaussian head \eqref{eq:gaussian-head}--\eqref{eq:gaussian-loss}, with empirical laws
+$\hat\rho_{A,k}^N$ and $\hat\rho_{B,k}^N$, both initialized i.i.d.\ from the
+same law $\rho_0$, one has with high probability
+\[
+  \sup_{k\le T/\varepsilon}
+  W_1\!\bigl(\hat\rho_{A,k}^N,\rho_{k\varepsilon}\bigr)
+  \le
+  C_T^{\rm mf}\bigl(N^{-1/2}+\sqrt{\varepsilon}\bigr),
+  \qquad
+  \sup_{k\le T/\varepsilon}
+  W_1\!\bigl(\hat\rho_{B,k}^N,\rho_{k\varepsilon}\bigr)
+  \le
+  C_T^{\rm mf}\bigl(N^{-1/2}+\sqrt{\varepsilon}\bigr).
+\]
+Consequently,
+\[
+  \sup_{k\le T/\varepsilon}
+  W_1\!\bigl(\hat\rho_{A,k}^N,\hat\rho_{B,k}^N\bigr)
+  \le
+  2C_T^{\rm mf}\bigl(N^{-1/2}+\sqrt{\varepsilon}\bigr)
+\]
+with high probability.
+\end{theorem}
+
+\begin{proof}
+Appendix~A proves that the Gaussian head admits an unbiased one-sample drift
+\eqref{eq:sample-drift}, that both the particle system and the limiting flow
+remain in a common compact box $B_T^{\rm sgd}$ on every finite horizon, and
+that the sample drift is uniformly bounded and Lipschitz on that box. The
+imported bounded-support four-dynamics theorem
+(Theorem~\ref{thm:imported-four-dynamics}) therefore applies to each run and
+gives the stated approximation to a common deterministic path. The two-run
+bound is then the triangle inequality.
+\end{proof}
+
+\paragraph{Deterministic barrier theorem.}
+
+The second ingredient is a direct barrier theorem in mean/log-variance coordinates.
+
+\begin{theorem}[Single-Gaussian deterministic barrier theorem]
+\label{thm:barrier}
+Assume Assumption~\ref{ass:barrier}. For every endpoint pair
+$(\Theta_A,\Theta_B)$ and every permutation $\varpi\in\mathfrak{S}_N$,
+\begin{equation}
+  \cB(\Theta_A,\Theta_B;\varpi)
+  \le
+  C_{\rm G}(K_\varphi M_V^\infty,v_{\min},Y_\ast)\,
+  \cT_N(\Theta_A,\Theta_B;\varpi)
+  +
+  \frac18\,
+  \rho_{\rm G}(K_\varphi M_V^\infty,v_{\min},Y_\ast)\,
+  \Delta_N.
+  \label{eq:gaussian-barrier-abstract}
+\end{equation}
+In particular, Proposition~\ref{prop:transfer} yields
+\begin{equation}
+  \cB(\Theta_A,\Theta_B;\varpi)
+  \le
+  \frac12\,
+  C_{\rm G}(K_\varphi M_V^\infty,v_{\min},Y_\ast)\,
+  K_{\nabla}M_V^\infty\sqrt{B_N}
+  +
+  \frac18\,
+  \rho_{\rm G}(K_\varphi M_V^\infty,v_{\min},Y_\ast)\,
+  \Delta_N.
+  \label{eq:deterministic-barrier}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Lemma~\ref{lem:auto-box} ensures that
+$z_{\Theta_t^\varpi}(X)$ and $\hat z_t^\varpi(X)$ remain inside the box
+$D_{K_\varphi M_V^\infty}$ for all $t$. Proposition~\ref{prop:gaussian-regularity}
+therefore supplies the Lipschitz and semi-convexity constants required by
+Theorem~\ref{thm:semiconvex-barrier}. This gives
+\eqref{eq:gaussian-barrier-abstract}. The explicit $B_N$-bound is then exactly
+Proposition~\ref{prop:transfer}.
+\end{proof}
+
+\begin{remark}
+The barrier is controlled by a transfer term plus an explicit endpoint
+mismatch term $\Delta_N$, weighted by the semi-convexity constant
+$\rho_{\rm G}$.
+\end{remark}
+
+\paragraph{Finite-horizon SGD LMC.}
+
+Let $A_T^{\rm sgd},C_T^{\rm sgd},R_T^{\rm sgd}$ denote the deterministic
+confinement envelopes supplied by Appendix~A, and define
+\[
+  \alpha_{N,\varepsilon}:=N^{-1/2}+\sqrt{\varepsilon},
+  \qquad
+  M_{V,T}^{\rm sgd}:=\max\{A_T^{\rm sgd},C_T^{\rm sgd}\},
+  \qquad
+  L_T^{\rm sgd}:=
+  \bigl((A_T^{\rm sgd})^2+(C_T^{\rm sgd})^2+(R_T^{\rm sgd})^2\bigr)^{1/2}.
+\]
+
+\begin{theorem}[Finite-horizon SGD linear mode connectivity]
+\label{thm:main-lmc}
+Assume Assumptions~\ref{ass:barrier}, \ref{ass:feature-second}, and
+\ref{ass:sgd}. Let $\hat\rho_{A,k}^N$ and $\hat\rho_{B,k}^N$ be the empirical
+laws of two independent width-$N$ SGD runs of the Gaussian head, with
+parameter vectors $\Theta_{A,k}$ and $\Theta_{B,k}$, both initialized i.i.d.\
+from the same law $\rho_0$ and trained over the same horizon $[0,T]$.
+Then there exist permutations $\varpi_{N,k}$ such that, with high probability
+and uniformly for all $k\le T/\varepsilon$,
+\begin{align}
+  \cB(\Theta_{A,k},\Theta_{B,k};\varpi_{N,k})
+  &\le
+  C_{\rm G}(K_\varphi M_{V,T}^{\rm sgd},v_{\min},Y_\ast)\,
+  K_{\nabla}M_{V,T}^{\rm sgd}
+  \sqrt{L_T^{\rm sgd}C_T^{\rm mf}\alpha_{N,\varepsilon}}
+  \nonumber\\
+  &\quad+
+  \frac12\,
+  \rho_{\rm G}(K_\varphi M_{V,T}^{\rm sgd},v_{\min},Y_\ast)\,
+  (K_\varphi+K_{\nabla}M_{V,T}^{\rm sgd})^2\,
+  (C_T^{\rm mf})^2\alpha_{N,\varepsilon}^2.
+  \label{eq:main-lmc}
+\end{align}
+In particular, for every fixed finite horizon, the aligned interpolation
+barrier vanishes in probability as $N\to\infty$ and $\varepsilon\downarrow 0$.
+\end{theorem}
+
+\begin{proof}
+Theorem~\ref{thm:shared-path} gives a common deterministic path for the two SGD
+runs. Appendix~C converts the resulting Wasserstein control into a neuron
+permutation and bounds both $B_N$ and $\Delta_N$ in terms of the same
+Wasserstein error. The deterministic barrier theorem then yields
+\eqref{eq:main-lmc}.
+\end{proof}
+
+\begin{corollary}[Generic finite-horizon rate]
+\label{cor:generic-rate}
+Under the assumptions of Theorem~\ref{thm:main-lmc}, there exists a finite
+constant $\overline C_T$ such that, with high probability and uniformly for
+all $k\le T/\varepsilon$,
+\[
+  \cB(\Theta_{A,k},\Theta_{B,k};\varpi_{N,k})
+  \le
+  \overline C_T\bigl(N^{-1/4}+\varepsilon^{1/4}\bigr).
+\]
+\end{corollary}
+
+\begin{proof}
+By Theorem~\ref{thm:shared-path},
+$\delta:=2C_T^{\rm mf}(N^{-1/2}+\sqrt{\varepsilon})$ controls the two-run
+Wasserstein distance. Insert this into \eqref{eq:main-lmc}. The transfer term
+is $O(\sqrt{\delta})$ and the semi-convexity term is $O(\delta^2)$, so the
+former dominates on every finite horizon.
+\end{proof}
+
+\subsection{Improved Rate via Head Regularity}
+
+The generic rate is limited by the transfer term. A better rate is available
+when the trained head varies regularly with the hidden feature.
+
+\begin{definition}[Per-coordinate head mismatch]
+\label{def:head-mismatch}
+Define
+\[
+  M_{\Delta V}^\infty
+  :=
+  \max_{j\in\{1,2\}}
+  \Bigl(
+    \frac1N\sum_{i=1}^N \bigl((v_i^A-v_i^B)_j\bigr)^2
+  \Bigr)^{1/2},
+  \qquad
+  v_i^X:=(a_i^X,c_i^X)\in\R^2.
+\]
+\end{definition}
+
+\begin{assumption}[Conditional head regularity]
+\label{ass:head-regularity}
+There exist a map $g:\R^d\to\R^2$ and residuals $r_i^A,r_i^B\in\R^2$ such that
+\[
+  v_i^A=g(\xi_i^A)+r_i^A,
+  \qquad
+  v_i^B=g(\xi_i^B)+r_i^B,
+\]
+and
+\[
+  \norm{g(\xi)-g(\bar\xi)}_\infty
+  \le
+  L_g\norm{\xi-\bar\xi}
+  \qquad
+  \forall \xi,\bar\xi\in\R^d.
+\]
+Define the residual mismatch
+\[
+  \mc{R}_N
+  :=
+  \max_{j\in\{1,2\}}
+  \Bigl(
+    \frac1N\sum_{i=1}^N \bigl((r_i^A-r_i^B)_j\bigr)^2
+  \Bigr)^{1/2}.
+\]
+\end{assumption}
+
+\begin{corollary}[Conditional fast rate]
+\label{cor:fast-rate}
+Assume the hypotheses of Theorem~\ref{thm:main-lmc} and
+Assumption~\ref{ass:head-regularity}. Suppose furthermore that along the chosen
+alignments one has
+\[
+  \mc{R}_{N,k}
+  \le
+  C_{\rm reg}\sqrt{B_{N,k}}
+  \qquad
+  \forall k\le T/\varepsilon
+\]
+for some finite constant $C_{\rm reg}$. Then there exists
+$\widetilde C_T<\infty$ such that, with high probability and uniformly for all
+$k\le T/\varepsilon$,
+\[
+  \cB(\Theta_{A,k},\Theta_{B,k};\varpi_{N,k})
+  \le
+  \widetilde C_T\bigl(N^{-1/2}+\sqrt{\varepsilon}\bigr).
+\]
+\end{corollary}
+
+\begin{proof}
+Appendix~B proves the refined transfer estimate
+\eqref{eq:refined-transfer-bound}. Under Assumption~\ref{ass:head-regularity}
+and the residual condition above, Proposition~\ref{prop:head-mismatch-regular}
+turns that transfer bound into an $O(B_{N,k})$ estimate. Appendix~C then
+shows $B_{N,k}=O(W_1(\hat\rho_{A,k}^N,\hat\rho_{B,k}^N))$, and
+Theorem~\ref{thm:shared-path} yields
+$W_1(\hat\rho_{A,k}^N,\hat\rho_{B,k}^N)=O(N^{-1/2}+\sqrt{\varepsilon})$.
+Both the refined transfer term and the semi-convexity term are therefore of
+order $N^{-1/2}+\sqrt{\varepsilon}$.
+\end{proof}
+
+\paragraph{Width-sequence consequences.}
+
+The previous corollaries are finite-horizon SGD statements expressed through
+the common-path error. To recover a sharper width-only rate, one needs a
+stronger endpoint concentration input on the hidden empirical laws.
+
+\begin{proposition}[From hidden-law concentration to $B_N=O(d/N)$]
+\label{prop:BN-from-w2}
+Let
+\[
+  \hat\nu_A^N:=\frac1N\sum_{i=1}^N \delta_{\xi_i^A},
+  \qquad
+  \hat\nu_B^N:=\frac1N\sum_{i=1}^N \delta_{\xi_i^B},
+\]
+and let $\mu_{\xi,\ast}$ be a reference law on $\R^d$. Suppose that for some
+deterministic sequence $\eta_N\downarrow 0$,
+\[
+  W_2(\hat\nu_A^N,\mu_{\xi,\ast})\le \eta_N,
+  \qquad
+  W_2(\hat\nu_B^N,\mu_{\xi,\ast})\le \eta_N.
+\]
+If the neuron permutation $\varpi_N$ is chosen by hidden-weight optimal
+transport, then
+\[
+  B_N=W_2^2(\hat\nu_A^N,\hat\nu_B^N)\le 4\eta_N^2.
+\]
+In particular, if
+\[
+  \eta_N=O(\kappa_\xi\sqrt{d/N}),
+\]
+then
+\[
+  B_N=O(\kappa_\xi^2 d/N).
+\]
+\end{proposition}
+
+\begin{proof}
+Because both hidden empirical laws place mass $1/N$ at each atom, their
+$W_2$-optimal coupling is realized by a permutation and the corresponding
+squared cost is exactly $B_N$. The triangle inequality gives
+\[
+  W_2(\hat\nu_A^N,\hat\nu_B^N)
+  \le
+  W_2(\hat\nu_A^N,\mu_{\xi,\ast})+W_2(\hat\nu_B^N,\mu_{\xi,\ast})
+  \le
+  2\eta_N.
+\]
+Squaring proves the claim.
+\end{proof}
+
+\begin{corollary}[Deterministic baseline width rate]
+\label{cor:baseline-width-rate}
+Suppose that along a width sequence,
+\[
+  B_N=O(d/N),
+  \qquad
+  \Delta_N=O(1/N).
+\]
+Then Theorem~\ref{thm:barrier} yields
+\[
+  \cB(\Theta_A,\Theta_B;\varpi)
+  =
+  O\!\left(\sqrt{\frac{d}{N}}+\frac1N\right).
+\]
+In particular, for fixed input dimension $d$,
+\[
+  \cB(\Theta_A,\Theta_B;\varpi)=O(N^{-1/2}).
+\]
+\end{corollary}
+
+\begin{proof}
+Substitute the displayed rates into \eqref{eq:deterministic-barrier}.
+\end{proof}
+
+\begin{corollary}[Deterministic conditional $1/N$ rate]
+\label{cor:deterministic-fast-rate}
+Assume Assumption~\ref{ass:head-regularity}. Suppose along a width sequence
+that
+\[
+  B_N=O(d/N),
+  \qquad
+  \Delta_N=O(1/N),
+  \qquad
+  \mc{R}_N=O(\sqrt{B_N}).
+\]
+Then the refined transfer bound and Theorem~\ref{thm:barrier} imply
+\[
+  \cB(\Theta_A,\Theta_B;\varpi)
+  =
+  O\!\left(\frac{d}{N}+\frac1N\right).
+\]
+In particular, for fixed input dimension $d$,
+\[
+  \cB(\Theta_A,\Theta_B;\varpi)=O(1/N).
+\]
+\end{corollary}
+
+\begin{proof}
+By Proposition~\ref{prop:head-mismatch-regular},
+$M_{\Delta V}^\infty=O(\sqrt{B_N})$. Therefore
+Proposition~\ref{prop:refined-transfer} gives a transfer term of order $B_N$.
+Substituting this and $\Delta_N=O(1/N)$ into
+\eqref{eq:deterministic-barrier} yields the claim.
+\end{proof}
+
+\begin{remark}[What this $1/N$ statement does and does not provide]
+\label{rem:rate-vs-instantiation}
+Corollary~\ref{cor:deterministic-fast-rate} gives a \emph{deterministic
+width-sequence} $O(1/N)$ conclusion: once the aligned
+endpoints satisfy $B_N=O(d/N)$, $\Delta_N=O(1/N)$, and the conditional
+regularity residual obeys $\mc{R}_N=O(\sqrt{B_N})$, the barrier scales like
+$O(d/N)$ and hence like $O(1/N)$ for fixed $d$.
+
+What this corollary does \emph{not} provide by itself is a non-vacuous
+numerical certificate. That requires the appendix-level sharpening of
+Section~\ref{sec:exact-gaussian-modulus}, where the path defects are kept in exact
+pointwise form and can therefore be evaluated on a concrete trained run.
+\end{remark}
+
+\section{Quantitative Picture and Scope}
+\label{sec:discussion}
+
+\subsection{Rates versus Certificates}
+
+Corollary~\ref{cor:deterministic-fast-rate} shows that the semi-convex route
+achieves deterministic width-sequence $O(1/N)$ scaling once the aligned
+endpoints satisfy the usual hidden-law concentration and
+head-regularity conditions. This asymptotic statement should be separated from
+the question of numerical usefulness. A barrier theorem can have the right
+rate and still be vacuous on a concrete run if it relies on coarse worst-case
+constants.
+
+That is why Appendix~\ref{sec:exact-gaussian-modulus} derives an exact Gaussian
+conditional-risk modulus. The appendix keeps both the transfer defect and the
+loss-of-convexity term in pointwise form and then evaluates them along a
+concrete interpolation path. Table~\ref{tab:gaussian-quantitative} summarizes the
+matched mean-variance run at width $1024$.
+
+\begin{table}[t]
+  \centering
+  \begin{tabular}{lcc}
+    \toprule
+    Quantity & Value & Ratio to observed barrier \\
+    \midrule
+    Observed dense barrier & $1.017\times 10^{-3}$ & $1.00$ \\
+    Baseline semi-convex theorem & $3.604\times 10^{4}$ & $3.54\times 10^{7}$ \\
+    Exact Gaussian modulus (envelope) & $2.195\times 10^{-3}$ & $2.16$ \\
+    Exact Gaussian modulus (timewise) & $2.076\times 10^{-3}$ & $2.04$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{Quantitative instantiation on the stored width-$1024$
+  matched mean-variance run.}
+  \label{tab:gaussian-quantitative}
+\end{table}
+
+Two points matter. First, the baseline theorem is asymptotically correct but
+completely vacuous numerically. Second, the sharpened Gaussian modulus is
+already close to the observed barrier. On this run, the timewise exact modulus is
+within a factor of about $2.04$ of the observed barrier, and most of the
+remaining slack comes from the mean-path defect rather than the endpoint
+interpolation term. The preliminary width sweep in
+\path{experiments/results_width_sweep_meanvar/width_sweep_summary.json}
+shows the same qualitative behavior: on the positive-barrier widths
+$N\in\{512,1024\}$, the timewise exact modulus stays within factors $2.39$ and
+$2.04$ of the observed barrier.
+
+\subsection{Current Scope}
+
+There are two genuine scope restrictions. The first is modeling: this paper
+treats only the single-component case $K=1$. The second is empirical: while
+the theorem stack is self-contained and the appendix-level certificate is
+already non-vacuous on matched mean-variance runs, the document does not yet
+contain a broad experimental study across datasets, optimizers, and
+architectures. Those are the obvious next steps if one wants to turn this note
+into a full NeurIPS package.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+This paper argues that convexity is not the right boundary for linear mode
+connectivity theory. A deterministic interpolation barrier already follows from
+semi-convexity, with a clean decomposition into a transfer defect and a
+loss-of-convexity penalty. The single-Gaussian Gaussian density head provides a
+concrete non-convex instantiation where the full finite-horizon SGD-to-LMC
+chain can be closed, the deterministic width-sequence rate reaches $O(1/N)$
+under head regularity, and the sharpened Gaussian certificate is already
+quantitatively meaningful on trained runs.
+
+\appendix
+
+\section{Gaussian Loss Geometry and Training Drift}
+
+\subsection{Gaussian Derivatives}
+
+\begin{proposition}[Gaussian derivatives]
+\label{prop:gaussian-derivatives}
+Let
+\[
+  v(r):=v_{\min}+e^r,
+  \qquad
+  \alpha(r):=\frac{e^r}{v(r)}\in(0,1).
+\]
+Then
+\begin{align}
+  \partial_m \ell_{\rm G}(m,r;y)
+  &=
+  \frac{m-y}{v(r)},
+  \label{eq:qm}
+  \\
+  \partial_r \ell_{\rm G}(m,r;y)
+  &=
+  \frac{\alpha(r)}{2}
+  \left(
+    1-\frac{(m-y)^2}{v(r)}
+  \right),
+  \label{eq:qr}
+  \\
+  \partial_{mm}^2 \ell_{\rm G}(m,r;y)
+  &=
+  \frac1{v(r)},
+  \label{eq:hmm}
+  \\
+  \partial_{mr}^2 \ell_{\rm G}(m,r;y)
+  &=
+  -\frac{(m-y)e^r}{v(r)^2},
+  \label{eq:hmr}
+  \\
+  \partial_{rr}^2 \ell_{\rm G}(m,r;y)
+  &=
+  \frac{\alpha(r)}{2}
+  \left[
+    (1-\alpha(r))
+    +
+    \frac{(m-y)^2}{v(r)}(2\alpha(r)-1)
+  \right].
+  \label{eq:hrr}
+\end{align}
+\end{proposition}
+
+\begin{proof}
+Differentiate \eqref{eq:gaussian-loss} directly. The only nontrivial identity is
+\[
+  \alpha'(r)=\frac{e^r v(r)-e^{2r}}{v(r)^2}=\alpha(r)(1-\alpha(r)).
+\]
+Substituting this into $\partial_r(\partial_r\ell_{\rm G})$ yields
+\eqref{eq:hrr}.
+\end{proof}
+
+\begin{proposition}[Gaussian gradient smoothness]
+\label{prop:gaussian-smoothness}
+Fix $M>0$ and $\Lambda_M:=M+Y_\ast$. On $D_M$ and for $\abs{y}\le Y_\ast$, the
+gradient $(q_m,q_r)$ is Lipschitz with respect to the $\ell_1$ norm:
+\begin{equation}
+  \abs{q_m(z;y)-q_m(\bar z;y)}+\abs{q_r(z;y)-q_r(\bar z;y)}
+  \le
+  L_{\rm G}(M,v_{\min},Y_\ast)\norm{z-\bar z}_1,
+  \label{eq:gaussian-smoothness}
+\end{equation}
+where
+\begin{equation}
+  L_{\rm G}(M,v_{\min},Y_\ast)
+  :=
+  \frac1{v_{\min}}+\frac{\Lambda_M}{v_{\min}}+\frac{\Lambda_M^2}{2v_{\min}}+\frac12.
+  \label{eq:LG}
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+By \eqref{eq:hmm}--\eqref{eq:hrr},
+\[
+  \abs{\partial_{mm}^2\ell_{\rm G}}\le \frac1{v_{\min}},
+  \qquad
+  \abs{\partial_{mr}^2\ell_{\rm G}}\le \frac{\Lambda_M}{v_{\min}},
+  \qquad
+  \abs{\partial_{rr}^2\ell_{\rm G}}\le \frac{\Lambda_M^2}{2v_{\min}}+\frac12.
+\]
+Apply the mean value theorem coordinatewise and sum the resulting bounds.
+\end{proof}
+
+\begin{proof}[Proof of Proposition~\ref{prop:gaussian-regularity}]
+Fix $(m,r)\in D_M$ and $\abs{y}\le Y_\ast$. Set $\Lambda_M=M+Y_\ast$ and
+$v=v(r)$. Then $v\ge v_{\min}$ and $\abs{m-y}\le \Lambda_M$. From
+\eqref{eq:qm} and \eqref{eq:qr},
+\[
+  \abs{\partial_m \ell_{\rm G}(m,r;y)}
+  \le
+  \frac{\Lambda_M}{v_{\min}},
+  \qquad
+  \abs{\partial_r \ell_{\rm G}(m,r;y)}
+  \le
+  \frac12+\frac{\Lambda_M^2}{2v_{\min}}.
+\]
+Hence
+\[
+  \norm{\nabla \ell_{\rm G}(m,r;y)}_1
+  \le
+  C_{\rm G}(M,v_{\min},Y_\ast),
+\]
+which gives the $\ell_\infty$-Lipschitz constant.
+
+For semi-convexity, \eqref{eq:hmm} gives $\partial_{mm}^2\ell_{\rm G}\ge 0$,
+while \eqref{eq:hmr} and \eqref{eq:hrr} imply
+\[
+  \abs{\partial_{mr}^2\ell_{\rm G}(m,r;y)}
+  \le
+  \frac{\Lambda_M}{v_{\min}},
+  \qquad
+  \partial_{rr}^2\ell_{\rm G}(m,r;y)
+  \ge
+  -\frac{\Lambda_M^2}{2v_{\min}}.
+\]
+Write the Hessian as
+\[
+  H=
+  \begin{pmatrix}
+    a & b \\
+    b & c
+  \end{pmatrix}
+\]
+with $a\ge 0$, $\abs{b}\le \beta:=\Lambda_M/v_{\min}$, and
+$\gamma:=\Lambda_M^2/(2v_{\min})$ so that $c\ge -\gamma$. For any
+$u=(u_1,u_2)\in\R^2$,
+\[
+  u^\top H u
+  =
+  a u_1^2 + 2b u_1u_2 + c u_2^2
+  \ge
+  -\beta(u_1^2+u_2^2)-\gamma u_2^2
+  \ge
+  -(\beta+\gamma)\norm{u}^2.
+\]
+Thus $H\succeq -\rho_{\rm G}(M,v_{\min},Y_\ast)I$, proving
+semi-convexity.
+\end{proof}
+
+\subsection{Training Drift and Finite-Horizon Confinement}
+
+Define
+\[
+  q_m(m,r;y):=\partial_m \ell_{\rm G}(m,r;y),
+  \qquad
+  q_r(m,r;y):=\partial_r \ell_{\rm G}(m,r;y).
+\]
+
+For $\theta=(a,c,\xi)\in\R^2\times\R^d$ and a measure $\rho$, set
+\[
+  z_\rho(x):=(m_\rho(x),r_\rho(x)).
+\]
+The one-sample stochastic drift is
+\begin{equation}
+  \hat b(\theta,\rho;x,y)
+  :=
+  \bigl(
+    \hat b_a(\theta,\rho;x,y),\
+    \hat b_c(\theta,\rho;x,y),\
+    \hat b_\xi(\theta,\rho;x,y)
+  \bigr),
+  \label{eq:sample-drift}
+\end{equation}
+where
+\begin{align}
+  \hat b_a(\theta,\rho;x,y)
+  &:=
+  -q_m(z_\rho(x);y)\varphi(\xi,x),
+  \label{eq:sample-drift-a}
+  \\
+  \hat b_c(\theta,\rho;x,y)
+  &:=
+  -q_r(z_\rho(x);y)\varphi(\xi,x),
+  \label{eq:sample-drift-c}
+  \\
+  \hat b_\xi(\theta,\rho;x,y)
+  &:=
+  -(a\,q_m(z_\rho(x);y)+c\,q_r(z_\rho(x);y))\nabla_\xi\varphi(\xi,x).
+  \label{eq:sample-drift-xi}
+\end{align}
+Its population counterpart is
+\begin{equation}
+  b(\theta,\rho)
+  :=
+  \E[\hat b(\theta,\rho;X,Y)].
+  \label{eq:population-drift}
+\end{equation}
+
+\begin{proposition}[Unbiased stochastic update]
+\label{prop:unbiased}
+Let $Z_{k+1}=(X_{k+1},Y_{k+1})\sim P$ be the fresh sample at step $k+1$. Then
+noiseless SGD for the empirical law
+\[
+  \hat\rho_k^N:=\frac1N\sum_{i=1}^N \delta_{\theta_i^k}
+\]
+can be written as
+\begin{equation}
+  \theta_i^{k+1}
+  =
+  \theta_i^k
+  +
+  s_k\,\hat b(\theta_i^k,\hat\rho_k^N;X_{k+1},Y_{k+1}),
+  \qquad
+  i=1,\dots,N.
+  \label{eq:sgd-update}
+\end{equation}
+Moreover, the mean-field flow is
+\begin{equation}
+  \partial_t \rho_t
+  +
+  \nabla_\theta\cdot(\rho_t\,\zeta(t)b(\theta,\rho_t))
+  =
+  0,
+  \qquad
+  \rho_{t=0}=\rho_0.
+  \label{eq:mf-pde}
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+Differentiate the empirical risk
+\[
+  \mc{L}_N(\theta_1,\dots,\theta_N)
+  :=
+  \E\Bigl[
+    \ell_{\rm G}\Bigl(
+      \frac1N\sum_{j=1}^N a_j\varphi(\xi_j,X),
+      \frac1N\sum_{j=1}^N c_j\varphi(\xi_j,X);
+      Y
+    \Bigr)
+  \Bigr]
+\]
+with respect to $(a_i,c_i,\xi_i)$ and use the chain rule. The factor $1/N$
+coming from the mean-field parametrization is cancelled by the usual mean-field
+gradient-flow scaling.
+\end{proof}
+
+\begin{proposition}[Finite-horizon confinement]
+\label{prop:confinement}
+Fix a horizon $T<\infty$ and let
+\[
+  A_0:=\sup_{(a,c,\xi)\in\supp(\rho_0)}\abs{a},
+  \qquad
+  C_0:=\sup_{(a,c,\xi)\in\supp(\rho_0)}\abs{c},
+  \qquad
+  R_0:=\sup_{(a,c,\xi)\in\supp(\rho_0)}\norm{\xi}.
+\]
+Define deterministic envelopes by
+\begin{align}
+  \dot A_t
+  &=
+  K_\varphi\frac{K_\varphi A_t+Y_\ast}{v_{\min}},
+  \qquad
+  A_{t=0}=A_0,
+  \label{eq:A-envelope}
+  \\
+  \dot C_t
+  &=
+  K_\varphi\left(
+    \frac12+\frac{(K_\varphi A_t+Y_\ast)^2}{2v_{\min}}
+  \right),
+  \qquad
+  C_{t=0}=C_0,
+  \label{eq:C-envelope}
+  \\
+  \dot R_t
+  &=
+  K_{\nabla}
+  \left[
+    A_t\frac{K_\varphi A_t+Y_\ast}{v_{\min}}
+    +
+    C_t\left(
+      \frac12+\frac{(K_\varphi A_t+Y_\ast)^2}{2v_{\min}}
+    \right)
+  \right],
+  \qquad
+  R_{t=0}=R_0.
+  \label{eq:R-envelope}
+\end{align}
+Then these envelopes remain finite on $[0,T]$. Every characteristic of the
+mean-field equation \eqref{eq:mf-pde} started from $\supp(\rho_0)$ satisfies
+\[
+  \abs{a(t)}\le A_t,
+  \qquad
+  \abs{c(t)}\le C_t,
+  \qquad
+  \norm{\xi(t)}\le R_t
+  \qquad
+  \forall t\in[0,T].
+\]
+If $\zeta_{\max}:=\sup_{t\in[0,T]}\zeta(t)$, then the same statement holds for
+the SGD iterates \eqref{eq:sgd-update} after replacing the right-hand sides of
+\eqref{eq:A-envelope}--\eqref{eq:R-envelope} by $\zeta_{\max}$ times those
+right-hand sides. In particular, both the continuous path and the discrete
+iterates remain in a common compact box
+\[
+  B_T^{\rm sgd}
+  :=
+  \{
+    (a,c,\xi):\ \abs{a}\le A_T^{\rm sgd},\ \abs{c}\le C_T^{\rm sgd},\
+    \norm{\xi}\le R_T^{\rm sgd}
+  \}.
+\]
+\end{proposition}
+
+\begin{proof}
+If $\abs{a}\le A_t$ and $\abs{c}\le C_t$, then
+\[
+  \abs{m_\rho(x)}\le K_\varphi A_t,
+  \qquad
+  v_\rho(x)\ge v_{\min}.
+\]
+Hence Proposition~\ref{prop:gaussian-regularity} gives
+\[
+  \abs{q_m(z_\rho(x);y)}
+  \le
+  \frac{K_\varphi A_t+Y_\ast}{v_{\min}},
+  \qquad
+  \abs{q_r(z_\rho(x);y)}
+  \le
+  \frac12+\frac{(K_\varphi A_t+Y_\ast)^2}{2v_{\min}}.
+\]
+Insert these bounds into \eqref{eq:sample-drift} and use scalar comparison for
+the continuous flow and induction for the discrete SGD iteration.
+\end{proof}
+
+\begin{proposition}[Uniform stochastic-drift regularity]
+\label{prop:drift-regularity}
+Assume Assumptions~\ref{ass:barrier}, \ref{ass:feature-second}, and
+\ref{ass:sgd}. There exists $\widehat L_T<\infty$ such that for every sample
+$z=(x,y)$ in the support of $P$, all $\theta,\bar\theta\in B_T^{\rm sgd}$, and
+all probability measures $\rho,\nu$ supported on $B_T^{\rm sgd}$,
+\begin{align}
+  \norm{\hat b(\theta,\rho;z)}
+  &\le
+  \widehat L_T,
+  \label{eq:drift-bound}
+  \\
+  \norm{\hat b(\theta,\rho;z)-\hat b(\bar\theta,\nu;z)}
+  &\le
+  \widehat L_T\bigl(\norm{\theta-\bar\theta}+W_1(\rho,\nu)\bigr).
+  \label{eq:drift-lipschitz}
+\end{align}
+\end{proposition}
+
+\begin{proof}
+On $B_T^{\rm sgd}$, the output pair $(m_\rho(x),r_\rho(x))$ lies in the output box
+$D_{K_\varphi M_{V,T}^{\rm sgd}}$, so Proposition~\ref{prop:gaussian-regularity} and
+Proposition~\ref{prop:gaussian-smoothness} imply that $q_m$ and $q_r$ are
+uniformly bounded and Lipschitz in $(m,r)$. The maps
+$\rho\mapsto m_\rho(x)$ and $\rho\mapsto r_\rho(x)$ are uniformly Lipschitz
+with respect to $W_1$ on the compact box, because under any coupling one has
+\[
+  \abs{a\varphi(\xi,x)-\bar a\varphi(\bar\xi,x)}
+  \le
+  K_\varphi\abs{a-\bar a}
+  +
+  M_{V,T}^{\rm sgd}K_\nabla\norm{\xi-\bar\xi},
+\]
+and likewise for the $c$-coordinate, while
+$\varphi$ is $K_\nabla$-Lipschitz in $\xi$ and $\nabla_\xi\varphi$ is
+$L_\nabla$-Lipschitz by Assumption~\ref{ass:feature-second}. Inserting these
+facts into \eqref{eq:sample-drift} yields \eqref{eq:drift-bound} and
+\eqref{eq:drift-lipschitz}.
+\end{proof}
+
+\begin{theorem}[Imported bounded-support four-dynamics theorem]
+\label{thm:imported-four-dynamics}
+Consider a width-$N$ SGD system of the form
+\[
+  \theta_i^{k+1}
+  =
+  \theta_i^k+s_k\hat b(\theta_i^k,\hat\rho_k^N;Z_{k+1}),
+  \qquad
+  \hat\rho_k^N=\frac1N\sum_{i=1}^N \delta_{\theta_i^k},
+\]
+with step sizes $s_k=\varepsilon\zeta(k\varepsilon)$ on a finite horizon
+$[0,T]$. Assume that
+\begin{enumerate}[label=(\roman*)]
+  \item the data stream $Z_{k+1}$ is i.i.d.;
+  \item there exists a compact set $B_T$ that contains both all SGD iterates
+  and the entire limiting characteristic flow on $[0,T]$;
+  \item the one-sample drift is uniformly bounded and Lipschitz on $B_T$:
+  \[
+    \norm{\hat b(\theta,\rho;z)}\le L_T,
+    \qquad
+    \norm{\hat b(\theta,\rho;z)-\hat b(\bar\theta,\nu;z)}
+    \le
+    L_T\bigl(\norm{\theta-\bar\theta}+W_1(\rho,\nu)\bigr).
+  \]
+\end{enumerate}
+Then the McKean--Vlasov equation
+\[
+  \partial_t \rho_t+\nabla_\theta\cdot(\rho_t\,\zeta(t)b(\theta,\rho_t))=0,
+  \qquad
+  b(\theta,\rho)=\E[\hat b(\theta,\rho;Z)],
+\]
+is well posed on $[0,T]$, and there exists a finite constant
+$C_T^{\rm imp}=C_T^{\rm imp}(L_T,\zeta,T)$ such that
+\[
+  \sup_{k\le T/\varepsilon}
+  W_1\!\bigl(\hat\rho_k^N,\rho_{k\varepsilon}\bigr)
+  \le
+  C_T^{\rm imp}\bigl(N^{-1/2}+\sqrt{\varepsilon}\bigr)
+\]
+with high probability.
+\end{theorem}
+
+\begin{proof}
+This is the bounded-support finite-horizon four-dynamics comparison proved by
+Mei, Misiakiewicz, and Montanari~\cite{MeiMisiakiewiczMontanari2019}; see also
+the SGD-to-LMC deployment in Ferbach et al.~\cite{Ferbach2024}. The statement
+above is only the specialization needed here: compact support, one-sample SGD,
+and a Lipschitz time-inhomogeneous prefactor $\zeta$.
+\end{proof}
+
+\begin{theorem}[Appendix form of the training-side theorem]
+\label{thm:sgd-mf}
+Under Assumptions~\ref{ass:barrier}, \ref{ass:feature-second}, and
+\ref{ass:sgd}, the PDE \eqref{eq:mf-pde} is well posed on $[0,T]$, and there
+exists a constant $C_T^{\rm mf}<\infty$ such that
+\[
+  \sup_{k\le T/\varepsilon}
+  W_1\!\bigl(\hat\rho_k^N,\rho_{k\varepsilon}\bigr)
+  \le
+  C_T^{\rm mf}\bigl(N^{-1/2}+\sqrt{\varepsilon}\bigr)
+\]
+with high probability.
+\end{theorem}
+
+\begin{proof}
+Propositions~\ref{prop:unbiased}, \ref{prop:confinement}, and
+\ref{prop:drift-regularity} verify the hypotheses of
+Theorem~\ref{thm:imported-four-dynamics} with $B_T=B_T^{\rm sgd}$ and
+$L_T=\widehat L_T$. Apply that theorem.
+\end{proof}
+
+\begin{corollary}[Appendix form of the common-path theorem]
+\label{cor:shared-path}
+Under Assumptions~\ref{ass:barrier}, \ref{ass:feature-second}, and
+\ref{ass:sgd}, two independent runs initialized from the same law satisfy
+\[
+  \sup_{k\le T/\varepsilon}
+  W_1\!\bigl(\hat\rho_{A,k}^N,\hat\rho_{B,k}^N\bigr)
+  \le
+  2C_T^{\rm mf}\bigl(N^{-1/2}+\sqrt{\varepsilon}\bigr)
+\]
+with high probability.
+\end{corollary}
+
+\begin{proof}
+Apply Theorem~\ref{thm:sgd-mf} to each run and use the triangle inequality.
+\end{proof}
+
+\section{Interpolation-Side Barrier Proof}
+
+\begin{lemma}[Automatic output-box control along interpolation]
+\label{lem:auto-box}
+Let $M_V^\infty$ be defined by \eqref{eq:head-moment}. Then for all
+$x\in\mc{X}$ and all $t\in[0,1]$,
+\[
+  \norm{z_{\Theta_A}(x)}_\infty,
+  \ \norm{z_{\Theta_B}(x)}_\infty,
+  \ \norm{z_{\Theta_t}(x)}_\infty,
+  \ \norm{(1-t)z_{\Theta_A}(x)+t z_{\Theta_B}(x)}_\infty
+  \le
+  K_\varphi M_V^\infty.
+\]
+\end{lemma}
+
+\begin{proof}
+For either output coordinate, Cauchy--Schwarz gives
+\[
+  \abs{\frac1N\sum_{i=1}^N u_i\varphi(\xi_i,x)}
+  \le
+  \Bigl(\frac1N\sum_{i=1}^N u_i^2\Bigr)^{1/2}
+  \Bigl(\frac1N\sum_{i=1}^N \varphi(\xi_i,x)^2\Bigr)^{1/2}
+  \le
+  K_\varphi M_V^\infty.
+\]
+The same bound applies to interpolated head coefficients.
+\end{proof}
+
+\begin{proof}[Proof of Proposition~\ref{prop:transfer}]
+By relabeling the second endpoint, it is enough to treat the case
+$\varpi=\mathrm{id}$. Then $\hat z_t^\varpi=(1-t)z_{\Theta_A}+t z_{\Theta_B}$,
+so it suffices to bound
+\[
+  \sup_{t\in[0,1]}
+  \Bigl(
+    \E\bigl[
+      \norm{z_{\Theta_t}(X)-((1-t)z_{\Theta_A}(X)+t z_{\Theta_B}(X))}_\infty^2
+    \bigr]
+  \Bigr)^{1/2}.
+\]
+For one output coordinate with head coefficients $(u_i^A,u_i^B)\in\{(a_i^A,a_i^B),
+(c_i^A,c_i^B)\}$,
+\begin{align*}
+  &\frac1N\sum_{i=1}^N \Bigl((1-t)u_i^A+t u_i^B\Bigr)\varphi((1-t)\xi_i^A+t\xi_i^B,x)
+  \\
+  &\quad-
+  \frac1N\sum_{i=1}^N
+  \Bigl(
+    (1-t)u_i^A\varphi(\xi_i^A,x)+t u_i^B\varphi(\xi_i^B,x)
+  \Bigr)
+  \\
+  &=
+  \frac1N\sum_{i=1}^N
+  \Bigl[
+    (1-t)u_i^A\bigl(\varphi(\xi_i(t),x)-\varphi(\xi_i^A,x)\bigr)
+    +
+    t u_i^B\bigl(\varphi(\xi_i(t),x)-\varphi(\xi_i^B,x)\bigr)
+  \Bigr],
+\end{align*}
+where $\xi_i(t)=(1-t)\xi_i^A+t\xi_i^B$. The uniform gradient bound gives
+\[
+  \abs{\varphi(\xi_i(t),x)-\varphi(\xi_i^A,x)}
+  \le
+  tK_\nabla\norm{\xi_i^A-\xi_i^B},
+  \qquad
+  \abs{\varphi(\xi_i(t),x)-\varphi(\xi_i^B,x)}
+  \le
+  (1-t)K_\nabla\norm{\xi_i^A-\xi_i^B}.
+\]
+Applying Cauchy--Schwarz and using $t(1-t)\le 1/4$ proves the claim for each
+coordinate, hence for the $\ell_\infty$ norm.
+\end{proof}
+
+\begin{lemma}[Semi-convex interpolation inequality]
+\label{lem:semi-convex}
+If $\ell:\R^p\to\R$ is $\rho$-semi-convex on a convex domain $D$, then for all
+$u,v\in D$ and all $t\in[0,1]$,
+\[
+  \ell((1-t)u+t v)
+  \le
+  (1-t)\ell(u)+t\ell(v)+\frac{\rho}{2}t(1-t)\norm{u-v}^2.
+\]
+\end{lemma}
+
+\begin{proof}
+The function $u\mapsto \ell(u)+\frac{\rho}{2}\norm{u}^2$ is convex on $D$.
+Apply convexity to this modified function and expand the quadratic term.
+\end{proof}
+
+\begin{proof}[Proof of Theorem~\ref{thm:semiconvex-barrier}]
+Fix $t\in[0,1]$. By the Lipschitz property,
+\[
+  \ell(u_t(X);Y)
+  \le
+  \ell(\hat u_t(X);Y)+C\norm{u_t(X)-\hat u_t(X)}_\infty.
+\]
+Because $u_A(X)$, $u_B(X)$, and $\hat u_t(X)$ all lie in $D$, and $\ell$ is
+$\rho$-semi-convex on $D$, Lemma~\ref{lem:semi-convex} gives
+\[
+  \ell(\hat u_t(X);Y)
+  \le
+  (1-t)\ell(u_A(X);Y)
+  +
+  t\ell(u_B(X);Y)
+  +
+  \frac{\rho}{2}t(1-t)\norm{u_A(X)-u_B(X)}^2.
+\]
+Taking expectations, using Cauchy--Schwarz on the transfer term, and then
+bounding $t(1-t)\le 1/4$ yields
+\begin{align*}
+  &\E[\ell(u_t(X);Y)]
+  -
+  (1-t)\E[\ell(u_A(X);Y)]
+  -
+  t\E[\ell(u_B(X);Y)]
+  \\
+  &\qquad\le
+  C
+  \Bigl(
+    \E[\norm{u_t(X)-\hat u_t(X)}_\infty^2]
+  \Bigr)^{1/2}
+  +
+  \frac{\rho}{8}\E[\norm{u_A(X)-u_B(X)}^2].
+\end{align*}
+Take the supremum over $t$.
+\end{proof}
+
+\subsection{Refined transfer under head regularity}
+
+\begin{proposition}[Head mismatch from conditional regularity]
+\label{prop:head-mismatch-regular}
+Under Assumption~\ref{ass:head-regularity},
+\begin{equation}
+  M_{\Delta V}^\infty
+  \le
+  L_g\sqrt{B_N}+\mc{R}_N.
+  \label{eq:head-mismatch-regular}
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+For each coordinate $j\in\{1,2\}$,
+\[
+  \abs{(v_i^A-v_i^B)_j}
+  \le
+  \abs{(g(\xi_i^A)-g(\xi_i^B))_j}
+  +
+  \abs{(r_i^A-r_i^B)_j}
+  \le
+  L_g\norm{\xi_i^A-\xi_i^B}+\abs{(r_i^A-r_i^B)_j}.
+\]
+Take the empirical $\ell_2$ norm in $i$ and then the maximum over $j$.
+\end{proof}
+
+\begin{proposition}[Refined vector-head transfer]
+\label{prop:refined-transfer}
+Under Assumptions~\ref{ass:barrier} and \ref{ass:feature-second},
+\begin{equation}
+  \sup_{t\in[0,1]}\sup_{x\in\mc{X}}
+  \norm{z_{\Theta_t^\varpi}(x)-((1-t)z_{\Theta_A}(x)+t z_{\varpi\Theta_B}(x))}_\infty
+  \le
+  \frac{K_\nabla}{4}M_{\Delta V}^\infty\sqrt{B_N}
+  +
+  \frac{L_\nabla}{8}M_V^\infty B_N.
+  \label{eq:refined-transfer-bound}
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+For one output coordinate with head coefficients $(u_i^A,u_i^B)$ equal either to
+$(a_i^A,a_i^B)$ or $(c_i^A,c_i^B)$, write
+\[
+  \phi_i^A(x):=\varphi(\xi_i^A,x),
+  \qquad
+  \phi_i^B(x):=\varphi(\xi_i^B,x),
+  \qquad
+  \phi_i^t(x):=\varphi((1-t)\xi_i^A+t\xi_i^B,x),
+\]
+and $u_i^t:=(1-t)u_i^A+t u_i^B$. Then
+\begin{align*}
+  &\frac1N\sum_{i=1}^N u_i^t\phi_i^t
+  -
+  \frac1N\sum_{i=1}^N\bigl((1-t)u_i^A\phi_i^A+t u_i^B\phi_i^B\bigr)
+  \\
+  &=
+  \frac1N\sum_{i=1}^N
+  u_i^t\bigl(\phi_i^t-(1-t)\phi_i^A-t\phi_i^B\bigr)
+  +
+  t(1-t)\frac1N\sum_{i=1}^N
+  (u_i^B-u_i^A)(\phi_i^A-\phi_i^B).
+\end{align*}
+The second sum is bounded by
+\[
+  \frac{K_\nabla}{4}
+  \Bigl(\frac1N\sum_{i=1}^N (u_i^B-u_i^A)^2\Bigr)^{1/2}
+  \sqrt{B_N}
+\]
+using $t(1-t)\le 1/4$, the feature Lipschitz bound
+$\abs{\phi_i^A-\phi_i^B}\le K_\nabla\norm{\xi_i^A-\xi_i^B}$, and
+Cauchy--Schwarz. The first sum is controlled by the second-order interpolation
+remainder
+\[
+  \abs{\phi_i^t-(1-t)\phi_i^A-t\phi_i^B}
+  \le
+  \frac{L_\nabla}{2}t(1-t)\norm{\xi_i^A-\xi_i^B}^2,
+\]
+which follows from the Lipschitz continuity of $\nabla_\xi\varphi$. Since
+$\abs{u_i^t}\le M_V^\infty$, its contribution is bounded by
+$\frac{L_\nabla}{8}M_V^\infty B_N$. Taking the maximum over the two output
+coordinates proves the claim.
+\end{proof}
+
+\begin{proof}[Proof of Theorem~\ref{thm:barrier}]
+Fix $t\in[0,1]$ and write
+\[
+  \hat z_t(x):=(1-t)z_{\Theta_A}(x)+t z_{\varpi\Theta_B}(x).
+\]
+Lemma~\ref{lem:auto-box} shows that both $z_{\Theta_t^\varpi}(x)$ and
+$\hat z_t(x)$
+lie in $D_{K_\varphi M_V^\infty}$. Therefore Proposition~\ref{prop:gaussian-regularity}
+and Lemma~\ref{lem:semi-convex} give
+\begin{align*}
+  \E[\ell_{\rm G}(z_{\Theta_t^\varpi}(X);Y)]
+  &\le
+  \E[\ell_{\rm G}(\hat z_t(X);Y)]
+  +
+  C_{\rm G}(K_\varphi M_V^\infty,v_{\min},Y_\ast)
+  \E[\norm{z_{\Theta_t^\varpi}(X)-\hat z_t(X)}_\infty]
+  \\
+  &\le
+  (1-t)\E[\ell_{\rm G}(z_{\Theta_A}(X);Y)]
+  +
+  t\E[\ell_{\rm G}(z_{\varpi\Theta_B}(X);Y)]
+  \\
+  &\quad+
+  C_{\rm G}(K_\varphi M_V^\infty,v_{\min},Y_\ast)
+  \E[\norm{z_{\Theta_t^\varpi}(X)-\hat z_t(X)}_\infty]
+  \\
+  &\quad+
+  \frac12
+  \rho_{\rm G}(K_\varphi M_V^\infty,v_{\min},Y_\ast)
+  t(1-t)\Delta_N.
+\end{align*}
+Now apply Proposition~\ref{prop:transfer} and use $\sup_t t(1-t)=1/4$.
+\end{proof}
+
+\section{From Common Path to LMC}
+
+\begin{proposition}[Alignment from a Wasserstein coupling]
+\label{prop:alignment}
+Let $\hat\rho_A^N$ and $\hat\rho_B^N$ be empirical laws supported on the common
+box
+\[
+  B_T^{\rm sgd}
+  =
+  \{
+    (a,c,\xi):\ \abs{a}\le A_T^{\rm sgd},\ \abs{c}\le C_T^{\rm sgd},\
+    \norm{\xi}\le R_T^{\rm sgd}
+  \}.
+\]
+Choose a permutation $\varpi_N$ that realizes an optimal empirical $W_1$
+coupling between $\hat\rho_A^N$ and $\hat\rho_B^N$, and relabel the particles
+of network $B$ accordingly. Then
+\begin{align}
+  B_N
+  &\le
+  2L_T^{\rm sgd}W_1(\hat\rho_A^N,\hat\rho_B^N),
+  \label{eq:BN-W1}
+  \\
+  \Delta_N
+  &\le
+  (K_\varphi+K_\nabla M_{V,T}^{\rm sgd})^2
+  W_1(\hat\rho_A^N,\hat\rho_B^N)^2.
+  \label{eq:Delta-W1}
+\end{align}
+\end{proposition}
+
+\begin{proof}
+Let $\Delta\theta_i=(\Delta a_i,\Delta c_i,\Delta\xi_i)$ denote the matched
+particle differences. Since each matched pair lies in the ball of radius
+$L_T^{\rm sgd}$, one has
+\[
+  \norm{\Delta\xi_i}^2
+  \le
+  \norm{\Delta\theta_i}^2
+  \le
+  2L_T^{\rm sgd}\norm{\Delta\theta_i}.
+\]
+Averaging proves \eqref{eq:BN-W1}.
+
+For the output mismatch, fix $x\in\mc{X}$. For the first output coordinate,
+\begin{align*}
+  \abs{m_{\Theta_A}(x)-m_{\Theta_B}(x)}
+  &\le
+  \frac1N\sum_{i=1}^N
+  \abs{a_i^A-a_i^B}\,\abs{\varphi(\xi_i^A,x)}
+  \\
+  &\quad+
+  \frac1N\sum_{i=1}^N
+  \abs{a_i^B}\,\abs{\varphi(\xi_i^A,x)-\varphi(\xi_i^B,x)}
+  \\
+  &\le
+  \bigl(K_\varphi+K_\nabla M_{V,T}^{\rm sgd}\bigr)
+  \frac1N\sum_{i=1}^N \norm{\Delta\theta_i}.
+\end{align*}
+The same estimate holds for the second coordinate with $c_i$ in place of
+$a_i$. Therefore
+\[
+  \sup_{x\in\mc{X}}
+  \norm{z_{\Theta_A}(x)-z_{\Theta_B}(x)}_\infty
+  \le
+  \bigl(K_\varphi+K_\nabla M_{V,T}^{\rm sgd}\bigr)
+  W_1(\hat\rho_A^N,\hat\rho_B^N),
+\]
+which implies \eqref{eq:Delta-W1}.
+\end{proof}
+
+\begin{proof}[Proof of Theorem~\ref{thm:main-lmc}]
+By Corollary~\ref{cor:shared-path},
+\[
+  W_1(\hat\rho_{A,k}^N,\hat\rho_{B,k}^N)
+  \le
+  2C_T^{\rm mf}\bigl(N^{-1/2}+\sqrt{\varepsilon}\bigr)
+\]
+with high probability, uniformly for all $k\le T/\varepsilon$. Choose the
+permutation $\varpi_{N,k}$ given by Proposition~\ref{prop:alignment}. Then
+\[
+  B_N
+  \le
+  4L_T^{\rm sgd}C_T^{\rm mf}\bigl(N^{-1/2}+\sqrt{\varepsilon}\bigr),
+  \qquad
+  \Delta_N
+  \le
+  4(K_\varphi+K_\nabla M_{V,T}^{\rm sgd})^2
+  (C_T^{\rm mf})^2\bigl(N^{-1/2}+\sqrt{\varepsilon}\bigr)^2.
+\]
+Substituting these estimates into the deterministic barrier bound
+\eqref{eq:deterministic-barrier} yields
+\eqref{eq:main-lmc}.
+\end{proof}
+
+\section{Exact Gaussian Path Defects and Conditional-Risk Modulus}
+\label{sec:exact-gaussian-modulus}
+
+This section records the appendix-level sharpening for the Gaussian head. The
+goal is to replace the worst-case Lipschitz and
+semi-convexity constants by exact pointwise path defects and an exact endpoint
+interpolation defect. The result is still deterministic, but it is the right
+starting point for non-vacuous quantitative instantiation on trained Gaussian
+networks.
+
+\subsection{Exact pointwise transfer functionals}
+
+Fix aligned endpoints and write
+\[
+  \phi_i^A(x):=\varphi(\xi_i^A,x),
+  \qquad
+  \phi_i^B(x):=\varphi(\xi_i^B,x),
+  \qquad
+  \phi_i^t(x):=\varphi((1-t)\xi_i^A+t\xi_i^B,x).
+\]
+For the head coefficients, define
+\[
+  a_i^t:=(1-t)a_i^A+t a_i^B,
+  \qquad
+  c_i^t:=(1-t)c_i^A+t c_i^B.
+\]
+
+\begin{definition}[Exact pointwise transfer functionals]
+\label{def:exact-gaussian-transfer}
+For each neuron $i$, time $t\in[0,1]$, and input $x\in\mc{X}$, define
+\begin{align}
+  d_i(x)
+  &:=
+  \abs{\phi_i^A(x)-\phi_i^B(x)},
+  \label{eq:exact-di-gaussian}
+  \\
+  q_{i,t}(x)
+  &:=
+  \abs{\phi_i^t(x)-\bigl((1-t)\phi_i^A(x)+t\phi_i^B(x)\bigr)}.
+  \label{eq:exact-qi-gaussian}
+\end{align}
+The corresponding mean and log-variance transfer envelopes are
+\begin{align}
+  T_{m,t}(x)
+  &:=
+  \frac{1}{4N}\sum_{i=1}^N \abs{a_i^A-a_i^B}\,d_i(x)
+  +
+  \frac{1}{N}\sum_{i=1}^N \abs{a_i^t}\,q_{i,t}(x),
+  \label{eq:Tm-t}
+  \\
+  T_{r,t}(x)
+  &:=
+  \frac{1}{4N}\sum_{i=1}^N \abs{c_i^A-c_i^B}\,d_i(x)
+  +
+  \frac{1}{N}\sum_{i=1}^N \abs{c_i^t}\,q_{i,t}(x).
+  \label{eq:Tr-t}
+\end{align}
+Define also the path envelopes
+\begin{equation}
+  T_m^{\rm path}(x):=\sup_{t\in[0,1]} T_{m,t}(x),
+  \qquad
+  T_r^{\rm path}(x):=\sup_{t\in[0,1]} T_{r,t}(x).
+  \label{eq:T-path}
+\end{equation}
+\end{definition}
+
+\begin{proposition}[Exact pointwise transfer]
+\label{prop:exact-gaussian-transfer}
+For every $t\in[0,1]$ and every $x\in\mc{X}$,
+\begin{align}
+  \abs{m_{\Theta_t}(x)-\bigl((1-t)m_{\Theta_A}(x)+t m_{\Theta_B}(x)\bigr)}
+  &\le
+  T_{m,t}(x),
+  \label{eq:exact-transfer-m}
+  \\
+  \abs{r_{\Theta_t}(x)-\bigl((1-t)r_{\Theta_A}(x)+t r_{\Theta_B}(x)\bigr)}
+  &\le
+  T_{r,t}(x).
+  \label{eq:exact-transfer-r}
+\end{align}
+Consequently,
+\begin{align}
+  \delta_m^{\rm path}(x)
+  &:=
+  \sup_{t\in[0,1]}
+  \abs{m_{\Theta_t}(x)-\bigl((1-t)m_{\Theta_A}(x)+t m_{\Theta_B}(x)\bigr)}
+  \le
+  T_m^{\rm path}(x),
+  \label{eq:delta-m-path}
+  \\
+  \delta_r^{\rm path}(x)
+  &:=
+  \sup_{t\in[0,1]}
+  \abs{r_{\Theta_t}(x)-\bigl((1-t)r_{\Theta_A}(x)+t r_{\Theta_B}(x)\bigr)}
+  \le
+  T_r^{\rm path}(x).
+  \label{eq:delta-r-path}
+\end{align}
+\end{proposition}
+
+\begin{proof}
+We prove \eqref{eq:exact-transfer-m}; the proof of \eqref{eq:exact-transfer-r}
+is identical with $a_i$ replaced by $c_i$. Writing
+\[
+  \hat m_t(x):=(1-t)m_{\Theta_A}(x)+t m_{\Theta_B}(x),
+\]
+one has
+\begin{align*}
+  m_{\Theta_t}(x)-\hat m_t(x)
+  &=
+  \frac1N\sum_{i=1}^N
+  \Bigl[
+    a_i^t\phi_i^t
+    -
+    \bigl((1-t)a_i^A\phi_i^A+t a_i^B\phi_i^B\bigr)
+  \Bigr]
+  \\
+  &=
+  \frac1N\sum_{i=1}^N
+  a_i^t\bigl(\phi_i^t-(1-t)\phi_i^A-t\phi_i^B\bigr)
+  \\
+  &\qquad+
+  t(1-t)\frac1N\sum_{i=1}^N
+  (a_i^B-a_i^A)(\phi_i^A-\phi_i^B).
+\end{align*}
+Taking absolute values, using $t(1-t)\le 1/4$, and invoking
+\eqref{eq:exact-di-gaussian}--\eqref{eq:Tm-t} yields \eqref{eq:exact-transfer-m}.
+The pathwise bounds follow by taking $\sup_t$.
+\end{proof}
+
+\subsection{Exact conditional-risk modulus}
+
+For each $x\in\mc{X}$, define the conditional moments
+\begin{equation}
+  m_\ast(x):=\E[Y\mid X=x],
+  \qquad
+  m_{2,\ast}(x):=\E[Y^2\mid X=x].
+  \label{eq:conditional-moments-gaussian}
+\end{equation}
+Since $\abs{Y}\le Y_\ast$ almost surely, both are well defined and satisfy
+$\abs{m_\ast(x)}\le Y_\ast$ and $0\le m_{2,\ast}(x)\le Y_\ast^2$.
+
+\begin{definition}[Conditional Gaussian risk]
+\label{def:conditional-gaussian-risk}
+For each $x\in\mc{X}$ and $(m,r)\in\R^2$, define
+\begin{equation}
+  q_x(m,r)
+  :=
+  \E[\ell_{\rm G}(m,r;Y)\mid X=x]
+  =
+  \frac12\log\!\bigl(2\pi(v_{\min}+e^r)\bigr)
+  +
+  \frac{m^2-2m_\ast(x)m+m_{2,\ast}(x)}{2(v_{\min}+e^r)}.
+  \label{eq:conditional-gaussian-risk}
+\end{equation}
+\end{definition}
+
+\begin{theorem}[Timewise exact Gaussian conditional-risk modulus]
+\label{thm:timewise-exact-gaussian-modulus}
+Fix aligned endpoints $(\Theta_A,\Theta_B)$ and write
+\[
+  \hat m_t(x):=(1-t)m_{\Theta_A}(x)+t m_{\Theta_B}(x),
+  \qquad
+  \hat r_t(x):=(1-t)r_{\Theta_A}(x)+t r_{\Theta_B}(x).
+\]
+Let
+\begin{align}
+  \delta_{m,t}(x)
+  &:=
+  \abs{m_{\Theta_t}(x)-\hat m_t(x)},
+  \label{eq:delta-m-time}
+  \\
+  \delta_{r,t}(x)
+  &:=
+  \abs{r_{\Theta_t}(x)-\hat r_t(x)}.
+  \label{eq:delta-r-time}
+\end{align}
+Define the variance interval
+\begin{align}
+  v_{t,-}(x)
+  &:=
+  v_{\min}+e^{\hat r_t(x)-\delta_{r,t}(x)},
+  \label{eq:v-minus-time}
+  \\
+  \hat v_t(x)
+  &:=
+  v_{\min}+e^{\hat r_t(x)},
+  \label{eq:v-hat-time}
+  \\
+  v_{t,+}(x)
+  &:=
+  v_{\min}+e^{\hat r_t(x)+\delta_{r,t}(x)}.
+  \label{eq:v-plus-time}
+\end{align}
+Let
+\begin{equation}
+  A_t(x):=\hat m_t(x)^2-2m_\ast(x)\hat m_t(x)+m_{2,\ast}(x).
+  \label{eq:A-time}
+\end{equation}
+For $v>0$, write
+\begin{equation}
+  \Gamma_t(x;v)
+  :=
+  \frac12\log\frac{v}{\hat v_t(x)}
+  +
+  \frac{A_t(x)}{2}
+  \left(
+    \frac{1}{v}-\frac{1}{\hat v_t(x)}
+  \right).
+  \label{eq:Gamma-time}
+\end{equation}
+Finally define
+\begin{align}
+  \Omega_{m,t}(x)
+  &:=
+  \frac{\delta_{m,t}(x)\abs{\hat m_t(x)-m_\ast(x)}}{v_{t,-}(x)}
+  +
+  \frac{\delta_{m,t}(x)^2}{2v_{t,-}(x)},
+  \label{eq:Omega-m-time}
+  \\
+  \Omega_{r,t}(x)
+  &:=
+  \max\bigl\{
+    0,\,
+    \Gamma_t(x;v_{t,-}(x)),\,
+    \Gamma_t(x;v_{t,+}(x))
+  \bigr\},
+  \label{eq:Omega-r-time}
+  \\
+  J_t(x)
+  &:=
+  \max\Bigl\{
+    0,\,
+    q_x\bigl(\hat m_t(x),\hat r_t(x)\bigr)
+    -
+    (1-t)q_x\bigl(m_{\Theta_A}(x),r_{\Theta_A}(x)\bigr)
+    -
+    t q_x\bigl(m_{\Theta_B}(x),r_{\Theta_B}(x)\bigr)
+  \Bigr\}.
+  \label{eq:Jt-gaussian}
+\end{align}
+Then
+\begin{equation}
+  \cB(\Theta_A,\Theta_B;\varpi)
+  \le
+  \sup_{t\in[0,1]}
+  \E\bigl[
+    \Omega_{m,t}(X)+\Omega_{r,t}(X)+J_t(X)
+  \bigr].
+  \label{eq:timewise-exact-gaussian-modulus}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Fix $t\in[0,1]$ and condition on $X=x$. Abbreviate
+\[
+  m_t:=m_{\Theta_t}(x),
+  \qquad
+  r_t:=r_{\Theta_t}(x),
+  \qquad
+  \hat m_t:=\hat m_t(x),
+  \qquad
+  \hat r_t:=\hat r_t(x).
+\]
+Because $\abs{r_t-\hat r_t}\le \delta_{r,t}(x)$ and the map
+$r\mapsto v_{\min}+e^r$ is increasing,
+\[
+  v_t:=v_{\min}+e^{r_t}\in [v_{t,-}(x),v_{t,+}(x)].
+\]
+Split the conditional-risk increment as
+\begin{align*}
+  q_x(m_t,r_t)
+  -
+  q_x(\hat m_t,\hat r_t)
+  &=
+  \bigl[q_x(m_t,r_t)-q_x(\hat m_t,r_t)\bigr]
+  +
+  \bigl[q_x(\hat m_t,r_t)-q_x(\hat m_t,\hat r_t)\bigr].
+\end{align*}
+For the first bracket, Definition~\ref{def:conditional-gaussian-risk} gives
+\begin{align*}
+  q_x(m_t,r_t)-q_x(\hat m_t,r_t)
+  &=
+  \frac{m_t^2-\hat m_t^2-2m_\ast(x)(m_t-\hat m_t)}{2v_t}
+  \\
+  &=
+  \frac{(m_t-\hat m_t)(\hat m_t-m_\ast(x))}{v_t}
+  +
+  \frac{(m_t-\hat m_t)^2}{2v_t}.
+\end{align*}
+Using $v_t\ge v_{t,-}(x)$ and
+$\abs{m_t-\hat m_t}=\delta_{m,t}(x)$ yields
+\[
+  q_x(m_t,r_t)-q_x(\hat m_t,r_t)\le \Omega_{m,t}(x).
+\]
+For the second bracket, Definition~\ref{def:conditional-gaussian-risk} and
+\eqref{eq:A-time} give
+\[
+  q_x(\hat m_t,r_t)-q_x(\hat m_t,\hat r_t)
+  =
+  \Gamma_t(x;v_t).
+\]
+As a function of $v>0$, $v\mapsto \Gamma_t(x;v)$ has derivative
+\[
+  \partial_v \Gamma_t(x;v)
+  =
+  \frac{v-A_t(x)}{2v^2}.
+\]
+Hence it is decreasing on $(0,A_t(x))$ and increasing on $(A_t(x),\infty)$, so
+its maximum on the interval $[v_{t,-}(x),v_{t,+}(x)]$ is attained at one of the
+two endpoints. Therefore
+\[
+  q_x(\hat m_t,r_t)-q_x(\hat m_t,\hat r_t)
+  \le
+  \Omega_{r,t}(x).
+\]
+Combining the two estimates and then adding the exact endpoint interpolation
+defect \eqref{eq:Jt-gaussian} yields
+\begin{align*}
+  &q_x(m_t,r_t)
+  -
+  \Bigl(
+    (1-t)q_x\bigl(m_{\Theta_A}(x),r_{\Theta_A}(x)\bigr)
+    +
+    t q_x\bigl(m_{\Theta_B}(x),r_{\Theta_B}(x)\bigr)
+  \Bigr)
+  \\
+  &\qquad\le
+  \Omega_{m,t}(x)+\Omega_{r,t}(x)+J_t(x).
+\end{align*}
+Take expectations in $X$ and then $\sup_t$. By the tower property, the left-hand
+side is exactly the aligned barrier \eqref{eq:barrier-def}.
+\end{proof}
+
+\begin{corollary}[Envelope exact Gaussian conditional-risk modulus]
+\label{cor:envelope-exact-gaussian-modulus}
+Under the hypotheses of Theorem~\ref{thm:timewise-exact-gaussian-modulus}, define
+\[
+  \delta_m^{\rm path}(x):=\sup_{t\in[0,1]} \delta_{m,t}(x),
+  \qquad
+  \delta_r^{\rm path}(x):=\sup_{t\in[0,1]} \delta_{r,t}(x),
+\]
+and the enlarged variance interval
+\begin{align}
+  v_{t,-}^{\rm env}(x)
+  &:=
+  v_{\min}+e^{\hat r_t(x)-\delta_r^{\rm path}(x)},
+  \label{eq:v-minus-env}
+  \\
+  v_{t,+}^{\rm env}(x)
+  &:=
+  v_{\min}+e^{\hat r_t(x)+\delta_r^{\rm path}(x)}.
+  \label{eq:v-plus-env}
+\end{align}
+Set
+\begin{align}
+  \Omega_{m,t}^{\rm env}(x)
+  &:=
+  \frac{\delta_m^{\rm path}(x)\abs{\hat m_t(x)-m_\ast(x)}}{v_{t,-}^{\rm env}(x)}
+  +
+  \frac{(\delta_m^{\rm path}(x))^2}{2v_{t,-}^{\rm env}(x)},
+  \label{eq:Omega-m-env}
+  \\
+  \Omega_{r,t}^{\rm env}(x)
+  &:=
+  \max\bigl\{
+    0,\,
+    \Gamma_t(x;v_{t,-}^{\rm env}(x)),\,
+    \Gamma_t(x;v_{t,+}^{\rm env}(x))
+  \bigr\}.
+  \label{eq:Omega-r-env}
+\end{align}
+Then
+\begin{equation}
+  \cB(\Theta_A,\Theta_B;\varpi)
+  \le
+  \sup_{t\in[0,1]}
+  \E\bigl[
+    \Omega_{m,t}^{\rm env}(X)+\Omega_{r,t}^{\rm env}(X)+J_t(X)
+  \bigr].
+  \label{eq:envelope-exact-gaussian-modulus}
+\end{equation}
+\end{corollary}
+
+\begin{proof}
+For every $t$ and $x$ one has
+$\delta_{m,t}(x)\le \delta_m^{\rm path}(x)$ and
+$\delta_{r,t}(x)\le \delta_r^{\rm path}(x)$. Therefore
+$v_{t,-}^{\rm env}(x)\le v_{t,-}(x)$ and
+$v_{t,+}(x)\le v_{t,+}^{\rm env}(x)$. Since
+$\Omega_{m,t}$ is increasing in $\delta_{m,t}$ and decreasing in the lower
+variance bound, while $\Omega_{r,t}$ is obtained by maximizing $\Gamma_t$ over a
+wider interval, one has
+\[
+  \Omega_{m,t}(x)\le \Omega_{m,t}^{\rm env}(x),
+  \qquad
+  \Omega_{r,t}(x)\le \Omega_{r,t}^{\rm env}(x).
+\]
+Apply Theorem~\ref{thm:timewise-exact-gaussian-modulus}.
+\end{proof}
+
+\begin{corollary}[Exact-transfer-driven Gaussian certificate]
+\label{cor:exact-transfer-driven-gaussian-certificate}
+Under the hypotheses of Theorem~\ref{thm:timewise-exact-gaussian-modulus}, replace
+the exact path defects in \eqref{eq:delta-m-time}--\eqref{eq:delta-r-time} by
+their pointwise upper bounds from Proposition~\ref{prop:exact-gaussian-transfer}:
+\[
+  \delta_{m,t}(x)\le T_{m,t}(x),
+  \qquad
+  \delta_{r,t}(x)\le T_{r,t}(x).
+\]
+Then \eqref{eq:timewise-exact-gaussian-modulus} and
+\eqref{eq:envelope-exact-gaussian-modulus} remain valid after replacing
+$\delta_{m,t},\delta_{r,t},\delta_m^{\rm path},\delta_r^{\rm path}$ by
+$T_{m,t},T_{r,t},T_m^{\rm path},T_r^{\rm path}$, respectively.
+\end{corollary}
+
+\begin{proof}
+Substitute \eqref{eq:exact-transfer-m}--\eqref{eq:delta-r-path} into
+Theorem~\ref{thm:timewise-exact-gaussian-modulus} and
+Corollary~\ref{cor:envelope-exact-gaussian-modulus}.
+\end{proof}
+
+\begin{remark}[Why the Gaussian exact modulus stays simple]
+\label{rem:gaussian-exact-modulus}
+The floor-regularized Gaussian head does not require a separate endpoint variance
+strip or any back-translation through an auxiliary coordinate system. The only
+scale interval needed in
+Theorem~\ref{thm:timewise-exact-gaussian-modulus} is
+\[
+  [v_{\min}+e^{\hat r_t-\delta_{r,t}},\,v_{\min}+e^{\hat r_t+\delta_{r,t}}],
+\]
+which is available directly from the path defect. This is the main reason
+the appendix-level sharpening remains compact even though the loss is not
+convex in mean/log-variance coordinates.
+\end{remark}
+
+\subsection{Quantitative Instantiation}
+
+\begin{remark}[Quantitative status on a matched mean-variance run]
+\label{rem:gaussian-quantitative-status}
+The exact Gaussian modulus can already be instantiated non-vacuously on the matched
+mean-variance run stored in
+\texttt{experiments/results\_width\_sweep\_meanvar\_single/width\_1024/summary.json}.
+On that run, the observed dense interpolation barrier is
+\[
+  \cB_{\rm obs}\approx 1.017\times 10^{-3},
+\]
+whereas the theorem-consistent deterministic certificates are
+\[
+  \cB \lesssim 3.604\times 10^{4}
+  \qquad\text{(baseline theorem),}
+\]
+\[
+  \cB \lesssim 2.195\times 10^{-3}
+  \qquad\text{(path-envelope exact Gaussian modulus),}
+\]
+\[
+  \cB \lesssim 2.076\times 10^{-3}
+  \qquad\text{(timewise exact Gaussian modulus).}
+\]
+Thus the timewise exact modulus is within a factor of about $2.04$ of the
+observed barrier, and the envelope version is within a factor of about $2.16$.
+For this run the timewise decomposition is dominated by the mean-path term,
+\[
+  \sup_t \E[\Omega_{m,t}(X)]\approx 1.927\times 10^{-3},
+\]
+\[
+  \sup_t \E[\Omega_{r,t}(X)]\approx 1.477\times 10^{-4},
+\]
+\[
+  \sup_t \E[J_t(X)]\approx 9.42\times 10^{-7}.
+\]
+So almost all of the remaining slack comes from the mean-path defect, not from
+the exact endpoint interpolation term.
+\end{remark}
+
+\begin{remark}[Preliminary width-sweep status]
+\label{rem:gaussian-width-sweep}
+The width sweep in
+\path{experiments/results_width_sweep_meanvar/width_sweep_summary.json}
+shows the same qualitative picture. On the positive-barrier widths,
+\[
+  N=512:
+  \quad
+  \cB_{\rm obs}\approx 4.918\times 10^{-3},
+  \quad
+  \cB_{\rm time}\approx 1.175\times 10^{-2},
+  \quad
+  \cB_{\rm env}\approx 1.448\times 10^{-2},
+\]
+\[
+  N=1024:
+  \quad
+  \cB_{\rm obs}\approx 1.017\times 10^{-3},
+  \quad
+  \cB_{\rm time}\approx 2.076\times 10^{-3},
+  \quad
+  \cB_{\rm env}\approx 2.195\times 10^{-3}.
+\]
+Hence the timewise exact modulus is within factors $2.39$ and $2.04$ of the
+observed barrier at those widths, while the baseline theorem remains
+completely vacuous throughout the sweep. At widths $256$, $2048$, and $4096$,
+the dense observed barrier is numerically nonpositive on the $401$-point grid,
+so the barrier ratio is not informative there; those runs should be read only
+as showing that the sharpened certificate does not explode when the observed
+barrier is already near zero.
+\end{remark}
+
+\section{Bishop-Type Exact-Scale Variant}
+\label{sec:bishop}
+
+The main text studies a floor-regularized Gaussian head
+$v=v_{\min}+e^r$. This is the cleanest way to keep the finite-horizon dynamics
+away from the zero-variance boundary. Classical mixture density networks in the
+sense of Bishop~\cite{Bishop1994} instead use an exact exponential scale. For
+$K=1$, this means
+\[
+  \mu_\Theta(x)=u_\Theta(x),
+  \qquad
+  \sigma_\Theta(x)=e^{s_\Theta(x)},
+  \qquad
+  v_\Theta(x)=e^{2s_\Theta(x)}.
+\]
+The next proposition records the corresponding Gaussian regularity statement.
+
+\begin{proposition}[Bishop exact-scale Gaussian regularity]
+\label{prop:bishop-regularity}
+Consider the exact-scale Gaussian loss
+\begin{equation}
+  \ell_{\rm B}(m,s;y)
+  :=
+  \log \sigma
+  +
+  \frac{(y-m)^2}{2\sigma^2},
+  \qquad
+  \sigma=e^s.
+  \label{eq:bishop-loss}
+\end{equation}
+Fix $M>0$ and $\sigma_{\min}>0$, and define the strip
+\[
+  D_{M,\sigma_{\min}}^{\rm B}
+  :=
+  \{(m,s)\in\R^2:\ \abs{m}\le M,\ e^s\ge \sigma_{\min}\},
+  \qquad
+  \Lambda_M:=M+Y_\ast.
+\]
+On $D_{M,\sigma_{\min}}^{\rm B}$ and for $\abs{y}\le Y_\ast$,
+$\ell_{\rm B}$ is $C_{\rm B}$-Lipschitz with respect to the $\ell_\infty$
+norm and $\rho_{\rm B}$-semi-convex, where
+\begin{align}
+  C_{\rm B}(M,\sigma_{\min},Y_\ast)
+  &:=
+  \frac{\Lambda_M}{\sigma_{\min}^2}
+  +
+  1
+  +
+  \frac{\Lambda_M^2}{\sigma_{\min}^2},
+  \label{eq:CB}
+  \\
+  \rho_{\rm B}(M,\sigma_{\min},Y_\ast)
+  &:=
+  \frac{2\Lambda_M}{\sigma_{\min}^2}.
+  \label{eq:rhoB}
+\end{align}
+\end{proposition}
+
+\begin{proof}
+Write $\sigma=e^s$ and $\delta:=m-y$. Then
+\[
+  \partial_m\ell_{\rm B}=\frac{\delta}{\sigma^2},
+  \qquad
+  \partial_s\ell_{\rm B}=1-\frac{\delta^2}{\sigma^2},
+\]
+so
+\[
+  \abs{\partial_m\ell_{\rm B}}
+  \le
+  \frac{\Lambda_M}{\sigma_{\min}^2},
+  \qquad
+  \abs{\partial_s\ell_{\rm B}}
+  \le
+  1+\frac{\Lambda_M^2}{\sigma_{\min}^2}
+\]
+which proves the Lipschitz bound after replacing the right-hand side by the
+slightly coarser constant $C_{\rm B}$.
+
+The Hessian is
+\[
+  \nabla^2\ell_{\rm B}(m,s;y)
+  =
+  \begin{pmatrix}
+    \sigma^{-2} & -2\delta\sigma^{-2} \\
+    -2\delta\sigma^{-2} & 2\delta^2\sigma^{-2}
+  \end{pmatrix}.
+\]
+Hence
+\[
+  \partial_{mm}^2\ell_{\rm B}\ge 0,
+  \qquad
+  \abs{\partial_{ms}^2\ell_{\rm B}}
+  \le
+  \frac{2\Lambda_M}{\sigma_{\min}^2},
+  \qquad
+  \partial_{ss}^2\ell_{\rm B}
+  \ge 0.
+\]
+Exactly as in the proof of Proposition~\ref{prop:gaussian-regularity}, these bounds
+imply
+$\nabla^2\ell_{\rm B}\succeq -\rho_{\rm B}(M,\sigma_{\min},Y_\ast)I$.
+\end{proof}
+
+\begin{remark}[Why the floor is convenient]
+Proposition~\ref{prop:bishop-regularity} shows that the Bishop parametrization
+is perfectly compatible with the semi-convex route once one has a positive
+variance strip $\sigma\ge \sigma_{\min}$. The floor-regularized model used in
+the main text builds this strip into the architecture. In the exact-scale
+parametrization, the same strip must be proved from the dynamics or imposed as
+an explicit finite-horizon assumption.
+\end{remark}
+
+\begin{corollary}[Deterministic barrier for the Bishop exact-scale head]
+\label{cor:bishop-barrier}
+Assume the exact-scale head satisfies a positive strip condition along the
+entire interpolation path:
+\[
+  \sigma_{\Theta_A}(x),\ \sigma_{\varpi\Theta_B}(x),\ \sigma_{\Theta_t^\varpi}(x)
+  \ge
+  \sigma_{\min}
+  \qquad
+  \forall x\in\mc{X},\ \forall t\in[0,1].
+\]
+Then the deterministic barrier theorem continues to hold with
+$C_{\rm G},\rho_{\rm G}$ replaced by $C_{\rm B},\rho_{\rm B}$.
+\end{corollary}
+
+\begin{proof}
+Under the displayed strip condition, the proof of
+Theorem~\ref{thm:barrier} goes through verbatim using
+Proposition~\ref{prop:bishop-regularity} in place of
+Proposition~\ref{prop:gaussian-regularity}.
+\end{proof}
+
+\begin{thebibliography}{9}
+
+\bibitem{MeiMisiakiewiczMontanari2019}
+S. Mei, T. Misiakiewicz, and A. Montanari.
+\newblock Mean-field theory of two-layers neural networks: dimension-free
+  bounds and kernel limit.
+\newblock In {\em Proceedings of the 32nd Conference on Learning Theory},
+  2019.
+
+\bibitem{Ferbach2024}
+D. Ferbach, A. Abbara, S. Riedel, and F. Bach.
+\newblock On linear mode connectivity in the mean field regime.
+\newblock {\em arXiv preprint arXiv:2405.18832}, 2024.
+
+\bibitem{Bishop1994}
+C. M. Bishop.
+\newblock Mixture density networks.
+\newblock Technical Report NCRG/94/004, Aston University, 1994.
+
+\end{thebibliography}
+
+\end{document}
