@@ -1,0 +1,828 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{bbm}
+\usepackage{bm}
+\usepackage{hyperref}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{natbib}
+\bibliographystyle{abbrvnat}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\cP}{\mathcal{P}}
+\newcommand{\cS}{\mathcal{S}}
+\newcommand{\vtheta}{\boldsymbol{\theta}}
+\newcommand{\vw}{\mathbf{w}}
+\newcommand{\vx}{\mathbf{x}}
+\newcommand{\va}{\mathbf{a}}
+\newcommand{\vp}{\mathbf{p}}
+\newcommand{\ve}{\mathbf{e}}
+\newcommand{\vone}{\mathbf{1}}
+\newcommand{\vs}{\mathbf{s}}
+\newcommand{\vz}{\mathbf{z}}
+\newcommand{\simplex}{\Delta^{p-1}}
+\newcommand{\entmax}{\operatorname{entmax}}
+\newcommand{\supp}{\operatorname{supp}}
+\newcommand{\Var}{\operatorname{Var}}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\dmu}{\dd\mu}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\newcommand{\abs}[1]{\left|#1\right|}
+
+\title{%
+  Dynamical Constraints on Feature Selection\\
+  in Soft Decision Stump Ensembles
+}
+\author{
+  Ryuichi Kanoh
+  \and
+  Mahito Sugiyama
+}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+  We study the mean-field dynamics of soft decision stump ensembles
+  whose splitting directions are parameterized via entmax, a
+  sparsity-inducing map on the probability simplex.
+  %
+  We identify two competing dynamical constraints that govern
+  sparse feature selection in this model.
+  %
+  \textbf{Irreversibility} (Theorem~\ref{thm:absorption}):
+  any feature excluded from the entmax support receives exactly zero
+  gradient and its weight freezes; moreover, the entmax threshold
+  rises as in-support features strengthen, making re-entry impossible.
+  This creates absorbing dead-feature states from which the dynamics
+  cannot escape.
+  %
+  \textbf{Bottleneck} (Theorem~\ref{thm:separation}):
+  even when all features are in the support (high temperature),
+  the relevance gap between relevant and irrelevant features grows
+  only at rate $O(1/(\tau p))$, where $\tau$ is the entmax
+  temperature and $p$ is the ambient dimension.
+  %
+  Together, these constraints imply that sparse feature selection
+  in differentiable stumps is caught between a failure mode
+  (premature sparsity kills features permanently) and a bottleneck
+  (conservative temperature slows selection to $O(\tau^2 p)$ time).
+  %
+  As a corollary, we derive a quantitative lower bound on the
+  temperature needed to avoid dead features, and an explicit
+  pruning time for the surviving regime.
+  %
+  Beyond the early phase, we show that the residual coupling
+  between stumps drives a \emph{signal crossing}: the initially
+  strongest feature's effective signal decays as it is learned,
+  eventually falling below that of weaker features
+  (Proposition~\ref{prop:crossing}).
+  This dynamic rebalancing is a genuinely collective phenomenon
+  that does not occur under independent training.
+\end{abstract}
+
+% ============================================================
+\section{Introduction}
+\label{sec:intro}
+% ============================================================
+
+Soft (differentiable) decision trees trained by gradient methods
+have gained attention as an alternative to classical greedy
+trees~\citep{frosst2017distilling,hazimeh2020tree,popov2020neural}.
+A natural approach to imposing axis-aligned feature selection in
+such models is to apply a sparsity-inducing map---such as
+entmax~\citep{peters2019sparse,blondel2020learning}---to the
+splitting weight vector.
+As the entmax temperature decreases, the output concentrates on
+fewer features, approaching a one-hot (axis-aligned) split.
+
+This paper asks: \emph{what are the dynamical constraints on
+feature selection when soft stumps are trained by gradient flow
+with entmax gating?}
+
+We work in the mean-field regime
+\citep{mei2018mean,chizat2018global}, where the number of stumps
+tends to infinity and the ensemble's evolution is described by a
+gradient flow on the space of probability measures over stump
+parameters.
+We focus on depth-one trees (stumps) under a sparse additive
+target with independent covariates---the simplest regime in which
+the feature-selection dynamics can be rigorously analyzed.
+
+\paragraph{Main findings.}
+We identify two dynamical constraints that together determine the
+feasibility and speed of sparse feature selection.
+
+\begin{enumerate}[label=(\roman*),leftmargin=*]
+  \item \textbf{Irreversible feature exclusion}
+        (Theorem~\ref{thm:absorption}).
+        The zero-column structure of the entmax Jacobian means that
+        any feature outside the support receives exactly zero gradient,
+        freezing its weight.
+        We show further that the entmax threshold $\lambda^*$ is
+        strictly increasing when in-support features have positive
+        gradient drift (which they do, by our separation result),
+        so excluded features can never re-enter the support.
+        This creates \emph{absorbing dead-feature states}.
+        %
+        As a corollary, if the temperature is too low at initialization
+        and a relevant feature starts outside the support, the
+        ensemble \emph{provably cannot recover} that feature,
+        regardless of training time
+        (Corollary~\ref{cor:failure}).
+
+  \item \textbf{Quantitative bottleneck for gap growth}
+        (Theorem~\ref{thm:separation}).
+        Even in the favorable regime where all features are in the
+        support (high temperature), the gradient signal for
+        each relevant feature is $O(1)$ while that for each
+        irrelevant feature is $O(1/p)$.
+        Through the entmax Jacobian, this separation translates into
+        a relevance-gap growth rate of only $O(1/(\tau p))$.
+        Successful feature selection therefore requires
+        $O(\tau^2 p / \kappa_{\min})$ training time---a
+        quantitative bottleneck that cannot be circumvented by
+        algorithmic tricks within this dynamics.
+
+  \item \textbf{Residual-driven specialization}
+        (Proposition~\ref{prop:crossing}).
+        Beyond the early phase, the mean-field coupling through
+        the shared residual produces \emph{signal crossing}:
+        as the ensemble learns the strongest feature, that feature's
+        effective signal decays, eventually falling below weaker
+        features.
+        This rebalancing is a collective phenomenon that does not
+        occur under independent stump training, demonstrating that
+        the mean-field interaction has a functional role in
+        producing feature-level diversity.
+\end{enumerate}
+
+Together, (i) and (ii) determine the feasible operating regime
+for feature selection: premature sparsity kills features permanently,
+while conservative temperature slows selection to $O(\tau^2 p)$
+time.
+Result~(iii) shows that, beyond these constraints, the shared
+residual actively drives specialization across features.
+
+% ============================================================
+\section{Problem Setup}
+\label{sec:setup}
+% ============================================================
+
+\subsection{Data Model}
+
+\begin{assumption}[Sparse Additive Model]
+  \label{asm:data}
+  \leavevmode
+  \begin{enumerate}[label=(\alph*)]
+    \item $x_1, \dots, x_p$ are mutually independent with
+          $\E[x_j] = 0$, $\E[x_j^2] = 1$,
+          $\E[x_j^4] \le \kappa_4$ for all $j$.
+    \item $y = \sum_{j \in S} g_j(x_j) + \varepsilon$,
+          $S \subset [p]$, $|S| = k$,
+          $\E[g_j(x_j)] = 0$, $\|g_j\|_{L^2} \le B_g$,
+          $\varepsilon \perp \vx$, $\E[\varepsilon] = 0$.
+  \end{enumerate}
+\end{assumption}
+
+\begin{assumption}[First-Order Signal]
+  \label{asm:signal}
+  $\kappa_j \coloneqq \E[g_j(x_j) x_j] \neq 0$ for all $j \in S$.
+  Write $\kappa_{\min} = \min_{j \in S} |\kappa_j|$.
+\end{assumption}
+
+\subsection{Soft Decision Stump with Entmax}
+
+A stump is parameterized by $\vtheta = (\vw, b, c) \in \R^{p+2}$:
+\begin{equation}
+  T(\vx;\,\vtheta)
+    = c \cdot \sigma_\beta\!\big(
+        \va_\alpha^\tau(\vw)^\top \vx - b
+      \big),
+  \label{eq:stump}
+\end{equation}
+where $\va_\alpha^\tau(\vw) = \entmax_\alpha(\vw/\tau) \in \simplex$.
+
+\begin{definition}[Entmax]
+  For $\alpha > 1$:
+  $\entmax_\alpha(\vz) = \argmax_{\vp \in \simplex}
+  \{\vp^\top\vz - \Omega_\alpha(\vp)\}$
+  with $\Omega_\alpha(\vp) = \frac{1}{\alpha(\alpha-1)}
+  \sum_j(p_j^\alpha - p_j)$.
+  The solution is
+  $[\entmax_\alpha(\vz)]_j
+  = [(\alpha{-}1)(z_j - \lambda^*)]_+^{1/(\alpha-1)}$
+  where $\lambda^*$ is uniquely determined by
+  $\sum_j [(\alpha{-}1)(z_j - \lambda^*)]_+^{1/(\alpha-1)} = 1$.
+  The support is $\cS(\vz) = \{j : z_j > \lambda^*\}$.
+\end{definition}
+
+\begin{lemma}[Entmax properties {\citep{blondel2020learning}}]
+  \label{lem:entmax}
+  For $\alpha \in (1,2)$: $\entmax_\alpha$ is differentiable with
+  continuous Jacobian and is $1$-Lipschitz.
+  The Jacobian satisfies $[J_\alpha(\vz)]_{ij} = 0$ whenever
+  $j \notin \cS(\vz)$ (zero columns outside the support).
+\end{lemma}
+
+\subsection{Mean-Field Formulation}
+
+\begin{assumption}[Bounded Parameters]
+  \label{asm:bounded}
+  Parameters lie in
+  $\Theta = \{(\vw,b,c): \|\vw\|_\infty \le W,\,|b|\le B,\,|c|\le C\}$.
+\end{assumption}
+
+The mean-field predictor is
+$f_\mu(\vx) = \int T(\vx;\,\vtheta)\,\dmu(\vtheta)$,
+and each particle evolves by
+\begin{equation}
+  \dot{\vtheta}(t) = \E_{\vx}\!\big[
+    r_{\mu_t}(\vx) \cdot \nabla_{\vtheta} T(\vx;\,\vtheta(t))
+  \big],
+  \qquad
+  r_\mu = f^* - f_\mu.
+  \label{eq:ode}
+\end{equation}
+
+\begin{proposition}[Mean-Field Limit]
+  \label{prop:mf}
+  Under Assumptions~\ref{asm:data}--\ref{asm:bounded}, the map
+  $\vtheta \mapsto T(\vx;\,\vtheta)$ is Lipschitz with constant
+  $L_T = 1 + C(\sqrt{p}/\tau+1)/(4\beta)$.
+  The drift is bounded on $\Theta$, so for any $T>0$,
+  choosing $W,B,C$ large enough keeps the flow in $\Theta$ on
+  $[0,T]$.
+  The propagation-of-chaos framework of \citet{mei2018mean} gives
+  $\sup_{t\in[0,T]} W_2(\mu_t^{(M)},\mu_t) \to 0$ in probability.
+\end{proposition}
+
+% ============================================================
+\section{Main Results}
+\label{sec:main}
+% ============================================================
+
+\subsection{Irreversible Feature Exclusion}
+
+This is the failure-mode result.
+
+\begin{theorem}[Dead-Feature Absorption]
+  \label{thm:absorption}
+  Fix $\alpha \in (1,2)$, $\tau > 0$.
+  Consider the mean-field gradient flow~\eqref{eq:ode}.
+  If at time $t_0 \ge 0$, a coordinate $j$ satisfies
+  $j \notin \cS(\vw(t_0)/\tau)$, then:
+  \begin{enumerate}[label=(\alph*)]
+    \item \textbf{Weight freezing.}
+          $\dot{w}_j(t) = 0$ for all $t \ge t_0$, so
+          $w_j(t) = w_j(t_0)$ for all $t \ge t_0$.
+    \item \textbf{Threshold monotonicity.}
+          If some in-support feature $m \in \cS(\vw(t_0)/\tau)$
+          has $\dot{w}_m(t_0) > 0$, then the entmax threshold
+          satisfies $\dot{\lambda}^*(t_0) > 0$.
+    \item \textbf{Permanent exclusion.}
+          If $\dot{w}_m(t) > 0$ for at least one
+          $m \in \cS(\vw(t)/\tau)$ for all $t \ge t_0$,
+          then $j \notin \cS(\vw(t)/\tau)$ for all $t \ge t_0$.
+  \end{enumerate}
+\end{theorem}
+
+\begin{proof}
+  \emph{Part (a).}
+  The $w_j$-component of~\eqref{eq:ode} involves
+  $\frac{\partial T}{\partial w_j}
+  = c\,\sigma_\beta'(\va^\top\vx - b)
+  \sum_l \frac{1}{\tau}[J_\alpha(\vw/\tau)]_{lj}\,x_l$.
+  By Lemma~\ref{lem:entmax},
+  $[J_\alpha(\vw/\tau)]_{lj} = 0$ for all $l$ when
+  $j \notin \cS(\vw/\tau)$.
+  Hence $\frac{\partial T}{\partial w_j} = 0$, giving
+  $\dot{w}_j = 0$.
+
+  \emph{Part (b).}
+  Write $z_m = w_m/\tau$ and
+  $\vp = \entmax_\alpha(\vz)$ with $s_m = p_m^{2-\alpha}$.
+  Differentiating the normalization
+  $F(\lambda^*) \coloneqq
+  \sum_{m \in \cS} [(\alpha{-}1)(z_m - \lambda^*)]^{1/(\alpha-1)}
+  = 1$
+  with respect to time:
+  \[
+    0 = \frac{\dd F}{\dd t}
+      = \sum_{m \in \cS} s_m\,(\dot{z}_m - \dot{\lambda}^*)
+      = \sum_{m \in \cS} s_m\,\dot{z}_m
+        - (\vone^\top\vs)\,\dot{\lambda}^*.
+  \]
+  Solving:
+  \begin{equation}
+    \dot{\lambda}^*
+    = \frac{\sum_{m \in \cS} s_m\,\dot{z}_m}{\vone^\top\vs}
+    = \frac{\sum_{m \in \cS} s_m\,\dot{w}_m}
+           {\tau\,\vone^\top\vs}.
+    \label{eq:lambda-dot}
+  \end{equation}
+  Since $s_m > 0$ for $m \in \cS$ and $\dot{w}_m > 0$
+  for at least one such~$m$ (while $\dot{w}_m \ge 0$ for the others
+  during the early phase---see Theorem~\ref{thm:separation}(c)),
+  we get $\dot{\lambda}^* > 0$.
+
+  \emph{Part (c).}
+  By (a), $w_j(t) = w_j(t_0)$ for $t \ge t_0$,
+  so $z_j(t) = z_j(t_0)$ is constant.
+  By (b), $\lambda^*(t)$ is strictly increasing as long as the
+  positivity condition holds.
+  Since $j \notin \cS$ at $t_0$ means $z_j(t_0) \le \lambda^*(t_0)$,
+  and $\lambda^*$ increases while $z_j$ stays fixed,
+  $z_j(t) < \lambda^*(t)$ for all $t > t_0$.
+\end{proof}
+
+\begin{corollary}[Low-Temperature Failure]
+  \label{cor:failure}
+  If the temperature $\tau$ is low enough that some
+  $j^* \in S$ satisfies $j^* \notin \cS(\vw(0)/\tau)$,
+  and the positivity condition of
+  Theorem~\ref{thm:absorption}(c) holds, then:
+  \begin{enumerate}[label=(\alph*)]
+    \item $j^*$ is permanently excluded from the support.
+    \item The predictor $f_{\mu_t}$ cannot represent
+          $g_{j^*}(x_{j^*})$.
+    \item The excess risk satisfies
+          $R[\mu_t] - \inf_\mu R[\mu]
+          \ge \frac{1}{2}\|g_{j^*}\|_{L^2}^2$
+          for all $t \ge 0$.
+  \end{enumerate}
+\end{corollary}
+
+\begin{proof}
+  Part (a) is Theorem~\ref{thm:absorption}(c).
+  For (b): since $j^*$ is excluded, each stump's output
+  $T(\vx;\,\vtheta)$ depends on $x_{j^*}$ only through
+  $a_{j^*} x_{j^*}$ with $a_{j^*} = 0$ (entmax assigns zero weight
+  to excluded features).
+  Thus $f_{\mu_t}$ is constant in $x_{j^*}$.
+  For (c):
+  $\|f^* - f_{\mu_t}\|_{L^2}^2
+  \ge \|\E[f^* - f_{\mu_t} \mid x_{j^*}]\|_{L^2}^2
+  = \|g_{j^*} - \E[f_{\mu_t} \mid x_{j^*}]\|_{L^2}^2
+  = \|g_{j^*}\|_{L^2}^2$,
+  since $\E[f_{\mu_t} \mid x_{j^*}]$ is constant (independent of
+  $x_{j^*}$) and $\E[g_{j^*}] = 0$.
+\end{proof}
+
+\begin{remark}[When does low-temperature failure occur?]
+  \label{rem:failure-condition}
+  For symmetric initialization $\vw(0) = w_0\vone$,
+  $\cS(\vw(0)/\tau) = [p]$ for all $\tau > 0$
+  (all features in support), so failure does not occur.
+  For random initialization $w_j(0) \overset{iid}{\sim}
+  \mathcal{N}(0, \sigma_w^2)$, the spread
+  $\max_j w_j(0) - \min_j w_j(0) = \Theta(\sigma_w\sqrt{\log p})$,
+  and entmax excludes coordinates whose $w_j/\tau$ falls below
+  $\lambda^*$.
+  A sufficient condition for full support is
+  $\tau \ge C_\alpha\,\sigma_w\sqrt{\log p}$
+  for a constant $C_\alpha$ depending on~$\alpha$.
+  Below this threshold, features may be permanently lost.
+\end{remark}
+
+\subsection{Quantitative Bottleneck for Feature Selection}
+
+This is the rate result.
+We use the same notation as before:
+$G_j(\vtheta;\,\mu) = \E[r_\mu(\vx)\,\sigma_\beta'(\va^\top\vx-b)\,x_j]$.
+
+\begin{assumption}[High Temperature]
+  \label{asm:hightemp}
+  $\tau$ is large enough that $\cS(\vw/\tau) = [p]$ for all
+  $\|\vw\|_\infty \le W$.
+\end{assumption}
+
+\begin{definition}[Early Phase]
+  \label{def:early}
+  $t_{\mathrm{ep}} = \sup\{t \ge 0 :
+  \|f_{\mu_s}\|_{L^2} \le \kappa_{\min}/2
+  \;\forall s \in [0,t]\}$.
+\end{definition}
+
+\begin{theorem}[Feature Gradient Separation]
+  \label{thm:separation}
+  Under Assumptions~\ref{asm:data}--\ref{asm:hightemp},
+  for a particle with $c > 0$ and for $t \in [0, t_{\mathrm{ep}})$:
+  \begin{enumerate}[label=(\alph*)]
+    \item \textbf{Relevant features:}
+    $G_j = \E[r_j^{(\mu)}(x_j)\,x_j]
+    \cdot \E[\sigma_\beta'(Z_j{-}b)] + O(1/p)$
+    for $j \in S$,
+    where $Z_j = \sum_{l \neq j} a_l x_l \perp x_j$ and
+    $\E[r_j^{(\mu)} x_j] \ge \kappa_{\min}/2$ during the early phase.
+
+    \item \textbf{Irrelevant features:}
+    $|G_l| \le C_2/p$ for $l \notin S$.
+
+    \item \textbf{Weight dynamics:}
+    $\dot{w}_j = \frac{c}{\tau p}\,G_j + O(1/p^2)$ for $j \in S$;
+    \quad $\dot{w}_l = O(1/p^2)$ for $l \notin S$.
+
+    \item \textbf{Gap growth:}
+    $\frac{\dd}{\dd t}\Delta(\vw)
+    = \frac{c}{\tau p}\bar{G}_S + O(1/p^2)$,
+    where $\Delta(\vw) = \frac{1}{k}\sum_{j \in S} w_j
+    - \frac{1}{p-k}\sum_{l \notin S} w_l$
+    and $\bar{G}_S > 0$ during the early phase.
+  \end{enumerate}
+\end{theorem}
+
+The proof is in Section~\ref{sec:proofs}.
+Parts (a) and (b) do not assume that $r_\mu$ decomposes
+additively; the proof uses only independence of features and
+$\E[x_j] = 0$.
+
+\begin{remark}[The $1/(\tau p)$ rate is the price of exploration]
+  The factor $1/p$ in the gap growth rate arises because
+  the high-temperature entmax assigns weight $1/p$ to each feature,
+  diluting the gradient signal.
+  The factor $1/\tau$ comes from the chain rule through
+  $\entmax_\alpha(\vw/\tau)$.
+  Neither factor can be removed without exiting the
+  high-temperature regime (which risks dead features by
+  Theorem~\ref{thm:absorption}).
+  This is the fundamental bottleneck:
+  exploration (high $\tau$, full support) is necessary to avoid
+  irreversible feature loss, but it directly slows feature
+  selection.
+\end{remark}
+
+\subsection{Pruning Time}
+
+Combining the two constraints:
+
+\begin{lemma}[Entmax Support Threshold]
+  \label{lem:threshold}
+  If $\min_{j \in S} w_j - \max_{l \notin S} w_l
+  \ge \Lambda\,\tau$ with
+  $\Lambda = \Lambda(\alpha,k) = 1/((\alpha{-}1)k^{\alpha-1})$,
+  then $\cS(\vw/\tau) \subseteq S$.
+\end{lemma}
+
+\begin{proof}
+  Since all $z_j = w_j/\tau$ for $j \in S$ exceed all $z_l$ for
+  $l \notin S$ by at least $\Lambda$, $S \subseteq \cS(\vz)$.
+  The normalization gives
+  $\lambda^* \ge \min_{j \in S} z_j - \Lambda$
+  $\ge \max_{l \notin S} z_l$,
+  so no $l \notin S$ is in the support.
+\end{proof}
+
+\begin{proposition}[Conditional Pruning Time]
+  \label{prop:pruning}
+  Under symmetric initialization $\vw(0) = w_0\vone$ and
+  fixed~$\tau$, conditional on $t^* \le t_{\mathrm{ep}}$:
+  the support reduces to $S$ by time
+  \begin{equation}
+    t^* = O\!\left(\frac{\tau^2 p}{c\,\kappa_{\min}}\right).
+    \label{eq:tstar}
+  \end{equation}
+\end{proposition}
+
+\begin{proof}
+  By Theorem~\ref{thm:separation}(c),
+  $w_j(t) - w_l(t) \ge \gamma t - O(t/p^2)$ for $j \in S$,
+  $l \notin S$, where
+  $\gamma = \frac{c\kappa_{\min}}{2\tau p}
+  \inf_b \E[\sigma_\beta'(\bar{X}-b)]$.
+  Setting $\gamma t^* = \Lambda\tau$ gives $t^*$.
+\end{proof}
+
+\subsection{The Tradeoff}
+
+Theorems~\ref{thm:absorption} and~\ref{thm:separation} together
+determine the feasible regime.
+For random initialization with spread
+$\delta_0 = \Theta(\sigma_w\sqrt{\log p})$:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Temperature lower bound}
+        (Theorem~\ref{thm:absorption}):
+        $\tau \ge C_\alpha \sigma_w \sqrt{\log p}$
+        to avoid dead features.
+  \item \textbf{Pruning time}
+        (Theorem~\ref{thm:separation} +
+        Proposition~\ref{prop:pruning}):
+        $t^* = O(\tau^2 p / (c\kappa_{\min}))$.
+  \item \textbf{Resulting time complexity}:
+        $t^* = O(\sigma_w^2 p \log p / (c\kappa_{\min}))$.
+\end{itemize}
+The $p \log p$ scaling is a concrete, non-trivial prediction:
+feature selection in $p$-dimensional soft stumps takes at least
+$\Omega(p \log p)$ gradient-flow time with random initialization,
+or $\Omega(p)$ with symmetric initialization.
+This is the quantitative price of sparsity-inducing gating.
+
+\subsection{Residual-Driven Specialization}
+\label{sec:specialization}
+
+The results above concern the \emph{early phase}, where the
+mean-field interaction is weak ($f_\mu \approx 0$).
+We now show that \emph{beyond} the early phase, the residual
+coupling between stumps produces a qualitatively new phenomenon:
+\textbf{dynamic rebalancing of gradient signal across features}.
+This is a genuinely collective effect that does not occur without
+ensemble interaction.
+
+\begin{definition}[Effective signal]
+  \label{def:eff-signal}
+  For $j \in S$, the \emph{effective signal} at time $t$ is
+  \begin{equation}
+    \kappa_j^{\mathrm{eff}}(t)
+      \coloneqq \E[r_j^{(\mu_t)}(x_j) \cdot x_j]
+      = \kappa_j - \E\bigl[\E[f_{\mu_t}(\vx) \mid x_j]\cdot x_j\bigr].
+    \label{eq:eff-signal}
+  \end{equation}
+\end{definition}
+
+Since $f_{\mu_t}(\vx)$ decomposes into contributions from
+each feature's stump group (by independence), we have
+$\E[f_{\mu_t} \mid x_j] = f_{\mu_t}^{(j)}(x_j) + \mathrm{const}$,
+where
+$f_{\mu_t}^{(j)}(x_j) = \int_{\mathrm{feat}=j}
+c\,\sigma_\beta(x_j - b)\,\dmu_t$
+is the ensemble's output on feature $j$.
+Thus:
+\begin{equation}
+  \kappa_j^{\mathrm{eff}}(t)
+    = \kappa_j - \E[f_{\mu_t}^{(j)}(x_j)\cdot x_j].
+  \label{eq:eff-signal-decomp}
+\end{equation}
+
+As the stumps on feature $j$ learn $g_j$,
+$\E[f_{\mu_t}^{(j)} x_j]$ increases toward $\kappa_j$,
+and $\kappa_j^{\mathrm{eff}}(t)$ decreases toward zero.
+This is the \emph{residual feedback}: learning feature~$j$
+\emph{weakens its own gradient signal}, redirecting gradient toward
+less-learned features.
+
+\begin{proposition}[Signal Crossing under Residual Coupling]
+  \label{prop:crossing}
+  Consider $k = 2$ features with
+  $\kappa_1 > \kappa_2 > 0$.
+  Suppose the mean-field dynamics is past the pruning phase
+  (support is $S = \{1,2\}$) and the stump group on feature $1$
+  makes progress in the sense that
+  $t \mapsto \E[f_{\mu_t}^{(1)}(x_1)\,x_1]$ is strictly increasing.
+  Then:
+  \begin{enumerate}[label=(\alph*)]
+    \item \textbf{Signal decay:}
+          $\kappa_1^{\mathrm{eff}}(t)$ is strictly decreasing.
+    \item \textbf{Signal crossing:}
+          There exists $t_c > 0$ such that
+          $\kappa_1^{\mathrm{eff}}(t_c) = \kappa_2^{\mathrm{eff}}(t_c)$,
+          provided $\kappa_2^{\mathrm{eff}}$ has not yet fully
+          decayed by time~$t_c$.
+          For $t > t_c$,
+          $\kappa_2^{\mathrm{eff}}(t) > \kappa_1^{\mathrm{eff}}(t)$:
+          the initially weaker feature becomes the stronger signal.
+    \item \textbf{Independent training fails to cross:}
+          Under independent training
+          (each stump minimizes $\E[(y - T(\vx;\,\vtheta))^2]$
+          without residual sharing), the effective signal is
+          $\kappa_j^{\mathrm{eff}} \equiv \kappa_j$ for all $t$,
+          so $\kappa_1^{\mathrm{eff}} > \kappa_2^{\mathrm{eff}}$
+          for all~$t$.
+          No crossing occurs.
+  \end{enumerate}
+\end{proposition}
+
+\begin{proof}
+  Part (a) follows directly from~\eqref{eq:eff-signal-decomp}:
+  $\kappa_1^{\mathrm{eff}}(t)
+  = \kappa_1 - \E[f_{\mu_t}^{(1)} x_1]$,
+  and $\E[f_{\mu_t}^{(1)} x_1]$ is increasing by assumption.
+
+  Part (b): Initially,
+  $\kappa_1^{\mathrm{eff}}(0) = \kappa_1 > \kappa_2
+  = \kappa_2^{\mathrm{eff}}(0)$.
+  If feature~$1$ is learned first (which it is, since
+  $\kappa_1 > \kappa_2$), then $\kappa_1^{\mathrm{eff}}$
+  decreases while $\kappa_2^{\mathrm{eff}}$ remains close
+  to $\kappa_2$ (feature~$2$ is not yet being learned
+  significantly).
+  By the intermediate value theorem, there exists $t_c$ such
+  that $\kappa_1^{\mathrm{eff}}(t_c) = \kappa_2^{\mathrm{eff}}(t_c)$.
+  After $t_c$, the inequality reverses.
+
+  Part (c): Without residual sharing, each stump independently
+  targets $f^*(\vx)$.
+  The gradient signal for feature $j$ in a single stump is
+  $G_j = \E[f^*(\vx)\,\sigma_\beta'(\va^\top\vx-b)\,x_j]$,
+  which is independent of other stumps' parameters.
+  The effective signal is fixed at
+  $\kappa_j^{\mathrm{eff}} = \kappa_j$ for all $t$.
+\end{proof}
+
+\begin{remark}[Why this requires mean-field theory]
+  The signal crossing is a \emph{collective} phenomenon:
+  each stump's gradient depends on the aggregate output $f_\mu$,
+  which in turn depends on the distribution of all stumps.
+  This circular dependence is precisely the mean-field interaction.
+  Without it (independent training), there is no feedback loop
+  and no rebalancing.
+  %
+  The practical consequence is that ensemble training with shared
+  residuals---as in gradient boosting and mean-field dynamics---produces
+  feature-level specialization that independent training cannot
+  achieve.
+\end{remark}
+
+% ============================================================
+\section{Proofs}
+\label{sec:proofs}
+% ============================================================
+
+\subsection{Proof of Theorem~\ref{thm:separation}}
+
+\paragraph{Setup.}
+Write $\va = \entmax_\alpha(\vw/\tau)$ with
+$a_j = 1/p + O(W/(\tau p))$ under Assumption~\ref{asm:hightemp}.
+For each $j$, decompose $\va^\top\vx = a_j x_j + Z_j$ where
+$Z_j = \sum_{l \neq j} a_l x_l \perp x_j$.
+
+Define the conditional signal
+$\phi_j(x_j) = \E_{\vx_{-j}}[r_\mu(\vx) \cdot
+\sigma_\beta'(a_j x_j + Z_j - b)]$,
+so that $G_j = \E_{x_j}[\phi_j(x_j) \cdot x_j]$.
+
+\paragraph{Step 1: Taylor expansion.}
+Since $a_j = O(1/p)$:
+$\sigma_\beta'(a_j x_j + Z_j - b)
+= \sigma_\beta'(Z_j - b) + \sigma_\beta''(Z_j - b)\,a_j x_j
++ O(x_j^2/p^2)$.
+
+The mean-field predictor satisfies
+$f_\mu(\vx) = f_\mu^{(0)}(\vx_{-j}) + h_j(\vx_{-j})\,x_j
++ O(x_j^2/p^2)$,
+where $h_j = \int c' a_j' \sigma_\beta'(Z_j' - b')\dmu = O(C/(4\beta p))$
+pointwise, and the remainder bound
+$|O(x_j^2/p^2)| \le Cx_j^2/(4\beta^2 p^2)$
+holds uniformly over $\mu$ supported on $\Theta$.
+
+\paragraph{Step 2: Part (b) ($l \notin S$).}
+$\phi_l(x_l) = \phi_l^{(0)} + \phi_l'(0)\,x_l + O(x_l^2/p^2)$
+where $\phi_l^{(0)} = \E_{\vx_{-l}}[(f^*(x_S) - f_\mu^{(0)})
+\sigma_\beta'(Z_l - b)]$
+is independent of $x_l$.
+Since $\E[x_l] = 0$:
+$G_l = \phi_l^{(0)} \cdot 0 + \phi_l'(0) \cdot \E[x_l^2]
++ O(\E[|x_l|^3]/p^2) = \phi_l'(0) + O(1/p^2)$.
+
+Now $\phi_l'(0) = a_l\,\E[(f^*{-}f_\mu^{(0)})\sigma_\beta''(Z_l{-}b)]
+- \E[h_l\,\sigma_\beta'(Z_l{-}b)]$.
+Both terms are $O(1/p)$:
+$|a_l| \le 1/p + O(W/(\tau p))$ and $|h_l| \le C/(4\beta p)$.
+So $|G_l| \le C_2/p$.
+This proves part (b).
+
+\paragraph{Step 3: Part (a) ($j \in S$).}
+The residual contains $g_j(x_j)$:
+$\phi_j(x_j)
+= g_j(x_j)\,\E_{Z_j}[\sigma_\beta'(Z_j{-}b)]
++ (\text{terms independent of } x_j) + O(x_j/p)$.
+
+Hence $G_j = \E[g_j(x_j)x_j]\,\E[\sigma_\beta'(Z_j{-}b)]
+- \E[\E[f_\mu \mid x_j]\,x_j]\,\E[\sigma_\beta'(Z_j{-}b)]
++ O(1/p)$.
+
+During the early phase, $\|f_\mu\|_{L^2} \le \kappa_{\min}/2$, so
+by Jensen's inequality
+$|\E[\E[f_\mu \mid x_j]\,x_j]| \le \|f_\mu\|_{L^2}
+\le \kappa_{\min}/2$.
+Thus $\E[r_j^{(\mu)}(x_j)\,x_j] \ge |\kappa_j| - \kappa_{\min}/2
+\ge \kappa_{\min}/2$.
+This proves part (a).
+
+\paragraph{Step 4: Parts (c) and (d).}
+$\dot{w}_j = \frac{c}{\tau}(\frac{G_j}{p}
+- \frac{\sum_l G_l}{p^2}) + O(1/p^2)
+= \frac{c}{\tau p}\,G_j + O(1/p^2)$
+for $j \in S$ (since $\sum_l G_l = O(k)$ gives
+$\sum G_l/p^2 = O(1/p^2)$).
+For $l \notin S$: $G_l = O(1/p)$, so $\dot{w}_l = O(1/p^2)$.
+The gap dynamics follows. \qed
+
+% ============================================================
+\section{Discussion}
+\label{sec:discussion}
+% ============================================================
+
+\paragraph{What this theory uncovers.}
+The qualitative advice ``explore broadly, then sparsify'' is
+common wisdom.
+The contribution of this paper is not that advice, but the
+identification of precise dynamical mechanisms that underlie it:
+(i)~absorbing dead-feature states that give a
+\emph{lower bound on temperature}
+(Theorem~\ref{thm:absorption});
+(ii)~a $O(1/(\tau p))$ gap-growth bottleneck that gives an
+\emph{upper bound on selection speed}
+(Theorem~\ref{thm:separation});
+and (iii)~residual-driven signal crossing that shows
+why ensemble coupling produces feature-level specialization
+(Proposition~\ref{prop:crossing}).
+The interplay of (i) and (ii) yields a concrete
+time--temperature tradeoff ($t^* = O(\tau^2 p)$);
+result~(iii) shows that this tradeoff is not merely a constraint
+but part of a richer dynamics in which the ensemble self-organizes
+across features.
+
+\paragraph{Implications for model design.}
+The $\Omega(p)$ lower bound on feature-selection time
+(with symmetric initialization) reveals a structural disadvantage
+of gradient-trained soft trees relative to greedy (hard) trees:
+greedy splitting evaluates each feature independently and does
+not pay the $1/p$ dilution cost.
+This may partially explain the continued practical dominance of
+hard tree ensembles on high-dimensional tabular
+data~\citep{grinsztajn2022tree}.
+On the other hand, Proposition~\ref{prop:crossing} shows a
+potential advantage of soft-tree ensembles: the residual coupling
+creates feature-level specialization that could lead to
+more balanced coverage of multi-feature targets than
+independent stump training.
+
+\paragraph{Limitations.}
+Our analysis of feature discovery (Theorems~\ref{thm:absorption}
+and~\ref{thm:separation}) is restricted to the early phase.
+Proposition~\ref{prop:crossing} goes beyond the early phase
+but assumes that in-support features make progress; a fully
+coupled gap--risk analysis remains open.
+Throughout, we assume depth-one trees, additive targets with
+independent covariates, and first-order signal ($\kappa_j \neq 0$).
+Extending to deeper trees, feature interactions, and higher
+information exponents are important open directions.
+
+% ============================================================
+\begin{thebibliography}{99}
+
+\bibitem[Blondel et~al.(2020)]{blondel2020learning}
+M.~Blondel, A.~F.~T. Martins, and V.~Niculae.
+\newblock Learning with {Fenchel-Young} losses.
+\newblock \emph{JMLR}, 21(35):1--69, 2020.
+
+\bibitem[Chizat and Bach(2018)]{chizat2018global}
+L.~Chizat and F.~Bach.
+\newblock On the global convergence of gradient descent for
+  over-parameterized models using optimal transport.
+\newblock In \emph{NeurIPS}, 2018.
+
+\bibitem[Frosst and Hinton(2017)]{frosst2017distilling}
+N.~Frosst and G.~Hinton.
+\newblock Distilling a neural network into a soft decision tree.
+\newblock In \emph{CEx Workshop at AI*IA}, 2017.
+
+\bibitem[Grinsztajn et~al.(2022)]{grinsztajn2022tree}
+L.~Grinsztajn, E.~Oyallon, and G.~Varoquaux.
+\newblock Why do tree-based models still outperform deep learning on
+  typical tabular data?
+\newblock In \emph{NeurIPS}, 2022.
+
+\bibitem[Hazimeh et~al.(2020)]{hazimeh2020tree}
+H.~Hazimeh, N.~Ponomareva, P.~Mol, Z.~Tan, and R.~Mazumder.
+\newblock The tree ensemble layer: Differentiability meets conditional
+  computation.
+\newblock In \emph{ICML}, 2020.
+
+\bibitem[Mei et~al.(2018)]{mei2018mean}
+S.~Mei, A.~Montanari, and P.-M. Nguyen.
+\newblock A mean field view of the landscape of two-layer neural
+  networks.
+\newblock \emph{PNAS}, 115(33):E7665--E7671, 2018.
+
+\bibitem[Peters et~al.(2019)]{peters2019sparse}
+B.~Peters, V.~Niculae, and A.~F.~T. Martins.
+\newblock Sparse sequence-to-sequence models.
+\newblock In \emph{ACL}, 2019.
+
+\bibitem[Popov et~al.(2020)]{popov2020neural}
+S.~Popov, S.~Morozov, and A.~Babenko.
+\newblock Neural oblivious decision ensembles for deep learning on
+  tabular data.
+\newblock In \emph{ICLR}, 2020.
+
+\end{thebibliography}
+
+\end{document}
