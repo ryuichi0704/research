@@ -27,7 +27,7 @@
 For the single-Gaussian natural-softplus head in \texttt{k1.tex}, the baseline
 deterministic barrier theorem reads
 \begin{equation}
-  \cB(\Theta_A,\Theta_B;\pi)
+  \cB(\Theta_A,\Theta_B;\varpi)
   \le
   C_\eta(K_\varphi M_V^\infty,\lambda_{\min},Y_\ast)
   \left[
@@ -56,6 +56,43 @@ This note keeps only the sharpening route that ultimately matters:
 All symbolic bounds below are theorem candidates. Numerical values are
 theorem-consistent instantiated certificates on the matched softplus run unless
 explicitly labeled as observed quantities.
+
+Unless stated otherwise, notation is inherited from \texttt{k1.tex}. In
+particular,
+\[
+  \psi_{\rm sp}(s):=\lambda_{\min}+\log(1+e^s),
+  \qquad
+  \Gamma(u,s):=(u,-\psi_{\rm sp}(s)),
+\]
+with $\lambda_{\min}>0$. For the aligned pair corresponding to a fixed neuron
+permutation $\varpi$, we write
+\[
+  \Theta_t
+  :=
+  \bigl(
+    (1-t)a_i^A+t a_i^B,\,
+    (1-t)c_i^A+t c_i^B,\,
+    (1-t)\xi_i^A+t\xi_i^B
+  \bigr)_{i=1}^N,
+\]
+\[
+  z_t:=z_{\Theta_t},
+  \qquad
+  \hat z_t:=(1-t)z_{\Theta_A}+t z_{\Theta_B},
+  \qquad
+  \hat\eta_t:=(1-t)\eta_{\Theta_A}+t\eta_{\Theta_B},
+  \qquad
+  \tilde\eta_t:=\Gamma(\hat z_t),
+\]
+and
+\[
+  B_N:=\frac1N\sum_{i=1}^N \norm{\xi_i^A-\xi_i^B}^2,
+  \qquad
+  \Delta_{s,N}:=\E\big[(s_{\Theta_A}(X)-s_{\Theta_B}(X))^2\big].
+\]
+The constants $K_\varphi$, $K_\nabla$, $M_V^\infty$, $C_\eta$, and the input
+space $\mathcal X$ are exactly those defined there, and
+$\cB(\Theta_A,\Theta_B;\varpi)$ denotes the aligned barrier.
 
 \section{Raw-Space Barrier Reduction}
 
@@ -99,7 +136,8 @@ Define the raw strip
 
 \begin{proposition}[Raw-strip derivative constants]
 \label{prop:raw-strip-constants}
-On $\mathcal S_{M,\lambda}$ and for $|y|\le Y_\ast$, define
+Assume $\lambda\ge \lambda_{\min}$. On $\mathcal S_{M,\lambda}$ and for
+$|y|\le Y_\ast$, define
 \begin{align}
   C_u^{\rm raw}(M,\lambda,Y_\ast)
   &:=
@@ -152,7 +190,8 @@ the claim follows.
 
 \begin{proposition}[Raw-space barrier reduction]
 \label{prop:rawspace-barrier}
-Assume that, for every $t\in[0,1]$ and every $x\in\mathcal X$, both
+Assume $\lambda\ge \lambda_{\min}$ and that, for every $t\in[0,1]$ and every
+$x\in\mathcal X$, both
 $z_t(x)=(u_t(x),s_t(x))$ and $\hat z_t(x)=(\hat u_t(x),\hat s_t(x))$ lie in
 $\mathcal S_{M,\lambda}$. Define
 \[
@@ -162,7 +201,7 @@ $\mathcal S_{M,\lambda}$. Define
 \]
 Then
 \begin{equation}
-  \cB(\Theta_A,\Theta_B;\pi)
+  \cB(\Theta_A,\Theta_B;\varpi)
   \le
   C_u^{\rm raw}(M,\lambda,Y_\ast)\,U
   +
@@ -174,20 +213,60 @@ Then
 \end{proposition}
 
 \begin{proof}
-Let $\tilde z_t:=(\hat u_t,\hat s_t)$ and $\tilde\eta_t:=\Gamma(\tilde z_t)$.
 Convexity in natural space gives
 \[
-  \cB(\Theta_A,\Theta_B;\pi)
+  \cB(\Theta_A,\Theta_B;\varpi)
   \le
   \sup_t
   \E\big[
     \ell_\eta(\eta_{\Theta_t}(X);Y)-\ell_\eta(\hat\eta_t(X);Y)
   \big].
 \]
-Insert $\ell_\eta(\tilde\eta_t(X);Y)=\tilde\ell(\tilde z_t(X);Y)$ and bound the
-first difference by the mean value theorem on $\mathcal S_{M,\lambda}$. The
-second difference is exactly the softplus Jensen term, controlled by
-\eqref{eq:C2}.
+Insert the intermediate output
+\[
+  \tilde\eta_t(X)=\Gamma(\hat z_t(X)),
+  \qquad
+  \ell_\eta(\tilde\eta_t(X);Y)=\tilde\ell(\hat z_t(X);Y).
+\]
+Then
+\begin{align*}
+  \ell_\eta(\eta_{\Theta_t}(X);Y)-\ell_\eta(\hat\eta_t(X);Y)
+  &=
+  \bigl[
+    \tilde\ell(z_t(X);Y)-\tilde\ell(\hat z_t(X);Y)
+  \bigr]
+  \\
+  &\quad+
+  \bigl[
+    \ell_\eta(\tilde\eta_t(X);Y)-\ell_\eta(\hat\eta_t(X);Y)
+  \bigr].
+\end{align*}
+On $\mathcal S_{M,\lambda}$, the first bracket is bounded by the mean value
+theorem:
+\[
+  C_u^{\rm raw}(M,\lambda,Y_\ast)\abs{u_t(X)-\hat u_t(X)}
+  +
+  C_s^{\rm raw}(M,\lambda,Y_\ast)\abs{s_t(X)-\hat s_t(X)}.
+\]
+For the second bracket, $\tilde\eta_t(X)$ and $\hat\eta_t(X)$ have the same
+first coordinate, so the mean value theorem in the $\eta_2$ direction gives
+\[
+  \abs{
+    \ell_\eta(\tilde\eta_t(X);Y)-\ell_\eta(\hat\eta_t(X);Y)
+  }
+  \le
+  C_2(M,\lambda,Y_\ast)\,
+  \abs{
+    \psi_{\rm sp}(\hat s_t(X))
+    -
+    (1-t)\psi_{\rm sp}(s_{\Theta_A}(X))
+    -
+    t\psi_{\rm sp}(s_{\Theta_B}(X))
+  }.
+\]
+The expectation of the displayed softplus Jensen defect is bounded by
+$\frac1{32}\Delta_{s,N}$, exactly as in \texttt{k1.tex}. Taking expectations and
+$\sup_t$ yields \eqref{eq:rawspace-barrier}.
 \end{proof}
 
 \section{Exact Sigmoid-Projected Transfer}
@@ -338,7 +417,18 @@ In mean/variance coordinates,
   \qquad
   v_\Theta(x)=\frac{1}{2(-\eta_{2,\Theta}(x))}.
 \]
-Drop the nonnegative quadratic term.
+Drop the nonnegative quadratic term to get
+\[
+  \frac12\log(2\pi v_\Theta(x))\le L_{\rm end}.
+\]
+Exponentiating yields
+\[
+  v_\Theta(x)\le \frac{e^{2L_{\rm end}}}{2\pi},
+\]
+hence
+\[
+  -\eta_{2,\Theta}(x)=\frac{1}{2v_\Theta(x)}\ge \pi e^{-2L_{\rm end}}.
+\]
 \end{proof}
 
 \begin{remark}
@@ -456,7 +546,7 @@ Define
 \end{align}
 Then
 \begin{equation}
-  \cB(\Theta_A,\Theta_B;\pi)
+  \cB(\Theta_A,\Theta_B;\varpi)
   \le
   \E\Bigl[
     C_u^{\rm cond}(X)\,\delta_u^{\rm path}(X)
@@ -545,7 +635,7 @@ Write
 \end{align}
 Then
 \begin{equation}
-  \cB(\Theta_A,\Theta_B;\pi)
+  \cB(\Theta_A,\Theta_B;\varpi)
   \le
   \sup_{t\in[0,1]}
   \E\bigl[
@@ -597,7 +687,7 @@ Let $\Omega^{\rm env}_{u,t}(x)$, $\Omega^{\rm env}_{s,t}(x)$ be obtained from
 \]
 Then
 \begin{equation}
-  \cB(\Theta_A,\Theta_B;\pi)
+  \cB(\Theta_A,\Theta_B;\varpi)
   \le
   \sup_{t\in[0,1]}
   \E\bigl[
@@ -613,8 +703,16 @@ Then
 
 \begin{proof}
 This is immediate from
-$\delta_{u,t}(x)\le\delta_u^{\rm path}(x)$ and
-$\delta_{s,t}(x)\le\delta_s^{\rm path}(x)$.
+\[
+  \delta_{u,t}(x)\le\delta_u^{\rm path}(x),
+  \qquad
+  \delta_{s,t}(x)\le\delta_s^{\rm path}(x),
+\]
+and the interval inclusion
+\[
+  I_t(x)\subseteq I_t^{\rm env}(x),
+\]
+which follows from the monotonicity of $\psi_{\rm sp}$.
 \end{proof}
 
 \begin{remark}[Final sharpened route]
@@ -674,7 +772,13 @@ about a factor of $1.4$--$1.5$.
 \end{remark}
 
 \begin{remark}[What the final decomposition says]
-For the timewise exact-modulus route, the instantiated decomposition is
+The route totals in Remark~\ref{rem:quantitative-status} are
+$\sup_t\E[\Omega_{u,t}+\Omega_{s,t}+J_t]$ or its envelope analogue. By
+contrast, the components displayed below are per-term maxima
+$\sup_t\E[\Omega_{u,t}]$, $\sup_t\E[\Omega_{s,t}]$, and $\sup_t\E[J_t]$, so
+they need not sum exactly to the reported route totals.
+
+For the timewise exact-modulus route, the per-term maxima are
 \[
   \text{$u$-modulus}\approx 9.93\times 10^{-3},
   \qquad
@@ -682,7 +786,7 @@ For the timewise exact-modulus route, the instantiated decomposition is
   \qquad
   J_t\approx 6.2\times 10^{-8}.
 \]
-For the envelope route, it is
+For the envelope route, the analogous per-term maxima are
 \[
   \text{$u$-envelope}\approx 1.05\times 10^{-2},
   \qquad
