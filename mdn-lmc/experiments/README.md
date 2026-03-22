@@ -70,6 +70,24 @@ uv run python main.py --parameterization meanvar
 uv run python main.py --parameterization both
 ```
 
+幅 sweep で、`2^8` から `2^13` までの width に対して
+
+- baseline の `k1.tex` bound
+- best theorem-consistent exact-modulus bound
+- 実測 matched barrier
+
+を比較するには:
+
+```bash
+uv run python width_sweep_experiment.py \
+  --config configs/config.yaml \
+  --output-dir results_width_sweep \
+  --width-exponents 8 9 10 11 12 13 \
+  --time-grid-points 401
+```
+
+この sweep は `natural` parameterization を前提にしています。
+
 ## 出力
 
 デフォルトでは `experiments/results/<parameterization>/` に以下を保存します。
@@ -81,6 +99,14 @@ uv run python main.py --parameterization both
 - `predictive_fit.png`: 真の平均・分散との比較
 - `training_history.png`: 学習曲線
 - `matching_permutation.npy`: 推定 permutation
+
+幅 sweep では `experiments/results_width_sweep/` 以下に
+
+- `width_sweep_summary.json`: 幅ごとの集約結果
+- `width_sweep_primary_vs_observed.png`: 実測 barrier と主たる理論 bound の比較図
+- `width_<N>/summary.json`: 各幅の詳細
+
+を保存します。
 
 `--parameterization both` の場合は `results/comparison.json` も保存します。
 

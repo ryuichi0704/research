@@ -61,6 +61,33 @@ class DatasetBundle:
     y_std: float
 
 
+@dataclass
+class NaturalPathSnapshot:
+    t: float
+    barrier: float
+    exact_convexity_gap: float
+    exact_vector_gap: float
+    exact_jensen_gap: float
+    eta_gap_mean: float
+    eta1_gap_mean: float
+    eta2_gap_mean: float
+    eta_gap_tilde_mean: float
+    eta1_gap_tilde_mean: float
+    eta2_gap_tilde_mean: float
+    eta_jensen_gap_mean: float
+    eta2_jensen_gap_mean: float
+    raw_gap_sup: float
+    raw_gap_mean: float
+    raw_mean_gap_sup: float
+    raw_scale_gap_sup: float
+    raw_mean_gap_mean: float
+    raw_scale_gap_mean: float
+    local_m_eta: float
+    local_lambda_min: float
+    local_c_eta_y_star: float
+    local_c_eta_y_empirical: float
+
+
 def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -412,6 +439,348 @@ def c_eta(m_value: float, lambda_min: float, y_star: float) -> float:
 
 def effective_lambda_min(variance_max: float) -> float:
     return 1.0 / (2.0 * variance_max)
+
+
+def gaussian_nll_from_eta(
+    eta1: torch.Tensor,
+    eta2: torch.Tensor,
+    y: torch.Tensor,
+) -> torch.Tensor:
+    log_partition = -(eta1**2) / (4.0 * eta2) + 0.5 * torch.log((-math.pi) / eta2)
+    return log_partition - eta1 * y - eta2 * (y**2)
+
+
+def distribution_from_raw(
+    model: TwoLayerK1Net,
+    raw: torch.Tensor,
+) -> dict[str, torch.Tensor]:
+    if model.precision_activation == "exp":
+        activate = torch.exp
+    else:
+        activate = F.softplus
+
+    if model.parameterization == "natural":
+        eta1 = raw[:, :1]
+        lambda_coord = activate(raw[:, 1:2]) + model.lambda_min
+        eta2 = -lambda_coord
+        mu = eta1 / (2.0 * lambda_coord)
+        var = 1.0 / (2.0 * lambda_coord)
+    else:
+        mu = raw[:, :1]
+        var = activate(raw[:, 1:2]) + model.variance_floor
+        eta1 = mu / var
+        eta2 = -0.5 / var
+    return {
+        "raw": raw,
+        "mu": mu,
+        "var": var,
+        "eta1": eta1,
+        "eta2": eta2,
+    }
+
+
+@torch.no_grad()
+def distribution_on_dataset(
+    model: TwoLayerK1Net,
+    x: torch.Tensor,
+    device: torch.device,
+) -> dict[str, torch.Tensor]:
+    dist = model.distribution(x.to(device))
+    return {key: value.detach() for key, value in dist.items()}
+
+
+def path_grid_points(num_plot_points: int) -> int:
+    return max(101, 4 * num_plot_points + 1)
+
+
+def sigmoid_second_derivative_abs_max() -> float:
+    # max_{z in R} |sigma''(z)| for the logistic sigmoid.
+    return math.sqrt(3.0) / 18.0
+
+
+@torch.no_grad()
+def natural_barrier_certificates(
+    model_a: TwoLayerK1Net,
+    model_b: TwoLayerK1Net,
+    dataset_bundle: DatasetBundle,
+    alignment_stats: dict[str, float],
+    barrier_profile_stats: dict[str, object],
+    config: ExperimentConfig,
+    device: torch.device,
+    num_points: int,
+) -> dict[str, object]:
+    if config.parameterization != "natural":
+        raise ValueError("natural_barrier_certificates requires natural parameterization.")
+
+    test_x, test_y = dataset_bundle.test.tensors
+    test_x = test_x.to(device)
+    test_y = test_y.to(device)
+    probe_x = dataset_bundle.evaluation_probe_x.to(device)
+
+    dist_a_probe = distribution_on_dataset(model_a, probe_x, device)
+    dist_b_probe = distribution_on_dataset(model_b, probe_x, device)
+    dist_a_test = distribution_on_dataset(model_a, test_x, device)
+    dist_b_test = distribution_on_dataset(model_b, test_x, device)
+
+    table_a = extract_neuron_table(model_a)
+    table_b = extract_neuron_table(model_b)
+    mean_delta_rms = float(np.sqrt(np.mean((table_a[:, 0] - table_b[:, 0]) ** 2)))
+    variance_delta_rms = float(np.sqrt(np.mean((table_a[:, 1] - table_b[:, 1]) ** 2)))
+    mean_weight_rms = float(max(np.sqrt(np.mean(table_a[:, 0] ** 2)), np.sqrt(np.mean(table_b[:, 0] ** 2))))
+    variance_weight_rms = float(max(np.sqrt(np.mean(table_a[:, 1] ** 2)), np.sqrt(np.mean(table_b[:, 1] ** 2))))
+    m_delta_v_infty = max(mean_delta_rms, variance_delta_rms)
+
+    xi_delta_sq = np.sum((table_a[:, 2:] - table_b[:, 2:]) ** 2, axis=1)
+    v_a_sq = np.sum(table_a[:, :2] ** 2, axis=1)
+    v_b_sq = np.sum(table_b[:, :2] ** 2, axis=1)
+    weighted_hidden_mismatch = float(np.mean(np.maximum(v_a_sq, v_b_sq) * xi_delta_sq))
+
+    b_n = float(alignment_stats["B_N"])
+    delta_s = float(alignment_stats["Delta_s_N"])
+    m_v_infty = float(alignment_stats["M_V_infty"])
+    y_star = float(alignment_stats["Y_star"])
+    lambda_min_cfg = float(alignment_stats["effective_lambda_min"])
+    empirical_y_max = float(torch.max(torch.abs(test_y)).item())
+
+    x_probe_abs_max = float(torch.max(torch.abs(probe_x)).item())
+    x_test_abs_max = float(torch.max(torch.abs(test_x)).item())
+    x_abs_max = max(x_probe_abs_max, x_test_abs_max)
+    k_phi = 1.0
+    k_nabla_global = 0.25 * math.sqrt(x_abs_max**2 + 1.0)
+    l_nabla_global = sigmoid_second_derivative_abs_max() * (x_abs_max**2 + 1.0)
+
+    ts = np.linspace(0.0, 1.0, num_points)
+    snapshots: list[NaturalPathSnapshot] = []
+
+    path_m_eta = 0.0
+    path_lambda_min = float("inf")
+    max_eta_gap_mean = 0.0
+    max_eta_gap_mean_local_y_star = 0.0
+    max_eta_gap_mean_local_y_emp = 0.0
+    max_exact_convexity_gap = -float("inf")
+    max_exact_vector_gap = -float("inf")
+    max_exact_jensen_gap = -float("inf")
+
+    for t in ts:
+        model_t = interpolate_models(model_a, model_b, float(t), device)
+        dist_t_probe = distribution_on_dataset(model_t, probe_x, device)
+        dist_t_test = distribution_on_dataset(model_t, test_x, device)
+
+        raw_hat_probe = (1.0 - t) * dist_a_probe["raw"] + t * dist_b_probe["raw"]
+        eta_hat_probe_1 = (1.0 - t) * dist_a_probe["eta1"] + t * dist_b_probe["eta1"]
+        eta_hat_probe_2 = (1.0 - t) * dist_a_probe["eta2"] + t * dist_b_probe["eta2"]
+        tilde_probe = distribution_from_raw(model_a, raw_hat_probe)
+
+        raw_hat_test = (1.0 - t) * dist_a_test["raw"] + t * dist_b_test["raw"]
+        eta_hat_test_1 = (1.0 - t) * dist_a_test["eta1"] + t * dist_b_test["eta1"]
+        eta_hat_test_2 = (1.0 - t) * dist_a_test["eta2"] + t * dist_b_test["eta2"]
+        tilde_test = distribution_from_raw(model_a, raw_hat_test)
+
+        raw_gap_probe = torch.max(torch.abs(dist_t_probe["raw"] - raw_hat_probe), dim=1).values
+        raw_gap_probe_mean = torch.abs(dist_t_probe["raw"][:, :1] - raw_hat_probe[:, :1])
+        raw_gap_probe_scale = torch.abs(dist_t_probe["raw"][:, 1:2] - raw_hat_probe[:, 1:2])
+        eta_gap_probe_1 = torch.abs(dist_t_probe["eta1"] - eta_hat_probe_1)
+        eta_gap_probe_2 = torch.abs(dist_t_probe["eta2"] - eta_hat_probe_2)
+        eta_gap_probe = torch.maximum(
+            eta_gap_probe_1,
+            eta_gap_probe_2,
+        )
+        eta_gap_tilde_probe_1 = torch.abs(dist_t_probe["eta1"] - tilde_probe["eta1"])
+        eta_gap_tilde_probe_2 = torch.abs(dist_t_probe["eta2"] - tilde_probe["eta2"])
+        eta_gap_tilde_probe = torch.maximum(
+            eta_gap_tilde_probe_1,
+            eta_gap_tilde_probe_2,
+        )
+        eta_jensen_gap_probe_2 = torch.abs(tilde_probe["eta2"] - eta_hat_probe_2)
+        eta_jensen_gap_probe = torch.maximum(
+            torch.abs(tilde_probe["eta1"] - eta_hat_probe_1),
+            eta_jensen_gap_probe_2,
+        )
+
+        local_m_eta_t = float(
+            max(
+                torch.max(torch.abs(dist_t_probe["eta1"])).item(),
+                torch.max(torch.abs(eta_hat_probe_1)).item(),
+                torch.max(torch.abs(tilde_probe["eta1"])).item(),
+            )
+        )
+        local_lambda_min_t = float(
+            min(
+                torch.min(-dist_t_probe["eta2"]).item(),
+                torch.min(-eta_hat_probe_2).item(),
+                torch.min(-tilde_probe["eta2"]).item(),
+            )
+        )
+
+        c_eta_y_star_t = c_eta(local_m_eta_t, local_lambda_min_t, y_star)
+        c_eta_y_emp_t = c_eta(local_m_eta_t, local_lambda_min_t, empirical_y_max)
+
+        nll_t = gaussian_nll_from_eta(dist_t_test["eta1"], dist_t_test["eta2"], test_y).mean()
+        nll_hat = gaussian_nll_from_eta(eta_hat_test_1, eta_hat_test_2, test_y).mean()
+        nll_tilde = gaussian_nll_from_eta(tilde_test["eta1"], tilde_test["eta2"], test_y).mean()
+        endpoint_a = float(barrier_profile_stats["endpoint_losses"][0])
+        endpoint_b = float(barrier_profile_stats["endpoint_losses"][1])
+        linear_reference = (1.0 - float(t)) * endpoint_a + float(t) * endpoint_b
+
+        snapshot = NaturalPathSnapshot(
+            t=float(t),
+            barrier=float(nll_t.item() - linear_reference),
+            exact_convexity_gap=float((nll_t - nll_hat).item()),
+            exact_vector_gap=float((nll_t - nll_tilde).item()),
+            exact_jensen_gap=float((nll_tilde - nll_hat).item()),
+            eta_gap_mean=float(eta_gap_probe.mean().item()),
+            eta1_gap_mean=float(eta_gap_probe_1.mean().item()),
+            eta2_gap_mean=float(eta_gap_probe_2.mean().item()),
+            eta_gap_tilde_mean=float(eta_gap_tilde_probe.mean().item()),
+            eta1_gap_tilde_mean=float(eta_gap_tilde_probe_1.mean().item()),
+            eta2_gap_tilde_mean=float(eta_gap_tilde_probe_2.mean().item()),
+            eta_jensen_gap_mean=float(eta_jensen_gap_probe.mean().item()),
+            eta2_jensen_gap_mean=float(eta_jensen_gap_probe_2.mean().item()),
+            raw_gap_sup=float(raw_gap_probe.max().item()),
+            raw_gap_mean=float(raw_gap_probe.mean().item()),
+            raw_mean_gap_sup=float(raw_gap_probe_mean.max().item()),
+            raw_scale_gap_sup=float(raw_gap_probe_scale.max().item()),
+            raw_mean_gap_mean=float(raw_gap_probe_mean.mean().item()),
+            raw_scale_gap_mean=float(raw_gap_probe_scale.mean().item()),
+            local_m_eta=local_m_eta_t,
+            local_lambda_min=local_lambda_min_t,
+            local_c_eta_y_star=c_eta_y_star_t,
+            local_c_eta_y_empirical=c_eta_y_emp_t,
+        )
+        snapshots.append(snapshot)
+
+        path_m_eta = max(path_m_eta, local_m_eta_t)
+        path_lambda_min = min(path_lambda_min, local_lambda_min_t)
+        max_eta_gap_mean = max(max_eta_gap_mean, snapshot.eta_gap_mean)
+        max_eta_gap_mean_local_y_star = max(
+            max_eta_gap_mean_local_y_star,
+            snapshot.local_c_eta_y_star * snapshot.eta_gap_mean,
+        )
+        max_eta_gap_mean_local_y_emp = max(
+            max_eta_gap_mean_local_y_emp,
+            snapshot.local_c_eta_y_empirical * snapshot.eta_gap_mean,
+        )
+        max_exact_convexity_gap = max(max_exact_convexity_gap, snapshot.exact_convexity_gap)
+        max_exact_vector_gap = max(max_exact_vector_gap, snapshot.exact_vector_gap)
+        max_exact_jensen_gap = max(max_exact_jensen_gap, snapshot.exact_jensen_gap)
+
+    c_eta_global = c_eta(k_phi * m_v_infty, lambda_min_cfg, y_star)
+    c_eta_path_y_star = c_eta(path_m_eta, path_lambda_min, y_star)
+    c_eta_path_y_emp = c_eta(path_m_eta, path_lambda_min, empirical_y_max)
+    c1_global = k_phi * m_v_infty / (2.0 * lambda_min_cfg) + y_star
+    c2_global = (k_phi * m_v_infty) ** 2 / (4.0 * lambda_min_cfg**2) + 1.0 / (2.0 * lambda_min_cfg) + y_star**2
+    c1_path_y_star = path_m_eta / (2.0 * path_lambda_min) + y_star
+    c2_path_y_star = path_m_eta**2 / (4.0 * path_lambda_min**2) + 1.0 / (2.0 * path_lambda_min) + y_star**2
+    c1_path_y_emp = path_m_eta / (2.0 * path_lambda_min) + empirical_y_max
+    c2_path_y_emp = path_m_eta**2 / (4.0 * path_lambda_min**2) + 1.0 / (2.0 * path_lambda_min) + empirical_y_max**2
+
+    theorem_transfer = 0.5 * k_nabla_global * m_v_infty * math.sqrt(max(b_n, 0.0))
+    theorem_jensen = (1.0 / 32.0) * delta_s
+    refined_transfer = (
+        0.25 * k_nabla_global * m_delta_v_infty * math.sqrt(max(b_n, 0.0))
+        + 0.125 * l_nabla_global * m_v_infty * b_n
+    )
+    theorem_transfer_mean = 0.5 * k_nabla_global * mean_weight_rms * math.sqrt(max(b_n, 0.0))
+    theorem_transfer_scale = 0.5 * k_nabla_global * variance_weight_rms * math.sqrt(max(b_n, 0.0))
+    refined_transfer_mean = (
+        0.25 * k_nabla_global * mean_delta_rms * math.sqrt(max(b_n, 0.0))
+        + 0.125 * l_nabla_global * mean_weight_rms * b_n
+    )
+    refined_transfer_scale = (
+        0.25 * k_nabla_global * variance_delta_rms * math.sqrt(max(b_n, 0.0))
+        + 0.125 * l_nabla_global * variance_weight_rms * b_n
+    )
+
+    observed_transfer = max(snapshot.raw_gap_sup for snapshot in snapshots)
+    observed_transfer_mean = max(snapshot.raw_mean_gap_sup for snapshot in snapshots)
+    observed_transfer_scale = max(snapshot.raw_scale_gap_sup for snapshot in snapshots)
+    observed_eta_gap = max(snapshot.eta_gap_mean for snapshot in snapshots)
+    observed_eta1_gap = max(snapshot.eta1_gap_mean for snapshot in snapshots)
+    observed_eta2_gap = max(snapshot.eta2_gap_mean for snapshot in snapshots)
+    observed_vector_gap = max(snapshot.eta_gap_tilde_mean for snapshot in snapshots)
+    observed_vector_gap_mean = max(snapshot.eta1_gap_tilde_mean for snapshot in snapshots)
+    observed_vector_gap_scale = max(snapshot.eta2_gap_tilde_mean for snapshot in snapshots)
+    observed_jensen_gap = max(snapshot.eta_jensen_gap_mean for snapshot in snapshots)
+    observed_jensen_gap_scale = max(snapshot.eta2_jensen_gap_mean for snapshot in snapshots)
+    exact_total_gap = observed_vector_gap + observed_jensen_gap
+
+    dense_barrier = max(snapshot.barrier for snapshot in snapshots)
+    dense_t = max(snapshots, key=lambda item: item.barrier).t
+    convexity_t = max(snapshots, key=lambda item: item.exact_convexity_gap).t
+
+    return {
+        "grid_points": num_points,
+        "empirical_y_max_test": empirical_y_max,
+        "K_nabla_global": k_nabla_global,
+        "L_nabla_global": l_nabla_global,
+        "M_a_infty": mean_weight_rms,
+        "M_c_infty": variance_weight_rms,
+        "M_Delta_V_infty": m_delta_v_infty,
+        "M_Delta_a": mean_delta_rms,
+        "M_Delta_c": variance_delta_rms,
+        "weighted_hidden_mismatch": weighted_hidden_mismatch,
+        "path_strip": {
+            "max_abs_eta1": path_m_eta,
+            "min_neg_eta2": path_lambda_min,
+            "C_eta_y_star": c_eta_path_y_star,
+            "C_eta_empirical_y": c_eta_path_y_emp,
+        },
+        "observed_gaps": {
+            "raw_transfer_sup": observed_transfer,
+            "raw_transfer_mean_sup": observed_transfer_mean,
+            "raw_transfer_scale_sup": observed_transfer_scale,
+            "eta_gap_mean": observed_eta_gap,
+            "eta1_gap_mean": observed_eta1_gap,
+            "eta2_gap_mean": observed_eta2_gap,
+            "eta_vector_gap_mean": observed_vector_gap,
+            "eta1_vector_gap_mean": observed_vector_gap_mean,
+            "eta2_vector_gap_mean": observed_vector_gap_scale,
+            "eta_jensen_gap_mean": observed_jensen_gap,
+            "eta2_jensen_gap_mean": observed_jensen_gap_scale,
+        },
+        "bounds": {
+            "theorem_global": c_eta_global * (theorem_transfer + theorem_jensen),
+            "theorem_local_strip_y_star": c_eta_path_y_star * (theorem_transfer + theorem_jensen),
+            "theorem_local_strip_empirical_y": c_eta_path_y_emp * (theorem_transfer + theorem_jensen),
+            "refined_transfer_global": c_eta_global * (refined_transfer + theorem_jensen),
+            "refined_transfer_local_strip_y_star": c_eta_path_y_star * (refined_transfer + theorem_jensen),
+            "refined_transfer_local_strip_empirical_y": c_eta_path_y_emp * (refined_transfer + theorem_jensen),
+            "coordinatewise_theorem_global": c1_global * theorem_transfer_mean + c2_global * (theorem_transfer_scale + theorem_jensen),
+            "coordinatewise_theorem_local_strip_y_star": c1_path_y_star * theorem_transfer_mean + c2_path_y_star * (theorem_transfer_scale + theorem_jensen),
+            "coordinatewise_theorem_local_strip_empirical_y": c1_path_y_emp * theorem_transfer_mean + c2_path_y_emp * (theorem_transfer_scale + theorem_jensen),
+            "coordinatewise_refined_global": c1_global * refined_transfer_mean + c2_global * (refined_transfer_scale + theorem_jensen),
+            "coordinatewise_refined_local_strip_y_star": c1_path_y_star * refined_transfer_mean + c2_path_y_star * (refined_transfer_scale + theorem_jensen),
+            "coordinatewise_refined_local_strip_empirical_y": c1_path_y_emp * refined_transfer_mean + c2_path_y_emp * (refined_transfer_scale + theorem_jensen),
+            "observed_gap_global_strip_y_star": c_eta_global * exact_total_gap,
+            "observed_gap_local_strip_y_star": c_eta_path_y_star * exact_total_gap,
+            "observed_gap_local_strip_empirical_y": c_eta_path_y_emp * exact_total_gap,
+            "observed_eta_gap_local_timewise_y_star": max_eta_gap_mean_local_y_star,
+            "observed_eta_gap_local_timewise_empirical_y": max_eta_gap_mean_local_y_emp,
+            "exact_convexity_upper_bound": max_exact_convexity_gap,
+            "exact_positive_vector_gap": max(0.0, max_exact_vector_gap),
+            "exact_positive_jensen_gap": max(0.0, max_exact_jensen_gap),
+        },
+        "components": {
+            "theorem_transfer": theorem_transfer,
+            "theorem_jensen": theorem_jensen,
+            "refined_transfer": refined_transfer,
+            "theorem_transfer_mean": theorem_transfer_mean,
+            "theorem_transfer_scale": theorem_transfer_scale,
+            "refined_transfer_mean": refined_transfer_mean,
+            "refined_transfer_scale": refined_transfer_scale,
+            "C1_global_y_star": c1_global,
+            "C2_global_y_star": c2_global,
+            "C1_path_y_star": c1_path_y_star,
+            "C2_path_y_star": c2_path_y_star,
+        },
+        "dense_grid_reference": {
+            "max_barrier": dense_barrier,
+            "argmax_t": dense_t,
+            "max_exact_convexity_upper_bound": max_exact_convexity_gap,
+            "argmax_exact_convexity_t": convexity_t,
+        },
+        "snapshots": [asdict(snapshot) for snapshot in snapshots],
+    }
 
 
 @torch.no_grad()
@@ -847,6 +1216,31 @@ def run_single_experiment(
     model_b_metrics = evaluate_model(model_b, dataset_bundle.test, device)
     matched_b_metrics = evaluate_model(matched_b, dataset_bundle.test, device)
 
+    identity_certificates: dict[str, object] | None = None
+    matched_certificates: dict[str, object] | None = None
+    if config.parameterization == "natural":
+        certificate_points = path_grid_points(config.barrier_points)
+        identity_certificates = natural_barrier_certificates(
+            model_a=model_a,
+            model_b=model_b,
+            dataset_bundle=dataset_bundle,
+            alignment_stats=identity_stats,
+            barrier_profile_stats=identity_profile,
+            config=config,
+            device=device,
+            num_points=certificate_points,
+        )
+        matched_certificates = natural_barrier_certificates(
+            model_a=model_a,
+            model_b=matched_b,
+            dataset_bundle=dataset_bundle,
+            alignment_stats=matched_stats,
+            barrier_profile_stats=matched_profile,
+            config=config,
+            device=device,
+            num_points=certificate_points,
+        )
+
     plot_parameter_distribution(
         model=model_a,
         output_path=output_dir / "model_a_parameters.png",
@@ -904,6 +1298,8 @@ def run_single_experiment(
         "matched_alignment": matched_stats,
         "identity_barrier": identity_profile,
         "matched_barrier": matched_profile,
+        "identity_certificates": identity_certificates,
+        "matched_certificates": matched_certificates,
         "artifacts": {
             "model_a_parameters": "model_a_parameters.png",
             "model_b_matched_parameters": "model_b_matched_parameters.png",
