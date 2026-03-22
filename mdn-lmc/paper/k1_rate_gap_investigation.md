@@ -14,7 +14,7 @@ The current situation is:
   improves to `O(N^{-1/2} + sqrt(eps))`.
 - The deterministic width-sequence route is already aiming at
   `O(sqrt(d/N) + 1/N)` in the baseline case and `O(d/N + 1/N)` under head
-  regularity, i.e. `O(1/N)` for fixed `d`.
+  regularity, i.e. conditional `O(1/N)` in fixed low effective dimension.
 
 The main conclusion of this investigation is:
 
@@ -177,8 +177,24 @@ then hidden-weight optimal transport gives
 Combined with conditional head regularity and the new `Delta_N = O(B_N)` lemma,
 this closes the deterministic width-sequence barrier at `O(d/N)`.
 
-This route is the most realistic way to match an observed width-slope near `-1`
-for trained endpoints.
+This route is the most realistic way to explain a steep near-`N^{-1}` endpoint
+barrier law if such a regime is confirmed in additional low-dimensional runs.
+
+Important caveat:
+
+- this is not automatic from generic sub-Gaussianity;
+- standard empirical-measure theory for `W_2` is dimension-sensitive;
+- in general ambient dimension, one should expect curse-of-dimensionality or
+  critical logarithmic corrections rather than a blanket parametric
+  `O(N^{-1/2})` law for `W_2`.
+
+Concretely, Fournier-Guillin show for `T_p = W_p^p` that the generic rate is
+`N^{-1/2}` when `p > d/2`, critical with logarithmic loss when `p = d/2`, and
+`N^{-p/d}` when `p < d/2`. So for `W_2^2` this does not by itself justify
+`O(1/N)` in arbitrary `d`. The sharper near-`N^{-1}` behavior is instead a
+low-dimensional smooth-law phenomenon, matching the classical optimal matching
+regime on 2-dimensional spaces. Hence Route A is most credible when the hidden
+law has fixed low effective dimension or additional regularity/structure.
 
 What is still needed here is a quantitative theorem saying that the trained
 hidden empirical law is close, in `W_2`, to a common mean-field hidden law.
@@ -248,13 +264,26 @@ The most grounded path forward is:
 
 The saved synthetic width sweep in
 `experiments/results/width_sweep_meanvar_synthetic`
-does not yet appear to be in a clean `-1` regime on the currently stored runs.
-Using the saved aggregates:
+does not yet appear to be in a clean asymptotic `-1` regime on the currently
+stored runs. The implementation uses a 2-dimensional hidden parameter
+`xi = (w, b)` for each unit, so this is exactly the kind of low-effective-
+dimension setting where an endpoint `W_2` route is worth testing. However, the
+stored data still show substantial pre-asymptotic behavior. Using the saved
+aggregates:
 
 - dense barrier slope is about `-0.70`,
 - `B_N` slope is about `-0.33`,
 - `Delta_s_N` and `Delta_raw_N` slopes are about `-0.46`,
 - the timewise exact-modulus bound slope is about `-0.57`.
+
+On the smaller-width window `512 <= N <= 4096`, the apparent slopes are steeper:
+
+- dense barrier slope is about `-0.89`,
+- exact-modulus slope is about `-0.73`,
+- but `B_N` is still only about `-0.43`.
+
+So the visual impression of a near-`-1` barrier slope can occur before the
+endpoint matching statistic itself is in an `N^{-1}` regime.
 
 The exact modulus is dominated by its mean-path term on those saved runs. This
 is consistent with the theory diagnosis above: the dominant issue is the
@@ -266,11 +295,19 @@ further sharpening the Gaussian semi-convexity constants.
 
 ## 9. External Theory Signals Worth Using
 
-Two external references are directly relevant:
+Four external references are directly relevant:
 
 - Fournier and Guillin provide non-asymptotic Wasserstein convergence results
   for empirical measures, which are the natural starting point for endpoint
-  `W_2` concentration.
+  `W_2` concentration, but they also make clear that generic `W_2` rates are
+  dimension-sensitive rather than automatically parametric.
+- Weed and Bach explain the same curse-of-dimensionality from the viewpoint of
+  Wasserstein dimension, reinforcing that `W_2` rates depend on intrinsic
+  dimension rather than on tail assumptions alone.
+- Borda proves sharp quadratic-Wasserstein rates on compact manifolds matching
+  the classical optimal matching regime, which is the right model for why a
+  low-dimensional hidden law might exhibit much faster endpoint scaling than
+  the generic worst-case theory suggests.
 - De Bortoli, Durmus, Fontaine, and Simsekli give quantitative propagation of
   chaos for SGD in wide neural networks, which is the natural starting point
   for strengthening the training-side approximation.

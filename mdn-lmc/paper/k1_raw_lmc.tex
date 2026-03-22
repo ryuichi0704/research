@@ -796,6 +796,17 @@ squared cost is exactly $B_N$. The triangle inequality gives
 Squaring proves the claim.
 \end{proof}
 
+\begin{remark}[Nature of the endpoint $W_2$ input]
+The hypothesis $\eta_N=O(\kappa_\xi\sqrt{d/N})$ should be read as an endpoint
+concentration assumption, not as an automatic consequence of generic tail
+control. Standard empirical-measure bounds for $W_2$ remain dimension
+sensitive, and without additional low-dimensional or smooth-structure
+assumptions they may exhibit slower algebraic rates or critical logarithmic
+losses. Proposition~\ref{prop:BN-from-w2} therefore isolates the barrier
+consequence of a strengthened endpoint $W_2$ estimate rather than proving that
+estimate from first principles.
+\end{remark}
+
 \begin{corollary}[Deterministic baseline width rate]
 \label{cor:baseline-width-rate}
 Suppose that along a width sequence,

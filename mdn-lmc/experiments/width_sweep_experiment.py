@@ -18,6 +18,7 @@ from matplotlib import pyplot as plt
 from tqdm import tqdm
 
 from k1_experiment import (
+    DATASET_PATTERNS,
     DatasetBundle,
     ExperimentConfig,
     TwoLayerK1Net,
@@ -100,6 +101,7 @@ def build_sweep_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--variance-max", type=float, default=None)
     parser.add_argument("--width", type=int, default=None)
     parser.add_argument("--precision-activation", choices=["softplus", "exp"], default=None)
+    parser.add_argument("--dataset-pattern", choices=list(DATASET_PATTERNS), default=None)
     parser.add_argument("--train-size", type=int, default=None)
     parser.add_argument("--test-size", type=int, default=None)
     parser.add_argument("--evaluation-probe-points", type=int, default=None)
@@ -136,8 +138,8 @@ def normalized_conditional_moments(
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     x_raw = x_normalized.detach().cpu().numpy() * dataset_bundle.x_std + dataset_bundle.x_mean
-    mean_raw = true_mean(x_raw)
-    std_raw = true_std(x_raw)
+    mean_raw = true_mean(x_raw, dataset_bundle.dataset_pattern)
+    std_raw = true_std(x_raw, dataset_bundle.dataset_pattern)
 
     mean_norm = (mean_raw - dataset_bundle.y_mean) / dataset_bundle.y_std
     var_norm = (std_raw / dataset_bundle.y_std) ** 2
@@ -636,18 +638,27 @@ def run_pair_job(task: dict[str, object]) -> dict[str, object]:
     plot_parameter_distribution(
         model=model_a,
         output_path=output_dir / "model_a_parameters.png",
-        title=f"width={config.width}, seeds=({config.seed_a},{config.seed_b}): model A parameters",
+        title=(
+            f"width={config.width}, pattern={config.dataset_pattern}, "
+            f"seeds=({config.seed_a},{config.seed_b}): model A parameters"
+        ),
     )
     plot_parameter_distribution(
         model=matched_b,
         output_path=output_dir / "model_b_matched_parameters.png",
-        title=f"width={config.width}, seeds=({config.seed_a},{config.seed_b}): matched model B parameters",
+        title=(
+            f"width={config.width}, pattern={config.dataset_pattern}, "
+            f"seeds=({config.seed_a},{config.seed_b}): matched model B parameters"
+        ),
     )
     plot_barrier_curves(
         identity_profile=identity_profile,
         matched_profile=matched_profile,
         output_path=output_dir / "lmc_barrier.png",
-        title=f"width={config.width}, seeds=({config.seed_a},{config.seed_b}): interpolation barrier",
+        title=(
+            f"width={config.width}, pattern={config.dataset_pattern}, "
+            f"seeds=({config.seed_a},{config.seed_b}): interpolation barrier"
+        ),
     )
     plot_predictive_fit(
         model_a=model_a,
@@ -656,13 +667,19 @@ def run_pair_job(task: dict[str, object]) -> dict[str, object]:
         dataset_bundle=dataset_bundle,
         device=device,
         output_path=output_dir / "predictive_fit.png",
-        title=f"width={config.width}, seeds=({config.seed_a},{config.seed_b}): predictive fit",
+        title=(
+            f"width={config.width}, pattern={config.dataset_pattern}, "
+            f"seeds=({config.seed_a},{config.seed_b}): predictive fit"
+        ),
     )
     plot_training_history(
         history_a=history_a,
         history_b=history_b,
         output_path=output_dir / "training_history.png",
-        title=f"width={config.width}, seeds=({config.seed_a},{config.seed_b}): training curves",
+        title=(
+            f"width={config.width}, pattern={config.dataset_pattern}, "
+            f"seeds=({config.seed_a},{config.seed_b}): training curves"
+        ),
     )
     np.save(output_dir / "matching_permutation.npy", permutation)
 

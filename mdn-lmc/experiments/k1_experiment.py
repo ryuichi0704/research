@@ -23,11 +23,27 @@ from tqdm import tqdm
 
 Parameterization = Literal["natural", "meanvar"]
 PrecisionActivation = Literal["softplus", "exp"]
+DatasetPattern = Literal[
+    "homoskedastic_wave",
+    "hetero_sigmoid",
+    "hetero_periodic",
+    "hetero_edges",
+    "hetero_bumps",
+]
+
+DATASET_PATTERNS: tuple[DatasetPattern, ...] = (
+    "homoskedastic_wave",
+    "hetero_sigmoid",
+    "hetero_periodic",
+    "hetero_edges",
+    "hetero_bumps",
+)
 
 
 @dataclass
 class ExperimentConfig:
     parameterization: Parameterization
+    dataset_pattern: DatasetPattern = "homoskedastic_wave"
     width: int = 1024
     variance_min: float = 1e-3
     variance_max: float = 10.0
@@ -51,6 +67,7 @@ class ExperimentConfig:
 
 @dataclass
 class DatasetBundle:
+    dataset_pattern: DatasetPattern
     train: TensorDataset
     test: TensorDataset
     evaluation_probe_x: torch.Tensor
@@ -109,23 +126,68 @@ def sigmoid_np(x: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-x))
 
 
-def true_mean(x: np.ndarray) -> np.ndarray:
-    return 0.7 * np.sin(7.5 * x) + 0.5 * x
+def dataset_pattern_descriptions() -> dict[DatasetPattern, str]:
+    return {
+        "homoskedastic_wave": "Wave-like mean with constant standard deviation 0.1.",
+        "hetero_sigmoid": "Wave-like mean with standard deviation increasing from left to right.",
+        "hetero_periodic": "Richer oscillatory mean with periodically changing standard deviation.",
+        "hetero_edges": "Moderately wavy mean with low central noise and high edge noise.",
+        "hetero_bumps": "Wave-like mean with two localized bursts of variance.",
+    }
 
 
-def true_std(x: np.ndarray) -> np.ndarray:
-    return np.full_like(x, 0.1)
+def validate_dataset_pattern(dataset_pattern: str) -> DatasetPattern:
+    if dataset_pattern not in DATASET_PATTERNS:
+        choices = ", ".join(DATASET_PATTERNS)
+        raise ValueError(f"dataset_pattern must be one of: {choices}")
+    return dataset_pattern  # type: ignore[return-value]
+
+
+def true_mean(x: np.ndarray, dataset_pattern: DatasetPattern = "homoskedastic_wave") -> np.ndarray:
+    x = np.asarray(x, dtype=np.float32)
+    if dataset_pattern in {"homoskedastic_wave", "hetero_sigmoid"}:
+        mean = 0.7 * np.sin(7.5 * x) + 0.5 * x
+    elif dataset_pattern == "hetero_periodic":
+        mean = 0.55 * np.sin(5.0 * x - 0.2) + 0.25 * np.sin(11.0 * x + 0.5) + 0.35 * x
+    elif dataset_pattern == "hetero_edges":
+        mean = 0.5 * np.sin(6.0 * x) + 0.2 * np.sin(12.0 * x + 0.3) + 0.45 * x
+    elif dataset_pattern == "hetero_bumps":
+        mean = 0.65 * np.sin(7.0 * x + 0.2) + 0.2 * np.sin(14.0 * x) + 0.35 * x
+    else:
+        raise ValueError(f"Unsupported dataset pattern: {dataset_pattern}")
+    return mean.astype(np.float32)
+
+
+def true_std(x: np.ndarray, dataset_pattern: DatasetPattern = "homoskedastic_wave") -> np.ndarray:
+    x = np.asarray(x, dtype=np.float32)
+    if dataset_pattern == "homoskedastic_wave":
+        std = np.full_like(x, 0.1)
+    elif dataset_pattern == "hetero_sigmoid":
+        std = 0.04 + 0.26 * sigmoid_np(4.5 * x)
+    elif dataset_pattern == "hetero_periodic":
+        carrier = 0.5 * (1.0 + np.sin(6.0 * x - 0.6))
+        std = 0.04 + 0.24 * carrier**2
+    elif dataset_pattern == "hetero_edges":
+        std = 0.03 + 0.27 * sigmoid_np(8.0 * (np.abs(x) - 0.55))
+    elif dataset_pattern == "hetero_bumps":
+        bump_right = np.exp(-((x - 0.48) / 0.18) ** 2)
+        bump_left = np.exp(-((x + 0.42) / 0.14) ** 2)
+        std = 0.035 + 0.24 * bump_right + 0.16 * bump_left
+    else:
+        raise ValueError(f"Unsupported dataset pattern: {dataset_pattern}")
+    return std.astype(np.float32)
 
 
 def sample_synthetic_dataset(
     num_samples: int,
     x_max: float,
     seed: int,
+    dataset_pattern: DatasetPattern,
 ) -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(seed)
     x = rng.uniform(-x_max, x_max, size=(num_samples, 1)).astype(np.float32)
-    mu = true_mean(x)
-    sigma = true_std(x)
+    mu = true_mean(x, dataset_pattern)
+    sigma = true_std(x, dataset_pattern)
     gaussian_noise = rng.normal(loc=0.0, scale=1.0, size=(num_samples, 1)).astype(np.float32)
     y = mu + sigma * gaussian_noise
     return x.astype(np.float32), y.astype(np.float32)
@@ -136,11 +198,13 @@ def build_dataset_bundle(config: ExperimentConfig) -> DatasetBundle:
         num_samples=config.train_size,
         x_max=config.x_max,
         seed=config.data_seed,
+        dataset_pattern=config.dataset_pattern,
     )
     test_x, test_y = sample_synthetic_dataset(
         num_samples=config.test_size,
         x_max=config.x_max,
         seed=config.data_seed + 1,
+        dataset_pattern=config.dataset_pattern,
     )
 
     x_mean = float(train_x.mean())
@@ -178,6 +242,7 @@ def build_dataset_bundle(config: ExperimentConfig) -> DatasetBundle:
     )
 
     return DatasetBundle(
+        dataset_pattern=config.dataset_pattern,
         train=TensorDataset(torch.from_numpy(train_x), torch.from_numpy(train_y)),
         test=TensorDataset(torch.from_numpy(test_x), torch.from_numpy(test_y)),
         evaluation_probe_x=torch.from_numpy(evaluation_probe_x[:, None]),
@@ -899,6 +964,7 @@ def flatten_yaml_settings(config_data: dict[str, object]) -> dict[str, object]:
             "precision_activation": "precision_activation",
         },
         "data": {
+            "dataset_pattern": "dataset_pattern",
             "train_size": "train_size",
             "test_size": "test_size",
             "x_max": "x_max",
@@ -933,6 +999,7 @@ def flatten_yaml_settings(config_data: dict[str, object]) -> dict[str, object]:
         "precision_activation",
         "train_size",
         "test_size",
+        "dataset_pattern",
         "x_max",
         "epochs",
         "batch_size",
@@ -986,6 +1053,7 @@ def resolve_settings(args: argparse.Namespace) -> dict[str, object]:
         "variance_min": 1e-3,
         "variance_max": 10.0,
         "precision_activation": "exp",
+        "dataset_pattern": "homoskedastic_wave",
         "train_size": 1000,
         "test_size": 1000,
         "evaluation_probe_points": 2048,
@@ -1032,6 +1100,8 @@ def resolve_settings(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError("variance_max must be positive.")
     if variance_min >= variance_max:
         raise ValueError("variance_min must be smaller than variance_max.")
+
+    settings["dataset_pattern"] = validate_dataset_pattern(str(settings["dataset_pattern"]))
 
     return settings
 
@@ -1143,8 +1213,8 @@ def plot_predictive_fit(
     y_std = dataset_bundle.y_std
 
     x_grid = plot_x[:, 0].detach().cpu().numpy() * x_std + x_mean
-    mu_true = true_mean(x_grid[:, None]).reshape(-1)
-    std_true = true_std(x_grid[:, None]).reshape(-1)
+    mu_true = true_mean(x_grid[:, None], dataset_bundle.dataset_pattern).reshape(-1)
+    std_true = true_std(x_grid[:, None], dataset_bundle.dataset_pattern).reshape(-1)
 
     models_info = [
         ("Model A", dist_a, "#1f77b4"),
@@ -1198,6 +1268,47 @@ def plot_training_history(
     axes[1].set_xlabel("Epoch")
     axes[1].set_ylabel("NLL")
     axes[1].legend()
+
+    fig.suptitle(title)
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
+def plot_dataset_preview(
+    dataset_bundle: DatasetBundle,
+    output_path: Path,
+    title: str,
+) -> None:
+    x_mean = dataset_bundle.x_mean
+    x_std = dataset_bundle.x_std
+    y_mean = dataset_bundle.y_mean
+    y_std = dataset_bundle.y_std
+
+    plot_x = dataset_bundle.plot_x[:, 0].numpy() * x_std + x_mean
+    mu_true = true_mean(plot_x[:, None], dataset_bundle.dataset_pattern).reshape(-1)
+    std_true = true_std(plot_x[:, None], dataset_bundle.dataset_pattern).reshape(-1)
+
+    train_x = dataset_bundle.train.tensors[0][:300, 0].numpy() * x_std + x_mean
+    train_y = dataset_bundle.train.tensors[1][:300, 0].numpy() * y_std + y_mean
+    test_x = dataset_bundle.test.tensors[0][:300, 0].numpy() * x_std + x_mean
+    test_y = dataset_bundle.test.tensors[1][:300, 0].numpy() * y_std + y_mean
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), constrained_layout=True)
+
+    axes[0].scatter(train_x, train_y, s=14, alpha=0.35, color="#1f77b4", label="Train")
+    axes[0].scatter(test_x, test_y, s=14, alpha=0.25, color="#ff7f0e", label="Test")
+    axes[0].fill_between(plot_x, mu_true - std_true, mu_true + std_true, color="black", alpha=0.12, label="True ±1σ")
+    axes[0].plot(plot_x, mu_true, color="black", linewidth=2.0, label="True mean")
+    axes[0].set_xlabel("x")
+    axes[0].set_ylabel("y")
+    axes[0].set_title("Samples and ground truth")
+    axes[0].legend(fontsize=8)
+
+    axes[1].plot(plot_x, std_true, color="#d62728", linewidth=2.0)
+    axes[1].fill_between(plot_x, 0.0, std_true, color="#d62728", alpha=0.15)
+    axes[1].set_xlabel("x")
+    axes[1].set_ylabel("Std")
+    axes[1].set_title("Noise scale")
 
     fig.suptitle(title)
     fig.savefig(output_path, dpi=180)
@@ -1283,18 +1394,18 @@ def run_single_experiment(
     plot_parameter_distribution(
         model=model_a,
         output_path=output_dir / "model_a_parameters.png",
-        title=f"{config.parameterization}: model A parameters",
+        title=f"{config.parameterization}, {config.dataset_pattern}: model A parameters",
     )
     plot_parameter_distribution(
         model=matched_b,
         output_path=output_dir / "model_b_matched_parameters.png",
-        title=f"{config.parameterization}: matched model B parameters",
+        title=f"{config.parameterization}, {config.dataset_pattern}: matched model B parameters",
     )
     plot_barrier_curves(
         identity_profile=identity_profile,
         matched_profile=matched_profile,
         output_path=output_dir / "lmc_barrier.png",
-        title=f"{config.parameterization}: interpolation barrier",
+        title=f"{config.parameterization}, {config.dataset_pattern}: interpolation barrier",
     )
     merged_model = interpolate_models(model_a, matched_b, 0.5, device)
     plot_predictive_fit(
@@ -1304,13 +1415,18 @@ def run_single_experiment(
         dataset_bundle=dataset_bundle,
         device=device,
         output_path=output_dir / "predictive_fit.png",
-        title=f"{config.parameterization}: predictive fit",
+        title=f"{config.parameterization}, {config.dataset_pattern}: predictive fit",
     )
     plot_training_history(
         history_a=history_a,
         history_b=history_b,
         output_path=output_dir / "training_history.png",
-        title=f"{config.parameterization}: training curves",
+        title=f"{config.parameterization}, {config.dataset_pattern}: training curves",
+    )
+    plot_dataset_preview(
+        dataset_bundle=dataset_bundle,
+        output_path=output_dir / "dataset_preview.png",
+        title=f"{config.dataset_pattern}: dataset preview",
     )
 
     np.save(output_dir / "matching_permutation.npy", permutation)
@@ -1345,6 +1461,7 @@ def run_single_experiment(
             "lmc_barrier": "lmc_barrier.png",
             "predictive_fit": "predictive_fit.png",
             "training_history": "training_history.png",
+            "dataset_preview": "dataset_preview.png",
             "matching_permutation": "matching_permutation.npy",
         },
     }
@@ -1381,6 +1498,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--variance-min", type=float, default=None)
     parser.add_argument("--variance-max", type=float, default=None)
     parser.add_argument("--precision-activation", choices=["softplus", "exp"], default=None)
+    parser.add_argument("--dataset-pattern", choices=list(DATASET_PATTERNS), default=None)
     parser.add_argument("--train-size", type=int, default=None)
     parser.add_argument("--test-size", type=int, default=None)
     parser.add_argument("--evaluation-probe-points", type=int, default=None)
@@ -1402,6 +1520,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def config_from_settings(settings: dict[str, object], parameterization: Parameterization) -> ExperimentConfig:
     return ExperimentConfig(
         parameterization=parameterization,
+        dataset_pattern=validate_dataset_pattern(str(settings["dataset_pattern"])),
         width=int(settings["width"]),
         variance_min=float(settings["variance_min"]),
         variance_max=float(settings["variance_max"]),

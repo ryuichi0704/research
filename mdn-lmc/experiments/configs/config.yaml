@@ -10,6 +10,7 @@ model:
   precision_activation: exp
 
 data:
+  dataset_pattern: homoskedastic_wave
   train_size: 1000
   test_size: 1000
   x_max: 1.05

@@ -10,8 +10,9 @@
   - 出力は mean-field 風に `1 / width` でスケーリング
 - synthetic dataset
   - `x ~ Unif[-1.05, 1.05]`
-  - `y = 0.7 sin(7.5 x) + 0.5 x + epsilon`
-  - `epsilon ~ N(0, 0.1^2)`
+  - `y = mu_*(x) + sigma_*(x) epsilon`
+  - `epsilon ~ N(0, 1)`
+  - `dataset_pattern` で `mu_*, sigma_*` を切り替え可能
 - パラメータ化
   - `meanvar`: `(mu, s_raw) -> (mu, var=exp(s_raw)+variance_min)` を既定に使用
   - `natural`: 比較用に維持
@@ -30,6 +31,19 @@
 cd experiments
 uv sync
 ```
+
+repo root からまとめて再生成する場合:
+
+```bash
+make reproduce-patterns
+```
+
+この target は `experiments/results` を一度空にしてから、5 つの `dataset_pattern` について
+
+- 小幅 preview (`results/pattern_small_cases/<pattern>/`)
+- width sweep (`results/pattern_sweeps/<pattern>/`)
+
+を順に実行します。
 
 ## 単発実験
 
@@ -55,6 +69,24 @@ uv run python main.py \
 
 ```bash
 uv run python main.py --parameterization natural
+```
+
+分散構造を変えたい場合:
+
+```bash
+uv run python main.py --config configs/config.yaml --dataset-pattern hetero_sigmoid
+uv run python main.py --config configs/config.yaml --dataset-pattern hetero_periodic
+uv run python main.py --config configs/config.yaml --dataset-pattern hetero_edges
+uv run python main.py --config configs/config.yaml --dataset-pattern hetero_bumps
+```
+
+repo root の `Makefile` には個別 target もあります。
+
+```bash
+make preview-one PATTERN=hetero_edges
+make sweep-one PATTERN=hetero_edges
+make preview-all
+make sweep-all
 ```
 
 ## 幅 sweep
@@ -84,6 +116,7 @@ uv run python width_sweep_experiment.py \
 - `lmc_barrier.png`
 - `predictive_fit.png`
 - `training_history.png`
+- `dataset_preview.png`
 - `matching_permutation.npy`
 
 幅 sweep では `experiments/results_width_sweep/` 以下に以下を保存します。
@@ -118,6 +151,7 @@ model:
   precision_activation: exp
 
 data:
+  dataset_pattern: homoskedastic_wave
   train_size: 1000
   test_size: 1000
   x_max: 1.05
@@ -144,7 +178,16 @@ seeds:
 
 主な意味:
 
+- `data.dataset_pattern`: synthetic データの mean/std パターン
 - `model.precision_activation`: `meanvar` 側では `exp` を既定にして `research_tmp` の K=1 synthetic 設定へ寄せる
 - `train.learning_rate_min`: cosine schedule の終点
 - `evaluation.probe_points`: `Delta_raw_N` や exact modulus の評価用グリッド
 - `visualization.plot_points`: 予測曲線の描画グリッド
+
+利用できる `dataset_pattern`:
+
+- `homoskedastic_wave`: 現在の基準設定。波状の平均に対して標準偏差は一定 `0.1`
+- `hetero_sigmoid`: 左から右へ標準偏差が単調に大きくなる
+- `hetero_periodic`: 平均も分散も周期的に揺れる
+- `hetero_edges`: 中央は低ノイズ、両端で高ノイズ
+- `hetero_bumps`: 局所的に分散が大きくなるバンプを 2 箇所に持つ
