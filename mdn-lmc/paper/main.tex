@@ -72,13 +72,14 @@ sharpened deterministic barrier route.
 
 \section{Introduction}
 
-Linear mode connectivity (LMC) refers to the empirical phenomenon that two
-independently trained networks can often be connected by a low-loss path after
-an appropriate neuron permutation. This behavior was documented empirically,
-for example, by Garipov et al.~\cite{Garipov2018} and
-Frankle et al.~\cite{Frankle2020}. In the two-layer mean-field setting,
-Ferbach et al.~\cite{Ferbach2024} gave the first quantitative explanation for
-convex Lipschitz losses. Their argument has a clean two-stage structure:
+Linear mode connectivity (LMC) refers to the empirical phenomenon that trained
+networks can often be connected by a low-loss path. Related empirical work, for
+example by Garipov et al.~\cite{Garipov2018} and
+Frankle et al.~\cite{Frankle2020}, documented simple low-loss connections and
+linearly connected regions. In architectures with permutation symmetries, one
+often studies such connections after an appropriate neuron permutation. In the
+two-layer mean-field setting, Ferbach et al.~\cite{Ferbach2024} gave a first
+quantitative explanation. Their argument has a clean two-stage structure:
 \begin{enumerate}[label=(\roman*)]
   \item a training-side statement showing that two wide runs started from the
   same law remain close to the same deterministic mean-field trajectory;
@@ -88,7 +89,7 @@ convex Lipschitz losses. Their argument has a clean two-stage structure:
 \end{enumerate}
 
 This paper develops that program for heteroscedastic single-Gaussian
-regression. The head is practice faithful but no longer scalar. The network
+regression. The head is practice-faithful but no longer scalar. The network
 produces a two-coordinate raw output
 \[
   z_\Theta(x)=\bigl(u_\Theta(x),s_\Theta(x)\bigr)\in\R^2,
@@ -127,7 +128,7 @@ The contributions are threefold.
   transfer and softplus curvature, and Appendix~E shows how this route can be
   sharpened through raw-space and exact conditional-risk reductions.
   \item Combining the shared-path statement with optimal-transport alignment
-  yields an LMC theorem for the practical $K=1$ distributional model.
+  yields an LMC theorem for the practical single-Gaussian distributional model.
 \end{enumerate}
 
 The training-side statement is deliberately finite horizon. We do not prove
@@ -366,13 +367,17 @@ where one may take
 \[
   L_{\rm G}(M,\varepsilon)
   :=
-  \frac{1}{2\varepsilon}
-  +
-  \frac{M}{2\varepsilon^2}
-  +
-  \frac{M^2}{2\varepsilon^3}
-  +
-  \frac{1}{2\varepsilon^2}.
+  \max\!\left\{
+    \frac{1}{2\varepsilon}
+    +
+    \frac{M}{2\varepsilon^2},
+    \,
+    \frac{M}{2\varepsilon^2}
+    +
+    \frac{M^2}{2\varepsilon^3}
+    +
+    \frac{1}{2\varepsilon^2}
+  \right\}.
 \]
 \end{proposition}
 
@@ -391,8 +396,31 @@ The Hessian entries are
   &=
   -\frac{\eta_1^2}{2\eta_2^3}+\frac{1}{2\eta_2^2}.
 \end{align*}
-Since $\eta_2\le -\varepsilon$ and $|\eta_1|\le M$, each entry is bounded in
-absolute value by the corresponding term in $L_{\rm G}(M,\varepsilon)$.
+Since $\eta_2\le -\varepsilon$ and $|\eta_1|\le M$,
+\[
+  |\partial_{11}^2 A_{\rm G}(\eta)|+|\partial_{12}^2 A_{\rm G}(\eta)|
+  \le
+  \frac{1}{2\varepsilon}+\frac{M}{2\varepsilon^2},
+\]
+and, using symmetry of the Hessian,
+\[
+  |\partial_{21}^2 A_{\rm G}(\eta)|+|\partial_{22}^2 A_{\rm G}(\eta)|
+  \le
+  \frac{M}{2\varepsilon^2}
+  +
+  \frac{M^2}{2\varepsilon^3}
+  +
+  \frac{1}{2\varepsilon^2}.
+\]
+Therefore
+\[
+  \norm{\nabla^2 A_{\rm G}(\eta)}_{\mathrm{op}}
+  \le
+  \norm{\nabla^2 A_{\rm G}(\eta)}_{\infty}
+  \le
+  L_{\rm G}(M,\varepsilon),
+\]
+where $\norm{\cdot}_{\infty}$ is the maximum absolute row sum.
 \end{proof}
 
 \begin{proposition}[Convexity and Lipschitz control on a natural strip]
@@ -555,9 +583,9 @@ finite-horizon SGD regime.
 \label{ass:softplus-sgd-k1}
 Fix a horizon $T<\infty$. The step sizes satisfy
 \[
-  s_k=\varepsilon\,\xi(k\varepsilon),
+  s_k=\varepsilon\,\zeta(k\varepsilon),
 \]
-where $\xi:[0,\infty)\to(0,\infty)$ is bounded and Lipschitz, and the data
+where $\zeta:[0,\infty)\to(0,\infty)$ is bounded and Lipschitz, and the data
 stream
 \[
   Z_{k+1}=(X_{k+1},Y_{k+1})
@@ -1012,14 +1040,14 @@ with respect to $Z=(X,Y)\sim P$ and compare with
 \label{prop:sgd-confinement-k1}
 Assume Assumptions~\ref{ass:barrier-k1} and \ref{ass:softplus-sgd-k1}, and let
 \[
-  \xi_{\max}:=\sup_{t\in[0,T]}\xi(t)<\infty.
+  \zeta_{\max}:=\sup_{t\in[0,T]}\zeta(t)<\infty.
 \]
 Define $A_t^{\rm sgd}$, $C_t^{\rm sgd}$, and $R_t^{\rm sgd}$ exactly as in
 \eqref{eq:A-envelope-k1}--\eqref{eq:R-envelope-k1}, but with the right-hand
-sides multiplied by $\xi_{\max}$. Then every characteristic of the
+sides multiplied by $\zeta_{\max}$. Then every characteristic of the
 time-inhomogeneous mean-field flow
 \[
-  \dot\theta(t)=\xi(t)\,b(\theta(t),\rho_t)
+  \dot\theta(t)=\zeta(t)\,b(\theta(t),\rho_t)
 \]
 started from $\supp(\rho_0)$ remains in the compact set
 \[
@@ -1043,7 +1071,7 @@ then along the deterministic path one has
 
 \begin{proof}
 The proof is identical to Proposition~\ref{prop:softplus-confinement-k1}, with
-the additional prefactor $\xi(t)$ absorbed by $\xi_{\max}$ in the comparison
+the additional prefactor $\zeta(t)$ absorbed by $\zeta_{\max}$ in the comparison
 argument.
 \end{proof}
 
@@ -1161,7 +1189,7 @@ place of $A_t$. Inserting these estimates into the single-sample update
 This closes the induction.
 
 The comparison between the discrete recursion and the continuous majorant ODEs
-is standard Euler-vs-ODE monotonicity: since $s_k\le \varepsilon\xi_{\max}$ and
+is standard Euler-vs-ODE monotonicity: since $s_k\le \varepsilon\zeta_{\max}$ and
 the right-hand sides are nondecreasing in the envelopes, one has
 $A_k^\varepsilon\le A_{k\varepsilon}^{\rm sgd}$, $C_k^\varepsilon\le
 C_{k\varepsilon}^{\rm sgd}$, and $R_k^\varepsilon\le R_{k\varepsilon}^{\rm sgd}$
@@ -1210,7 +1238,7 @@ path solving
 \begin{equation}
   \partial_t \rho_t
   +
-  \nabla_\theta\cdot\bigl(\rho_t\,\xi(t)b(\theta,\rho_t)\bigr)
+  \nabla_\theta\cdot\bigl(\rho_t\,\zeta(t)b(\theta,\rho_t)\bigr)
   =
   0,
   \qquad
@@ -1922,7 +1950,7 @@ Exactly as in the proof of Lemma~\ref{lem:w1-permutation-k1},
 \end{align*}
 The first term is bounded by $K_\varphi M_{\Delta V}^\infty$ and the second by
 $C_TK_{\nabla}\sqrt{B_N}$. Take the supremum in $x$ and then the
-$L^2(P_X)$ norm.
+$L^2(\mathrm{law}(X))$ norm.
 \end{proof}
 
 \begin{corollary}[Fast rate under conditional head regularity]
