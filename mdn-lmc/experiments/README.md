@@ -1,33 +1,28 @@
-# `k1.tex` numerical experiment
+# `k1_raw_lmc.tex` numerical experiment
 
-`paper/k1.tex` の single-Gaussian natural-softplus head を、1 次元 synthetic dataset 上で確認するための実験です。
+`paper/k1_raw_lmc.tex` の single-Gaussian mean/variance head を、`research_tmp` の K=1 synthetic 設定に寄せて検証する実験です。
 
 実装しているもの:
 
 - 2 層 NN
-  - 1 層目: `Linear(1, width, bias=True)`
-  - 活性化: `sigmoid`
+  - 1 層目: `Linear(1, width, bias=True)` + `sigmoid`
   - 2 層目: `Linear(width, 2, bias=False)`
   - 出力は mean-field 風に `1 / width` でスケーリング
-- パラメータ化の切り替え
-  - `natural`: `k1.tex` に沿って `(u, s_raw) -> lambda=softplus(s_raw)+1/(2*variance_max), eta2=-lambda`
-  - `meanvar`: `(mu, s_raw) -> (mu, var=softplus(s_raw)+variance_min)`
-- 学習後のパラメータ可視化
-  - 縦軸: 1 層目 weight
-  - 横軸: 2 層目 weight の mean component / variance component
-  - 色: 1 層目 bias
+- synthetic dataset
+  - `x ~ Unif[-1.05, 1.05]`
+  - `y = 0.7 sin(7.5 x) + 0.5 x + epsilon`
+  - `epsilon ~ N(0, 0.1^2)`
+- パラメータ化
+  - `meanvar`: `(mu, s_raw) -> (mu, var=exp(s_raw)+variance_min)` を既定に使用
+  - `natural`: 比較用に維持
+- 学習設定
+  - `Adam`
+  - cosine LR (`learning_rate -> learning_rate_min`)
+  - backward は `loss * width` で mean-field scaling に寄せる
 - LMC barrier の計測
-  - 2 つの独立学習モデルを線形補間
-  - `max_t [L(theta_t) - ((1-t)L(theta_A) + tL(theta_B))]` を計測
-- マッチング
-  - 1 隠れ層では hidden neuron permutation が 1 回の線形割当問題に落ちるので、
-    `Git Re-Basin` の weight matching を簡略化した形で Hungarian assignment を使っています
-  - コストは neuron tuple `(a_i, c_i, w_i, b_i)` の Euclidean 距離です
-- `k1.tex` の量の計測
-  - `B_N`
-  - `Delta_{s,N}`
-  - `M_V^infty`
-  - `natural` モードでは理論バウンドの右辺も計算
+  - 独立学習した 2 モデルを線形補間
+  - hidden permutation は Hungarian matching
+  - width sweep では複数 seed-pair を集約
 
 ## セットアップ
 
@@ -36,125 +31,106 @@ cd experiments
 uv sync
 ```
 
-## 実行
+## 単発実験
 
-YAML 設定ファイルから実行:
-
-```bash
-uv run python main.py --config configs/example.yaml
-```
-
-YAML をベースに一部だけ CLI で上書き:
+デフォルトでは `meanvar + exp` の synthetic 実験を回します。
 
 ```bash
-uv run python main.py --config configs/example.yaml --epochs 800 --output-dir results_override
+uv run python main.py --config configs/config.yaml
 ```
 
-YAML は階層化していて、訓練・評価・可視化の設定を分けています。`--config` を使った場合も、明示的に CLI で渡した値が優先されます。
+一部だけ上書き:
 
-`natural` だけ:
+```bash
+uv run python main.py \
+  --parameterization meanvar \
+  --width 1024 \
+  --epochs 10000 \
+  --learning-rate 0.1 \
+  --learning-rate-min 0.001 \
+  --barrier-points 41
+```
+
+比較用に `natural` を回す場合:
 
 ```bash
 uv run python main.py --parameterization natural
 ```
 
-`meanvar` だけ:
+## 幅 sweep
 
-```bash
-uv run python main.py --parameterization meanvar
-```
-
-両方まとめて:
-
-```bash
-uv run python main.py --parameterization both
-```
-
-幅 sweep で、`2^8` から `2^13` までの width に対して
-
-- baseline の `k1.tex` bound
-- best theorem-consistent exact-modulus bound
-- 実測 matched barrier
-
-を比較するには:
+`research_tmp` 側に合わせて、複数 seed-pair をまとめて可視化します。
 
 ```bash
 uv run python width_sweep_experiment.py \
   --config configs/config.yaml \
   --output-dir results_width_sweep \
-  --width-exponents 8 9 10 11 12 13 \
-  --time-grid-points 401
+  --width-exponents 9 10 11 12 \
+  --n-seeds 10 \
+  --time-grid-points 401 \
+  --max-parallel-workers 4
 ```
 
-この sweep は `natural` parameterization を前提にしています。
+この sweep はデフォルトで seed `0..9` を学習し、pair `(0,1), (2,3), ...` を評価します。
+`--max-parallel-workers` を増やすと、各 seed-pair 実験を独立 worker として並列実行します。
 
 ## 出力
 
-デフォルトでは `experiments/results/<parameterization>/` に以下を保存します。
+単発実験では `experiments/results/<parameterization>/` に以下を保存します。
 
-- `summary.json`: 指標まとめ
-- `model_a_parameters.png`: モデル A の neuron 分布図
-- `model_b_matched_parameters.png`: マッチング後モデル B の neuron 分布図
-- `lmc_barrier.png`: 補間損失と barrier
-- `predictive_fit.png`: 真の平均・分散との比較
-- `training_history.png`: 学習曲線
-- `matching_permutation.npy`: 推定 permutation
+- `summary.json`
+- `model_a_parameters.png`
+- `model_b_matched_parameters.png`
+- `lmc_barrier.png`
+- `predictive_fit.png`
+- `training_history.png`
+- `matching_permutation.npy`
 
-幅 sweep では `experiments/results_width_sweep/` 以下に
+幅 sweep では `experiments/results_width_sweep/` 以下に以下を保存します。
 
-- `width_sweep_summary.json`: 幅ごとの集約結果
-- `width_sweep_primary_vs_observed.png`: 実測 barrier と主たる理論 bound の比較図
-- `width_<N>/summary.json`: 各幅の詳細
-
-を保存します。
-
-`--parameterization both` の場合は `results/comparison.json` も保存します。
-
-## 主要オプション
-
-```bash
-uv run python main.py \
-  --parameterization natural \
-  --width 128 \
-  --epochs 800 \
-  --learning-rate 5e-3 \
-  --evaluation-probe-points 4096 \
-  --plot-points 1024 \
-  --barrier-points 41
-```
-
-必要に応じて `--device cpu` か `--device cuda` を指定できます。
+- `width_sweep_summary.json`
+- `loss_barriers.png`: width ごとの naive/aligned 補間損失
+- `barrier_scaling.png`: seed-pair 平均 barrier の width scaling
+- `loss_curves.png`: 各 width・seed の学習曲線
+- `width_sweep_primary_vs_observed.png`: 実測 barrier と主たる理論 bound の比較
+- `width_<N>/summary.json`: 各幅の pair-level 詳細
+- `width_<N>/pair_<a>_<b>/summary.json`: 各 seed-pair の詳細
+- `width_<N>/pair_<a>_<b>/model_a_parameters.png`
+- `width_<N>/pair_<a>_<b>/model_b_matched_parameters.png`
+- `width_<N>/pair_<a>_<b>/lmc_barrier.png`
+- `width_<N>/pair_<a>_<b>/predictive_fit.png`
+- `width_<N>/pair_<a>_<b>/training_history.png`
 
 ## YAML キー
 
-推奨構成は以下です。
+現在の推奨構成は以下です。
 
 ```yaml
 experiment:
-  parameterization: both
-  output_dir: results_from_yaml
-  device: cpu
+  parameterization: meanvar
+  output_dir: results
+  device: cuda
 
 model:
-  width: 128
-  variance_min: 0.05
+  width: 1024
+  variance_min: 0.001
   variance_max: 10.0
+  precision_activation: exp
 
 data:
-  train_size: 1024
-  val_size: 512
-  test_size: 2048
-  x_max: 3.0
+  train_size: 1000
+  test_size: 1000
+  x_max: 1.05
 
 train:
-  epochs: 400
-  batch_size: 256
-  learning_rate: 0.01
-  weight_decay: 0.000001
-  patience: 60
+  epochs: 10000
+  batch_size: 1000
+  learning_rate: 0.1
+  learning_rate_min: 0.001
+  weight_decay: 0.0
 
 evaluation:
-  barrier_points: 41
+  barrier_points: 25
   probe_points: 2048
 
 visualization:
@@ -166,9 +142,9 @@ seeds:
   model_b: 1
 ```
 
-意味としては:
+主な意味:
 
-- `model.variance_min`: `meanvar` 側の分散下限
-- `model.variance_max`: `natural` 側で `lambda_min = 1 / (2 * variance_max)` に変換して使う共有スケール
-- `evaluation.probe_points`: `Delta_{s,N}` などの評価用グリッド点数
-- `visualization.plot_points`: 予測曲線の描画用グリッド点数
+- `model.precision_activation`: `meanvar` 側では `exp` を既定にして `research_tmp` の K=1 synthetic 設定へ寄せる
+- `train.learning_rate_min`: cosine schedule の終点
+- `evaluation.probe_points`: `Delta_raw_N` や exact modulus の評価用グリッド
+- `visualization.plot_points`: 予測曲線の描画グリッド

@@ -820,14 +820,92 @@ In particular, for fixed input dimension $d$,
 Substitute the displayed rates into \eqref{eq:deterministic-barrier}.
 \end{proof}
 
+\begin{proposition}[Endpoint output mismatch from head mismatch]
+\label{prop:output-mismatch-rate}
+Fix a permutation $\varpi$ and relabel network $B$ accordingly in the
+definitions of $B_N$, $\Delta_N$, and $M_{\Delta V}^\infty$. Under
+Assumption~\ref{ass:barrier},
+\begin{equation}
+  \Delta_N^{1/2}
+  \le
+  \sqrt{2}\,K_\varphi M_{\Delta V}^\infty
+  +
+  \sqrt{2}\,K_{\nabla}M_V^\infty\sqrt{B_N}.
+  \label{eq:output-mismatch-rate}
+\end{equation}
+Consequently, if
+\[
+  M_{\Delta V}^\infty=O(\sqrt{B_N}),
+\]
+then
+\[
+  \Delta_N=O(B_N).
+\]
+\end{proposition}
+
+\begin{proof}
+For the mean coordinate, write
+\begin{align*}
+  m_{\Theta_A}(x)-m_{\varpi\Theta_B}(x)
+  &=
+  \frac1N\sum_{i=1}^N
+  (a_i^A-a_i^B)\,\varphi(\xi_i^A,x)
+  \\
+  &\qquad+
+  \frac1N\sum_{i=1}^N
+  a_i^B\bigl(\varphi(\xi_i^A,x)-\varphi(\xi_i^B,x)\bigr).
+\end{align*}
+Using $\abs{\varphi}\le K_\varphi$ and the Cauchy--Schwarz inequality,
+\[
+  \frac1N\sum_{i=1}^N \abs{a_i^A-a_i^B}
+  \le
+  \Bigl(\frac1N\sum_{i=1}^N (a_i^A-a_i^B)^2\Bigr)^{1/2}
+  \le
+  M_{\Delta V}^\infty.
+\]
+Likewise, the Lipschitz bound on $\varphi$ gives
+\[
+  \frac1N\sum_{i=1}^N
+  \abs{a_i^B}\,\abs{\varphi(\xi_i^A,x)-\varphi(\xi_i^B,x)}
+  \le
+  K_{\nabla}
+  \Bigl(\frac1N\sum_{i=1}^N (a_i^B)^2\Bigr)^{1/2}
+  \Bigl(\frac1N\sum_{i=1}^N \norm{\xi_i^A-\xi_i^B}^2\Bigr)^{1/2}
+  \le
+  K_{\nabla}M_V^\infty\sqrt{B_N}.
+\]
+Therefore
+\[
+  \sup_{x\in\mc{X}}
+  \abs{m_{\Theta_A}(x)-m_{\varpi\Theta_B}(x)}
+  \le
+  K_\varphi M_{\Delta V}^\infty
+  +
+  K_{\nabla}M_V^\infty\sqrt{B_N}.
+\]
+The same estimate holds for the log-variance coordinate with $c_i$ in place of
+$a_i$. Hence
+\[
+  \sup_{x\in\mc{X}}
+  \norm{z_{\Theta_A}(x)-z_{\varpi\Theta_B}(x)}
+  \le
+  \sqrt{2}
+  \Bigl(
+    K_\varphi M_{\Delta V}^\infty
+    +
+    K_{\nabla}M_V^\infty\sqrt{B_N}
+  \Bigr).
+\]
+Taking the $L^2(\mathrm{law}(X))$ norm yields \eqref{eq:output-mismatch-rate}.
+The consequence follows immediately.
+\end{proof}
+
 \begin{corollary}[Deterministic conditional $1/N$ rate]
 \label{cor:deterministic-fast-rate}
 Assume Assumption~\ref{ass:head-regularity}. Suppose along a width sequence
 that
 \[
   B_N=O(d/N),
-  \qquad
-  \Delta_N=O(1/N),
   \qquad
   \mc{R}_N=O(\sqrt{B_N}).
 \]
@@ -846,8 +924,9 @@ In particular, for fixed input dimension $d$,
 \begin{proof}
 By Proposition~\ref{prop:head-mismatch-regular},
 $M_{\Delta V}^\infty=O(\sqrt{B_N})$. Therefore
-Proposition~\ref{prop:refined-transfer} gives a transfer term of order $B_N$.
-Substituting this and $\Delta_N=O(1/N)$ into
+Proposition~\ref{prop:refined-transfer} gives a transfer term of order $B_N$,
+while Proposition~\ref{prop:output-mismatch-rate} gives $\Delta_N=O(B_N)$.
+Substituting these two estimates into
 \eqref{eq:deterministic-barrier} yields the claim.
 \end{proof}
 
@@ -855,9 +934,9 @@ Substituting this and $\Delta_N=O(1/N)$ into
 \label{rem:rate-vs-instantiation}
 Corollary~\ref{cor:deterministic-fast-rate} gives a \emph{deterministic
 width-sequence} $O(1/N)$ conclusion: once the aligned
-endpoints satisfy $B_N=O(d/N)$, $\Delta_N=O(1/N)$, and the conditional
-regularity residual obeys $\mc{R}_N=O(\sqrt{B_N})$, the barrier scales like
-$O(d/N)$ and hence like $O(1/N)$ for fixed $d$.
+endpoints satisfy $B_N=O(d/N)$ and the conditional regularity residual obeys
+$\mc{R}_N=O(\sqrt{B_N})$, the barrier scales like $O(d/N)$ and hence like
+$O(1/N)$ for fixed $d$.
 
 What this corollary does \emph{not} provide by itself is a non-vacuous
 numerical certificate. That requires the appendix-level sharpening of
@@ -872,9 +951,9 @@ pointwise form and can therefore be evaluated on a concrete trained run.
 
 Corollary~\ref{cor:deterministic-fast-rate} shows that the semi-convex route
 achieves deterministic width-sequence $O(1/N)$ scaling once the aligned
-endpoints satisfy the usual hidden-law concentration and
-head-regularity conditions. This asymptotic statement should be separated from
-the question of numerical usefulness. A barrier theorem can have the right
+endpoints satisfy the usual hidden-law concentration and head-regularity
+conditions. This asymptotic statement should be separated from the question of
+numerical usefulness. A barrier theorem can have the right
 rate and still be vacuous on a concrete run if it relies on coarse worst-case
 constants.
 

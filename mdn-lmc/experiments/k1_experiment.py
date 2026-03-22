@@ -28,19 +28,20 @@ PrecisionActivation = Literal["softplus", "exp"]
 @dataclass
 class ExperimentConfig:
     parameterization: Parameterization
-    width: int = 96
-    variance_min: float = 5e-2
+    width: int = 1024
+    variance_min: float = 1e-3
     variance_max: float = 10.0
-    train_size: int = 768
-    test_size: int = 2048
+    train_size: int = 1000
+    test_size: int = 1000
     evaluation_probe_points: int = 2048
     plot_points: int = 2048
-    x_max: float = 3.0
-    epochs: int = 600
-    batch_size: int = 256
-    learning_rate: float = 1e-2
-    weight_decay: float = 1e-6
-    precision_activation: PrecisionActivation = "softplus"
+    x_max: float = 1.05
+    epochs: int = 10000
+    batch_size: int = 1000
+    learning_rate: float = 1e-1
+    learning_rate_min: float = 1e-3
+    weight_decay: float = 0.0
+    precision_activation: PrecisionActivation = "exp"
     barrier_points: int = 25
     data_seed: int = 2026
     seed_a: int = 0
@@ -109,11 +110,11 @@ def sigmoid_np(x: np.ndarray) -> np.ndarray:
 
 
 def true_mean(x: np.ndarray) -> np.ndarray:
-    return 0.9 * np.sin(1.4 * x) + 0.2 * x
+    return 0.7 * np.sin(7.5 * x) + 0.5 * x
 
 
 def true_std(x: np.ndarray) -> np.ndarray:
-    return 0.05 + 0.55 * sigmoid_np(3.0 * x)
+    return np.full_like(x, 0.1)
 
 
 def sample_synthetic_dataset(
@@ -125,9 +126,8 @@ def sample_synthetic_dataset(
     x = rng.uniform(-x_max, x_max, size=(num_samples, 1)).astype(np.float32)
     mu = true_mean(x)
     sigma = true_std(x)
-    bounded_noise = rng.uniform(-1.0, 1.0, size=(num_samples, 1)).astype(np.float32)
-    bounded_noise *= math.sqrt(3.0)
-    y = mu + sigma * bounded_noise
+    gaussian_noise = rng.normal(loc=0.0, scale=1.0, size=(num_samples, 1)).astype(np.float32)
+    y = mu + sigma * gaussian_noise
     return x.astype(np.float32), y.astype(np.float32)
 
 
@@ -168,10 +168,13 @@ def build_dataset_bundle(config: ExperimentConfig) -> DatasetBundle:
     evaluation_probe_x = (evaluation_probe_x - x_mean) / x_std
     plot_x = (plot_x - x_mean) / x_std
 
-    dense_x = np.linspace(-config.x_max, config.x_max, 4096, dtype=np.float64)[:, None]
+    normalized_train_y = train_y
+    normalized_test_y = test_y
     y_star = float(
-        np.max(np.abs(true_mean(dense_x) - y_mean) + math.sqrt(3.0) * true_std(dense_x))
-        / y_std
+        max(
+            np.max(np.abs(normalized_train_y)),
+            np.max(np.abs(normalized_test_y)),
+        )
     )
 
     return DatasetBundle(
@@ -300,6 +303,8 @@ def train_model(
     dataset_bundle: DatasetBundle,
     seed: int,
     device: torch.device,
+    show_progress: bool = True,
+    progress_desc: str = "Training",
 ) -> tuple[TwoLayerK1Net, dict[str, list[float]]]:
     set_seed(seed)
     model = build_model(config).to(device)
@@ -316,18 +321,29 @@ def train_model(
 
     history = {"train_nll": []}
 
-    for epoch in tqdm(range(config.epochs), desc="Training", unit="epoch"):
+    epoch_iterator = range(1, config.epochs + 1)
+    if show_progress:
+        epoch_iterator = tqdm(epoch_iterator, desc=progress_desc, unit="epoch")
+
+    for epoch in epoch_iterator:
+        lr_t = config.learning_rate_min + 0.5 * (config.learning_rate - config.learning_rate_min) * (
+            1.0 + math.cos(math.pi * epoch / config.epochs)
+        )
+        for param_group in optimizer.param_groups:
+            param_group["lr"] = lr_t
+
         model.train()
+        epoch_losses: list[float] = []
         for x_batch, y_batch in train_loader:
             x_batch = x_batch.to(device)
             y_batch = y_batch.to(device)
             optimizer.zero_grad(set_to_none=True)
             loss = model.loss(x_batch, y_batch)
-            loss.backward()
+            (loss * config.width).backward()
             optimizer.step()
+            epoch_losses.append(float(loss.item()))
 
-        train_metrics = evaluate_model(model, dataset_bundle.train, device)
-        history["train_nll"].append(train_metrics["nll"])
+        history["train_nll"].append(float(np.mean(epoch_losses)))
 
     return model, history
 
@@ -891,6 +907,7 @@ def flatten_yaml_settings(config_data: dict[str, object]) -> dict[str, object]:
             "epochs": "epochs",
             "batch_size": "batch_size",
             "learning_rate": "learning_rate",
+            "learning_rate_min": "learning_rate_min",
             "weight_decay": "weight_decay",
         },
         "evaluation": {
@@ -920,6 +937,7 @@ def flatten_yaml_settings(config_data: dict[str, object]) -> dict[str, object]:
         "epochs",
         "batch_size",
         "learning_rate",
+        "learning_rate_min",
         "weight_decay",
         "barrier_points",
         "evaluation_probe_points",
@@ -962,21 +980,22 @@ def normalize_setting(key: str, value: object) -> object:
 
 def resolve_settings(args: argparse.Namespace) -> dict[str, object]:
     defaults = {
-        "parameterization": "both",
+        "parameterization": "meanvar",
         "output_dir": Path("results"),
-        "width": 96,
-        "variance_min": 5e-2,
+        "width": 1024,
+        "variance_min": 1e-3,
         "variance_max": 10.0,
-        "precision_activation": "softplus",
-        "train_size": 768,
-        "test_size": 2048,
+        "precision_activation": "exp",
+        "train_size": 1000,
+        "test_size": 1000,
         "evaluation_probe_points": 2048,
         "plot_points": 2048,
-        "x_max": 3.0,
-        "epochs": 600,
-        "batch_size": 256,
-        "learning_rate": 1e-2,
-        "weight_decay": 1e-6,
+        "x_max": 1.05,
+        "epochs": 10000,
+        "batch_size": 1000,
+        "learning_rate": 1e-1,
+        "learning_rate_min": 1e-3,
+        "weight_decay": 0.0,
         "barrier_points": 25,
         "data_seed": 2026,
         "seed_a": 0,
@@ -1338,7 +1357,7 @@ def run_single_experiment(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Synthetic LMC experiment inspired by paper/k1.tex.",
+        description="Synthetic LMC experiment inspired by paper/k1_raw_lmc.tex.",
     )
     parser.add_argument(
         "--config",
@@ -1370,6 +1389,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--learning-rate", type=float, default=None)
+    parser.add_argument("--learning-rate-min", type=float, default=None)
     parser.add_argument("--weight-decay", type=float, default=None)
     parser.add_argument("--barrier-points", type=int, default=None)
     parser.add_argument("--data-seed", type=int, default=None)
@@ -1394,6 +1414,7 @@ def config_from_settings(settings: dict[str, object], parameterization: Paramete
         epochs=int(settings["epochs"]),
         batch_size=int(settings["batch_size"]),
         learning_rate=float(settings["learning_rate"]),
+        learning_rate_min=float(settings["learning_rate_min"]),
         weight_decay=float(settings["weight_decay"]),
         barrier_points=int(settings["barrier_points"]),
         data_seed=int(settings["data_seed"]),

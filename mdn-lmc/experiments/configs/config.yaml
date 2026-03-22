@@ -1,5 +1,5 @@
 experiment:
-  parameterization: both
+  parameterization: meanvar
   output_dir: results
   device: cuda
 
@@ -7,18 +7,19 @@ model:
   width: 1024
   variance_min: 0.001
   variance_max: 10.0
-  precision_activation: softplus
+  precision_activation: exp
 
 data:
-  train_size: 1024
-  test_size: 2048
-  x_max: 1.5
+  train_size: 1000
+  test_size: 1000
+  x_max: 1.05
 
 train:
-  epochs: 1000
-  batch_size: 256
+  epochs: 10000
+  batch_size: 1000
   learning_rate: 0.1
-  weight_decay: 0.000001
+  learning_rate_min: 0.001
+  weight_decay: 0.0
 
 evaluation:
   barrier_points: 25

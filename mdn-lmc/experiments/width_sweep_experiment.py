@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import json
 import math
+import multiprocessing as mp
 from dataclasses import asdict
 from pathlib import Path
 
@@ -13,12 +15,14 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
+from tqdm import tqdm
 
 from k1_experiment import (
     DatasetBundle,
     ExperimentConfig,
     TwoLayerK1Net,
     alignment_statistics,
+    barrier_profile,
     build_dataset_bundle,
     choose_device,
     config_from_settings,
@@ -28,6 +32,10 @@ from k1_experiment import (
     interpolate_models,
     optimal_transport_matching,
     permute_hidden_units,
+    plot_barrier_curves,
+    plot_parameter_distribution,
+    plot_predictive_fit,
+    plot_training_history,
     resolve_settings,
     train_model,
     true_mean,
@@ -54,15 +62,33 @@ def build_sweep_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--parameterization",
         choices=["natural", "meanvar"],
-        default="natural",
+        default="meanvar",
         help="Width sweep supports both the natural and mean/variance parameterizations.",
     )
     parser.add_argument(
         "--width-exponents",
         type=int,
         nargs="+",
-        default=[8, 9, 10, 11, 12, 13],
+        default=[9, 10, 11, 12],
         help="Sweep widths 2^k for the listed exponents.",
+    )
+    parser.add_argument(
+        "--n-seeds",
+        type=int,
+        default=10,
+        help="Number of model seeds to train per width. Consecutive pairs are evaluated.",
+    )
+    parser.add_argument(
+        "--seed-start",
+        type=int,
+        default=0,
+        help="First model seed used in the width sweep.",
+    )
+    parser.add_argument(
+        "--max-parallel-workers",
+        type=int,
+        default=1,
+        help="Number of seed-pair jobs to run concurrently.",
     )
     parser.add_argument(
         "--time-grid-points",
@@ -82,6 +108,7 @@ def build_sweep_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--learning-rate", type=float, default=None)
+    parser.add_argument("--learning-rate-min", type=float, default=None)
     parser.add_argument("--weight-decay", type=float, default=None)
     parser.add_argument("--barrier-points", type=int, default=None)
     parser.add_argument("--data-seed", type=int, default=None)
@@ -353,13 +380,140 @@ def exact_modulus_statistics(
     }
 
 
+def consecutive_seed_pairs(seed_start: int, n_seeds: int) -> tuple[list[int], list[tuple[int, int]]]:
+    seeds = list(range(seed_start, seed_start + n_seeds))
+    pairs = [(seeds[index], seeds[index + 1]) for index in range(0, len(seeds) - 1, 2)]
+    return seeds, pairs
+
+
+def _positive_for_log(values: np.ndarray, floor: float = 1e-8) -> np.ndarray:
+    return np.maximum(values, floor)
+
+
+def plot_loss_barriers(
+    barrier_curves_by_width: dict[int, list[dict[str, object]]],
+    output_path: Path,
+) -> None:
+    widths = sorted(barrier_curves_by_width.keys())
+    if not widths:
+        return
+
+    fig, axes = plt.subplots(1, len(widths), figsize=(3.5 * len(widths), 3.1), squeeze=False)
+
+    for column, width in enumerate(widths):
+        ax = axes[0, column]
+        pair_curves = barrier_curves_by_width[width]
+        naive_barriers: list[float] = []
+        aligned_barriers: list[float] = []
+
+        for pair in pair_curves:
+            naive_losses = np.asarray(pair["naive"], dtype=float)
+            aligned_losses = np.asarray(pair["aligned"], dtype=float)
+            lambdas = np.linspace(0.0, 1.0, naive_losses.size)
+            ax.plot(lambdas, naive_losses, "-", color="C2", alpha=0.25, linewidth=0.8)
+            ax.plot(lambdas, aligned_losses, "-", color="C0", alpha=0.4, linewidth=1.0)
+            naive_barriers.append(float(pair["naive_barrier"]))
+            aligned_barriers.append(float(pair["aligned_barrier"]))
+
+        ax.set_title(f"width={width}")
+        ax.set_xlabel(r"$t$")
+        if column == 0:
+            ax.set_ylabel("Loss (NLL)")
+        ax.text(
+            0.98,
+            0.98,
+            (
+                f"naive={np.mean(naive_barriers):.4f}\n"
+                f"aligned={np.mean(aligned_barriers):.4f}±{np.std(aligned_barriers):.4f}"
+            ),
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=7,
+            bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none"},
+        )
+
+    fig.suptitle("Synthetic K=1 mean/variance barriers across seed pairs", fontsize=11)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=300)
+    plt.close(fig)
+
+
+def plot_barrier_scaling_summary(
+    results: list[dict[str, object]],
+    output_path: Path,
+) -> None:
+    if not results:
+        return
+
+    widths = np.array([entry["width"] for entry in results], dtype=float)
+    aligned_means = np.array([entry["aligned_profile_barrier_mean"] for entry in results], dtype=float)
+    aligned_stds = np.array([entry["aligned_profile_barrier_std"] for entry in results], dtype=float)
+    naive_means = np.array([entry["naive_profile_barrier_mean"] for entry in results], dtype=float)
+
+    aligned_plot = _positive_for_log(aligned_means)
+    naive_plot = _positive_for_log(naive_means)
+    ref_y = float(aligned_plot[0])
+    ref_w = float(widths[0])
+    slope_one = ref_y * (ref_w / widths)
+    slope_sqrt = ref_y * np.sqrt(ref_w / widths)
+
+    fig, ax = plt.subplots(1, 1, figsize=(5.2, 3.8), constrained_layout=True)
+    ax.plot(widths, slope_one, "--", color="grey", alpha=0.4, linewidth=0.9, label=r"$O(1/N)$")
+    ax.plot(widths, slope_sqrt, ":", color="grey", alpha=0.4, linewidth=0.9, label=r"$O(1/\sqrt{N})$")
+    ax.errorbar(
+        widths,
+        aligned_plot,
+        yerr=np.minimum(aligned_stds, np.maximum(aligned_plot - 1e-8, 0.0)),
+        fmt="o-",
+        color="C0",
+        markersize=4,
+        linewidth=1.4,
+        label="Aligned",
+    )
+    ax.plot(widths, naive_plot, "s--", color="C2", markersize=3.5, linewidth=1.0, alpha=0.7, label="Unaligned")
+    ax.set_xscale("log", base=2)
+    ax.set_yscale("log")
+    ax.set_xlabel("Width N")
+    ax.set_ylabel("Barrier")
+    ax.set_title("Barrier scaling on synthetic K=1")
+    ax.grid(True, alpha=0.2)
+    ax.legend(fontsize=8)
+    fig.savefig(output_path, dpi=300)
+    plt.close(fig)
+
+
+def plot_training_loss_summary(
+    all_histories: list[tuple[int, int, list[float]]],
+    output_path: Path,
+) -> None:
+    if not all_histories:
+        return
+
+    fig, ax = plt.subplots(1, 1, figsize=(6.2, 4.0), constrained_layout=True)
+    width_colors: dict[int, str] = {}
+    for width, seed, losses in all_histories:
+        if width not in width_colors:
+            width_colors[width] = f"C{len(width_colors)}"
+        label = f"w={width}" if seed == min(item[1] for item in all_histories if item[0] == width) else None
+        ax.plot(losses, color=width_colors[width], alpha=0.35, linewidth=0.9, label=label)
+
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Train NLL")
+    ax.set_yscale("symlog")
+    ax.set_title("Training loss across widths and seeds")
+    ax.legend(fontsize=8)
+    fig.savefig(output_path, dpi=300)
+    plt.close(fig)
+
+
 def plot_primary_width_comparison(
     results: list[dict[str, object]],
     output_path: Path,
 ) -> None:
     widths = np.array([entry["width"] for entry in results], dtype=float)
-    actual = np.array([entry["actual_barrier_dense"] for entry in results], dtype=float)
-    primary = np.array([entry["timewise_exact_modulus_bound"] for entry in results], dtype=float)
+    actual = np.array([entry["actual_barrier_dense_mean"] for entry in results], dtype=float)
+    primary = np.array([entry["timewise_exact_modulus_bound_mean"] for entry in results], dtype=float)
     visible_values = np.concatenate([actual, primary])
     positive_visible = visible_values[visible_values > 0.0]
     guide_level = float(np.exp(np.mean(np.log(positive_visible)))) if positive_visible.size else 1.0
@@ -368,8 +522,8 @@ def plot_primary_width_comparison(
 
     fig, ax = plt.subplots(1, 1, figsize=(6.2, 4.5), constrained_layout=True)
 
-    ax.loglog(widths, actual, marker="o", linewidth=2.5, label="Observed barrier")
-    ax.loglog(widths, primary, marker="o", linewidth=2.5, label="Primary theorem bound")
+    ax.loglog(widths, _positive_for_log(actual), marker="o", linewidth=2.5, label="Observed barrier")
+    ax.loglog(widths, _positive_for_log(primary), marker="o", linewidth=2.5, label="Primary theorem bound")
     ax.loglog(
         widths,
         slope_minus_one_guide,
@@ -393,104 +547,333 @@ def safe_ratio(numerator: float, denominator: float) -> float:
     return numerator / denominator
 
 
+def pair_output_dir(base_output_dir: Path, width: int, seed_a: int, seed_b: int) -> Path:
+    return base_output_dir / f"width_{width}" / f"pair_{seed_a}_{seed_b}"
+
+
+def build_pair_task(
+    config_base: ExperimentConfig,
+    output_dir: Path,
+    width: int,
+    seed_a: int,
+    seed_b: int,
+    time_grid_points: int,
+) -> dict[str, object]:
+    config_dict = {**asdict(config_base), "width": width, "seed_a": seed_a, "seed_b": seed_b}
+    return {
+        "config": config_dict,
+        "output_dir": str(pair_output_dir(output_dir, width, seed_a, seed_b)),
+        "time_grid_points": time_grid_points,
+    }
+
+
+def run_pair_job(task: dict[str, object]) -> dict[str, object]:
+    torch.set_num_threads(1)
+    try:
+        torch.set_num_interop_threads(1)
+    except RuntimeError:
+        pass
+
+    config = ExperimentConfig(**task["config"])
+    output_dir = Path(task["output_dir"])
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    device = choose_device(config.device)
+    dataset_bundle = build_dataset_bundle(config)
+
+    model_a, history_a = train_model(
+        config,
+        dataset_bundle,
+        config.seed_a,
+        device,
+        show_progress=False,
+    )
+    model_b, history_b = train_model(
+        config,
+        dataset_bundle,
+        config.seed_b,
+        device,
+        show_progress=False,
+    )
+
+    matching = optimal_transport_matching(model_a, model_b)
+    permutation = np.asarray(matching["permutation"], dtype=int)
+    matched_b = permute_hidden_units(model_b, permutation, device)
+
+    identity_profile = barrier_profile(
+        model_a,
+        model_b,
+        dataset_bundle.test,
+        config.barrier_points,
+        device,
+    )
+    matched_profile = barrier_profile(
+        model_a,
+        matched_b,
+        dataset_bundle.test,
+        config.barrier_points,
+        device,
+    )
+    matched_stats = alignment_statistics(
+        model_a=model_a,
+        model_b=matched_b,
+        evaluation_probe_x=dataset_bundle.evaluation_probe_x,
+        config=config,
+        y_star=dataset_bundle.y_star,
+        device=device,
+    )
+    exact_modulus = exact_modulus_statistics(
+        model_a=model_a,
+        model_b=matched_b,
+        dataset_bundle=dataset_bundle,
+        device=device,
+        time_grid_points=int(task["time_grid_points"]),
+    )
+    test_metrics_a = evaluate_model(model_a, dataset_bundle.test, device)
+    test_metrics_b = evaluate_model(matched_b, dataset_bundle.test, device)
+    merged_model = interpolate_models(model_a, matched_b, 0.5, device)
+
+    plot_parameter_distribution(
+        model=model_a,
+        output_path=output_dir / "model_a_parameters.png",
+        title=f"width={config.width}, seeds=({config.seed_a},{config.seed_b}): model A parameters",
+    )
+    plot_parameter_distribution(
+        model=matched_b,
+        output_path=output_dir / "model_b_matched_parameters.png",
+        title=f"width={config.width}, seeds=({config.seed_a},{config.seed_b}): matched model B parameters",
+    )
+    plot_barrier_curves(
+        identity_profile=identity_profile,
+        matched_profile=matched_profile,
+        output_path=output_dir / "lmc_barrier.png",
+        title=f"width={config.width}, seeds=({config.seed_a},{config.seed_b}): interpolation barrier",
+    )
+    plot_predictive_fit(
+        model_a=model_a,
+        model_b=matched_b,
+        merged_model=merged_model,
+        dataset_bundle=dataset_bundle,
+        device=device,
+        output_path=output_dir / "predictive_fit.png",
+        title=f"width={config.width}, seeds=({config.seed_a},{config.seed_b}): predictive fit",
+    )
+    plot_training_history(
+        history_a=history_a,
+        history_b=history_b,
+        output_path=output_dir / "training_history.png",
+        title=f"width={config.width}, seeds=({config.seed_a},{config.seed_b}): training curves",
+    )
+    np.save(output_dir / "matching_permutation.npy", permutation)
+
+    pair_summary = {
+        "seeds": [config.seed_a, config.seed_b],
+        "matching": {
+            "ot_w1_identity_order": matching["identity_w1"],
+            "ot_w1_matched": matching["w1"],
+            "permutation": permutation.tolist(),
+        },
+        "identity_barrier": identity_profile,
+        "matched_barrier": matched_profile,
+        "matched_alignment": matched_stats,
+        "exact_modulus": exact_modulus,
+        "test_metrics": {
+            "model_a": test_metrics_a,
+            "model_b_matched": test_metrics_b,
+        },
+        "training_history": {
+            "model_a_train_nll": history_a["train_nll"],
+            "model_b_train_nll": history_b["train_nll"],
+        },
+        "artifacts": {
+            "model_a_parameters": "model_a_parameters.png",
+            "model_b_matched_parameters": "model_b_matched_parameters.png",
+            "lmc_barrier": "lmc_barrier.png",
+            "predictive_fit": "predictive_fit.png",
+            "training_history": "training_history.png",
+            "matching_permutation": "matching_permutation.npy",
+        },
+    }
+
+    with (output_dir / "summary.json").open("w", encoding="utf-8") as handle:
+        json.dump(pair_summary, handle, indent=2)
+
+    return {
+        "width": config.width,
+        "seeds": [config.seed_a, config.seed_b],
+        "output_dir": str(output_dir),
+        "pair_summary": pair_summary,
+    }
+
+
 def run_width_sweep(args: argparse.Namespace) -> dict[str, object]:
     settings = resolve_settings(args)
     config_base = config_from_settings(settings, args.parameterization)
-    device = choose_device(config_base.device)
 
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    seeds, seed_pairs = consecutive_seed_pairs(args.seed_start, args.n_seeds)
+    if not seed_pairs:
+        raise ValueError("width sweep requires at least two seeds.")
+    if args.max_parallel_workers <= 0:
+        raise ValueError("max_parallel_workers must be positive.")
+
     results: list[dict[str, object]] = []
+    barrier_curves_by_width: dict[int, list[dict[str, object]]] = {}
+    all_histories: list[tuple[int, int, list[float]]] = []
     widths = [2 ** exponent for exponent in args.width_exponents]
+
+    for width in widths:
+        (output_dir / f"width_{width}").mkdir(parents=True, exist_ok=True)
+
+    tasks = [
+        build_pair_task(
+            config_base=config_base,
+            output_dir=output_dir,
+            width=width,
+            seed_a=seed_a,
+            seed_b=seed_b,
+            time_grid_points=args.time_grid_points,
+        )
+        for width in widths
+        for seed_a, seed_b in seed_pairs
+    ]
+
+    completed_jobs: list[dict[str, object]] = []
+    if args.max_parallel_workers == 1:
+        for task in tqdm(tasks, desc="Pair experiments", unit="pair"):
+            completed_jobs.append(run_pair_job(task))
+    else:
+        spawn_context = mp.get_context("spawn")
+        with ProcessPoolExecutor(
+            max_workers=args.max_parallel_workers,
+            mp_context=spawn_context,
+        ) as executor:
+            future_to_task = {executor.submit(run_pair_job, task): task for task in tasks}
+            for future in tqdm(as_completed(future_to_task), total=len(future_to_task), desc="Pair experiments", unit="pair"):
+                completed_jobs.append(future.result())
+
+    jobs_by_width: dict[int, list[dict[str, object]]] = {width: [] for width in widths}
+    for job in completed_jobs:
+        jobs_by_width[int(job["width"])].append(job)
 
     for width in widths:
         config = ExperimentConfig(**{**asdict(config_base), "width": width})
         run_dir = output_dir / f"width_{width}"
-        run_dir.mkdir(parents=True, exist_ok=True)
 
-        dataset_bundle = build_dataset_bundle(config)
-        model_a, history_a = train_model(config, dataset_bundle, config.seed_a, device)
-        model_b, history_b = train_model(config, dataset_bundle, config.seed_b, device)
+        width_jobs = sorted(jobs_by_width[width], key=lambda job: tuple(job["seeds"]))
+        pair_summaries: list[dict[str, object]] = []
+        pair_summary_paths: list[str] = []
+        barrier_curves: list[dict[str, object]] = []
+        baseline_bounds: list[float] = []
+        timewise_bounds: list[float] = []
+        path_bounds: list[float] = []
+        dense_actuals: list[float] = []
+        coarse_naive_barriers: list[float] = []
+        coarse_aligned_barriers: list[float] = []
+        matched_w1_values: list[float] = []
+        endpoint_nll_means: list[float] = []
 
-        matching = optimal_transport_matching(model_a, model_b)
-        permutation = np.asarray(matching["permutation"], dtype=int)
-        matched_b = permute_hidden_units(model_b, permutation, device)
+        for job in width_jobs:
+            pair_summary = job["pair_summary"]
+            seed_a, seed_b = pair_summary["seeds"]
+            matched_stats = pair_summary["matched_alignment"]
+            exact_modulus = pair_summary["exact_modulus"]
+            test_metrics_a = pair_summary["test_metrics"]["model_a"]
+            test_metrics_b = pair_summary["test_metrics"]["model_b_matched"]
+            identity_profile = pair_summary["identity_barrier"]
+            matched_profile = pair_summary["matched_barrier"]
 
-        matched_stats = alignment_statistics(
-            model_a=model_a,
-            model_b=matched_b,
-            evaluation_probe_x=dataset_bundle.evaluation_probe_x,
-            config=config,
-            y_star=dataset_bundle.y_star,
-            device=device,
-        )
-        exact_modulus = exact_modulus_statistics(
-            model_a=model_a,
-            model_b=matched_b,
-            dataset_bundle=dataset_bundle,
-            device=device,
-            time_grid_points=args.time_grid_points,
-        )
+            baseline_bound = float(
+                matched_stats.get(
+                    "k1_barrier_bound",
+                    matched_stats.get("raw_k1_barrier_bound", math.nan),
+                )
+            )
+            timewise_bound = float(exact_modulus["timewise_exact_modulus"]["bound"])
+            path_bound = float(exact_modulus["path_envelope_exact_modulus"]["bound"])
+            actual_barrier_dense = float(exact_modulus["dense_barrier"]["max_barrier"])
+
+            pair_summaries.append(pair_summary)
+            pair_summary_paths.append(str((Path(job["output_dir"]) / "summary.json").relative_to(output_dir)))
+            all_histories.append((width, seed_a, pair_summary["training_history"]["model_a_train_nll"]))
+            all_histories.append((width, seed_b, pair_summary["training_history"]["model_b_train_nll"]))
+            barrier_curves.append(
+                {
+                    "pair": [seed_a, seed_b],
+                    "naive": identity_profile["losses"],
+                    "aligned": matched_profile["losses"],
+                    "naive_barrier": identity_profile["max_barrier"],
+                    "aligned_barrier": matched_profile["max_barrier"],
+                }
+            )
+            baseline_bounds.append(baseline_bound)
+            timewise_bounds.append(timewise_bound)
+            path_bounds.append(path_bound)
+            dense_actuals.append(actual_barrier_dense)
+            coarse_naive_barriers.append(float(identity_profile["max_barrier"]))
+            coarse_aligned_barriers.append(float(matched_profile["max_barrier"]))
+            matched_w1_values.append(float(pair_summary["matching"]["ot_w1_matched"]))
+            endpoint_nll_means.append(0.5 * (float(test_metrics_a["nll"]) + float(test_metrics_b["nll"])))
+
+        barrier_curves_by_width[width] = barrier_curves
+
+        aggregate_entry = {
+            "width": width,
+            "num_pairs": len(pair_summaries),
+            "baseline_bound_mean": float(np.mean(baseline_bounds)),
+            "baseline_bound_std": float(np.std(baseline_bounds)),
+            "timewise_exact_modulus_bound_mean": float(np.mean(timewise_bounds)),
+            "timewise_exact_modulus_bound_std": float(np.std(timewise_bounds)),
+            "path_envelope_exact_modulus_bound_mean": float(np.mean(path_bounds)),
+            "path_envelope_exact_modulus_bound_std": float(np.std(path_bounds)),
+            "actual_barrier_dense_mean": float(np.mean(dense_actuals)),
+            "actual_barrier_dense_std": float(np.std(dense_actuals)),
+            "naive_profile_barrier_mean": float(np.mean(coarse_naive_barriers)),
+            "naive_profile_barrier_std": float(np.std(coarse_naive_barriers)),
+            "aligned_profile_barrier_mean": float(np.mean(coarse_aligned_barriers)),
+            "aligned_profile_barrier_std": float(np.std(coarse_aligned_barriers)),
+            "baseline_ratio_mean": safe_ratio(float(np.mean(baseline_bounds)), float(np.mean(dense_actuals))),
+            "timewise_ratio_mean": safe_ratio(float(np.mean(timewise_bounds)), float(np.mean(dense_actuals))),
+            "path_envelope_ratio_mean": safe_ratio(float(np.mean(path_bounds)), float(np.mean(dense_actuals))),
+            "matched_w1_mean": float(np.mean(matched_w1_values)),
+            "matched_w1_std": float(np.std(matched_w1_values)),
+            "endpoint_test_nll_mean": float(np.mean(endpoint_nll_means)),
+            "endpoint_test_nll_std": float(np.std(endpoint_nll_means)),
+        }
 
         summary = {
             "config": asdict(config),
-            "matching": {
-                "ot_w1_identity_order": matching["identity_w1"],
-                "ot_w1_matched": matching["w1"],
-            },
-            "matched_alignment": matched_stats,
-            "exact_modulus": exact_modulus,
-            "test_metrics": {
-                "model_a": evaluate_model(model_a, dataset_bundle.test, device),
-                "model_b_matched": evaluate_model(matched_b, dataset_bundle.test, device),
-            },
-            "training_history": {
-                "model_a_train_nll": history_a["train_nll"],
-                "model_b_train_nll": history_b["train_nll"],
-            },
+            "seeds": seeds,
+            "seed_pairs": seed_pairs,
+            "pair_summary_paths": pair_summary_paths,
+            "pair_summaries": pair_summaries,
+            "aggregate": aggregate_entry,
         }
         with (run_dir / "summary.json").open("w", encoding="utf-8") as handle:
             json.dump(summary, handle, indent=2)
+        results.append(aggregate_entry)
 
-        actual_barrier_dense = float(exact_modulus["dense_barrier"]["max_barrier"])
-        baseline_bound = float(
-            matched_stats.get(
-                "k1_barrier_bound",
-                matched_stats.get("raw_k1_barrier_bound", math.nan),
-            )
-        )
-        timewise_bound = float(exact_modulus["timewise_exact_modulus"]["bound"])
-        path_bound = float(exact_modulus["path_envelope_exact_modulus"]["bound"])
-
-        results.append(
-            {
-                "width": width,
-                "baseline_bound": baseline_bound,
-                "timewise_exact_modulus_bound": timewise_bound,
-                "path_envelope_exact_modulus_bound": path_bound,
-                "actual_barrier_dense": actual_barrier_dense,
-                "baseline_ratio": safe_ratio(baseline_bound, actual_barrier_dense),
-                "timewise_ratio": safe_ratio(timewise_bound, actual_barrier_dense),
-                "path_envelope_ratio": safe_ratio(path_bound, actual_barrier_dense),
-                "matched_w1": float(matching["w1"]),
-                "endpoint_test_nll_mean": 0.5
-                * (
-                    float(summary["test_metrics"]["model_a"]["nll"])
-                    + float(summary["test_metrics"]["model_b_matched"]["nll"])
-                ),
-            }
-        )
-
+    plot_loss_barriers(barrier_curves_by_width, output_dir / "loss_barriers.png")
+    plot_barrier_scaling_summary(results, output_dir / "barrier_scaling.png")
+    plot_training_loss_summary(all_histories, output_dir / "loss_curves.png")
     plot_primary_width_comparison(results, output_dir / "width_sweep_primary_vs_observed.png")
 
     aggregate = {
         "base_config": asdict(config_base),
+        "seeds": seeds,
+        "seed_pairs": seed_pairs,
+        "n_seeds": args.n_seeds,
+        "max_parallel_workers": args.max_parallel_workers,
         "width_exponents": args.width_exponents,
         "widths": widths,
         "time_grid_points": args.time_grid_points,
         "results": results,
         "artifacts": {
+            "loss_barriers": "loss_barriers.png",
+            "barrier_scaling": "barrier_scaling.png",
+            "loss_curves": "loss_curves.png",
             "primary_plot": "width_sweep_primary_vs_observed.png",
         },
     }
