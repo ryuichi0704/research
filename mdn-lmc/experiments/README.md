@@ -111,6 +111,10 @@ uv run python width_sweep_experiment.py \
 単発実験では `experiments/results/<parameterization>/` に以下を保存します。
 
 - `summary.json`
+- `model_a.pt`
+- `model_b.pt`
+- `model_b_matched.pt`
+- `merged_model.pt`
 - `model_a_parameters.png`
 - `model_b_matched_parameters.png`
 - `lmc_barrier.png`
@@ -128,6 +132,10 @@ uv run python width_sweep_experiment.py \
 - `width_sweep_primary_vs_observed.png`: 実測 barrier と主たる理論 bound の比較
 - `width_<N>/summary.json`: 各幅の pair-level 詳細
 - `width_<N>/pair_<a>_<b>/summary.json`: 各 seed-pair の詳細
+- `width_<N>/pair_<a>_<b>/model_a.pt`
+- `width_<N>/pair_<a>_<b>/model_b.pt`
+- `width_<N>/pair_<a>_<b>/model_b_matched.pt`
+- `width_<N>/pair_<a>_<b>/merged_model.pt`
 - `width_<N>/pair_<a>_<b>/model_a_parameters.png`
 - `width_<N>/pair_<a>_<b>/model_b_matched_parameters.png`
 - `width_<N>/pair_<a>_<b>/lmc_barrier.png`

@@ -38,6 +38,7 @@ from k1_experiment import (
     plot_predictive_fit,
     plot_training_history,
     resolve_settings,
+    save_model_checkpoint,
     train_model,
     true_mean,
     true_std,
@@ -682,6 +683,45 @@ def run_pair_job(task: dict[str, object]) -> dict[str, object]:
         ),
     )
     np.save(output_dir / "matching_permutation.npy", permutation)
+    save_model_checkpoint(
+        model=model_a,
+        output_path=output_dir / "model_a.pt",
+        config=config,
+        dataset_bundle=dataset_bundle,
+        role="model_a",
+        seed=config.seed_a,
+        training_history=history_a,
+    )
+    save_model_checkpoint(
+        model=model_b,
+        output_path=output_dir / "model_b.pt",
+        config=config,
+        dataset_bundle=dataset_bundle,
+        role="model_b",
+        seed=config.seed_b,
+        training_history=history_b,
+    )
+    save_model_checkpoint(
+        model=matched_b,
+        output_path=output_dir / "model_b_matched.pt",
+        config=config,
+        dataset_bundle=dataset_bundle,
+        role="model_b_matched",
+        seed=config.seed_b,
+        training_history=history_b,
+        extra_metadata={"matching_permutation": permutation.tolist()},
+    )
+    save_model_checkpoint(
+        model=merged_model,
+        output_path=output_dir / "merged_model.pt",
+        config=config,
+        dataset_bundle=dataset_bundle,
+        role="merged_model",
+        extra_metadata={
+            "interpolation_t": 0.5,
+            "sources": ["model_a", "model_b_matched"],
+        },
+    )
 
     pair_summary = {
         "seeds": [config.seed_a, config.seed_b],
@@ -704,7 +744,11 @@ def run_pair_job(task: dict[str, object]) -> dict[str, object]:
         },
         "artifacts": {
             "model_a_parameters": "model_a_parameters.png",
+            "model_a_checkpoint": "model_a.pt",
+            "model_b_checkpoint": "model_b.pt",
+            "model_b_matched_checkpoint": "model_b_matched.pt",
             "model_b_matched_parameters": "model_b_matched_parameters.png",
+            "merged_model_checkpoint": "merged_model.pt",
             "lmc_barrier": "lmc_barrier.png",
             "predictive_fit": "predictive_fit.png",
             "training_history": "training_history.png",
