@@ -210,3 +210,4 @@ __marimo__/
 *.aux
 *.out
 *.log
+.DS_Store

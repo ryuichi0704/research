@@ -3,7 +3,6 @@
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{amsmath,amssymb,amsthm,mathtools}
-\usepackage{bbm}
 \usepackage{bm}
 \usepackage{hyperref}
 \usepackage[margin=2.5cm]{geometry}
@@ -18,27 +17,24 @@
 \newtheorem{corollary}[theorem]{Corollary}
 \theoremstyle{definition}
 \newtheorem{definition}[theorem]{Definition}
-\newtheorem{assumption}{Assumption}
+\newtheorem{assumption}[theorem]{Assumption}
 \theoremstyle{remark}
 \newtheorem{remark}[theorem]{Remark}
 
 \newcommand{\R}{\mathbb{R}}
 \newcommand{\E}{\mathbb{E}}
-\newcommand{\cP}{\mathcal{P}}
 \newcommand{\cS}{\mathcal{S}}
 \newcommand{\vtheta}{\boldsymbol{\theta}}
 \newcommand{\vw}{\mathbf{w}}
 \newcommand{\vx}{\mathbf{x}}
 \newcommand{\va}{\mathbf{a}}
-\newcommand{\vp}{\mathbf{p}}
 \newcommand{\ve}{\mathbf{e}}
 \newcommand{\vone}{\mathbf{1}}
 \newcommand{\vs}{\mathbf{s}}
 \newcommand{\vz}{\mathbf{z}}
 \newcommand{\simplex}{\Delta^{p-1}}
 \newcommand{\entmax}{\operatorname{entmax}}
-\newcommand{\supp}{\operatorname{supp}}
-\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\Rad}{\widehat{\mathfrak{R}}_n}
 \DeclareMathOperator*{\argmax}{arg\,max}
 \newcommand{\dd}{\mathrm{d}}
 \newcommand{\dmu}{\dd\mu}
@@ -46,56 +42,51 @@
 \newcommand{\abs}[1]{\left|#1\right|}
 
 \title{%
-  Dynamical Constraints on Feature Selection\\
+  Three Strategies for Feature Selection\\
   in Soft Decision Stump Ensembles
 }
 \author{
-  Ryuichi Kanoh
-  \and
-  Mahito Sugiyama
+  Ryuichi Kanoh \and Mahito Sugiyama
 }
 \date{\today}
 
 \begin{document}
 \maketitle
 
+% ============================================================
 \begin{abstract}
-  We study the mean-field dynamics of soft decision stump ensembles
-  whose splitting directions are parameterized via entmax, a
-  sparsity-inducing map on the probability simplex.
-  %
-  We identify two competing dynamical constraints that govern
-  sparse feature selection in this model.
-  %
-  \textbf{Irreversibility} (Theorem~\ref{thm:absorption}):
-  any feature excluded from the entmax support receives exactly zero
-  gradient and its weight freezes; moreover, the entmax threshold
-  rises as in-support features strengthen, making re-entry impossible.
-  This creates absorbing dead-feature states from which the dynamics
-  cannot escape.
-  %
-  \textbf{Bottleneck} (Theorem~\ref{thm:separation}):
-  even when all features are in the support (high temperature),
-  the relevance gap between relevant and irrelevant features grows
-  only at rate $O(1/(\tau p))$, where $\tau$ is the entmax
-  temperature and $p$ is the ambient dimension.
-  %
-  Together, these constraints imply that sparse feature selection
-  in differentiable stumps is caught between a failure mode
-  (premature sparsity kills features permanently) and a bottleneck
-  (conservative temperature slows selection to $O(\tau^2 p)$ time).
-  %
-  As a corollary, we derive a quantitative lower bound on the
-  temperature needed to avoid dead features, and an explicit
-  pruning time for the surviving regime.
-  %
-  Beyond the early phase, we show that the residual coupling
-  between stumps drives a \emph{signal crossing}: the initially
-  strongest feature's effective signal decays as it is learned,
-  eventually falling below that of weaker features
-  (Proposition~\ref{prop:crossing}).
-  This dynamic rebalancing is a genuinely collective phenomenon
-  that does not occur under independent training.
+How should a soft decision stump select its
+splitting feature?
+We compare three strategies---random
+assignment~(R), unconstrained learned
+weights~(U), and entmax-gated learned
+weights~(E)---in mean-field ensembles.
+First, we show that the class-level
+comparison for Model~E is algorithmically
+meaningful: after reparameterizing the split
+direction directly on the simplex, a
+simplex mirror flow converges globally to
+the minimum empirical risk over the
+simplex-parameterized infinite-width E-class
+(Section~\ref{sec:convergence}).
+This bypasses the structural zeros of the
+original entmax-logit dynamics.
+Second, we characterize the best predictor in
+each class under three data regimes
+defined by the geometry of the target's
+active directions
+(Section~\ref{sec:class}).
+The estimation cost depends only on the
+model architecture ($\sqrt{\log p/n}$
+for R/E, $\sqrt{p/n}$ for~U), while
+the approximation cost depends on
+whether the model's admissible split
+directions match the target:
+E is matched to nonneg.\ oblique
+directions (simplex), U to arbitrary
+signed directions, and R only to
+coordinate axes.
+No single model dominates across all regimes.
 \end{abstract}
 
 % ============================================================
@@ -103,725 +94,1406 @@
 \label{sec:intro}
 % ============================================================
 
-Soft (differentiable) decision trees trained by gradient methods
-have gained attention as an alternative to classical greedy
-trees~\citep{frosst2017distilling,hazimeh2020tree,popov2020neural}.
-A natural approach to imposing axis-aligned feature selection in
-such models is to apply a sparsity-inducing map---such as
-entmax~\citep{peters2019sparse,blondel2020learning}---to the
-splitting weight vector.
-As the entmax temperature decreases, the output concentrates on
-fewer features, approaching a one-hot (axis-aligned) split.
+Soft decision trees trained by gradient methods
+have gained interest as alternatives to classical
+greedy trees~\citep{frosst2017distilling,
+hazimeh2020tree,popov2020neural}.
+A central design choice is feature selection at
+each split: one may learn it via
+entmax~\citep{peters2019sparse,blondel2020learning},
+use unconstrained weight vectors, or assign features
+randomly as in random subspace
+methods~\citep{ho1998random}.
 
-This paper asks: \emph{what are the dynamical constraints on
-feature selection when soft stumps are trained by gradient flow
-with entmax gating?}
-
-We work in the mean-field regime
-\citep{mei2018mean,chizat2018global}, where the number of stumps
-tends to infinity and the ensemble's evolution is described by a
-gradient flow on the space of probability measures over stump
-parameters.
-We focus on depth-one trees (stumps) under a sparse additive
-target with independent covariates---the simplest regime in which
-the feature-selection dynamics can be rigorously analyzed.
-
-\paragraph{Main findings.}
-We identify two dynamical constraints that together determine the
-feasibility and speed of sparse feature selection.
-
-\begin{enumerate}[label=(\roman*),leftmargin=*]
-  \item \textbf{Irreversible feature exclusion}
-        (Theorem~\ref{thm:absorption}).
-        The zero-column structure of the entmax Jacobian means that
-        any feature outside the support receives exactly zero gradient,
-        freezing its weight.
-        We show further that the entmax threshold $\lambda^*$ is
-        strictly increasing when in-support features have positive
-        gradient drift (which they do, by our separation result),
-        so excluded features can never re-enter the support.
-        This creates \emph{absorbing dead-feature states}.
-        %
-        As a corollary, if the temperature is too low at initialization
-        and a relevant feature starts outside the support, the
-        ensemble \emph{provably cannot recover} that feature,
-        regardless of training time
-        (Corollary~\ref{cor:failure}).
-
-  \item \textbf{Quantitative bottleneck for gap growth}
-        (Theorem~\ref{thm:separation}).
-        Even in the favorable regime where all features are in the
-        support (high temperature), the gradient signal for
-        each relevant feature is $O(1)$ while that for each
-        irrelevant feature is $O(1/p)$.
-        Through the entmax Jacobian, this separation translates into
-        a relevance-gap growth rate of only $O(1/(\tau p))$.
-        Successful feature selection therefore requires
-        $O(\tau^2 p / \kappa_{\min})$ training time---a
-        quantitative bottleneck that cannot be circumvented by
-        algorithmic tricks within this dynamics.
-
-  \item \textbf{Residual-driven specialization}
-        (Proposition~\ref{prop:crossing}).
-        Beyond the early phase, the mean-field coupling through
-        the shared residual produces \emph{signal crossing}:
-        as the ensemble learns the strongest feature, that feature's
-        effective signal decays, eventually falling below weaker
-        features.
-        This rebalancing is a collective phenomenon that does not
-        occur under independent stump training, demonstrating that
-        the mean-field interaction has a functional role in
-        producing feature-level diversity.
+We compare three strategies in the simplest
+tractable setting---mean-field ensembles of
+depth-one stumps---and ask two questions:
+\begin{enumerate}[label=(\roman*),nosep]
+  \item \emph{Is the E-class comparison
+  algorithmically meaningful?}\;
+  Can a geometry-aligned mirror flow reach
+  the global optimum of the
+  simplex-parameterized infinite-width
+  E-class?
+  \item \emph{How well do the best class-level
+  predictors perform?}\;
+  Across different data geometries, how do the
+  three model classes compare in estimation and
+  approximation?
 \end{enumerate}
+Question~(i) is answered in
+Section~\ref{sec:convergence} with minimal
+data assumptions (only boundedness of the
+training sample).
+Question~(ii) is answered in
+Section~\ref{sec:class} under the full
+data model.
 
-Together, (i) and (ii) determine the feasible operating regime
-for feature selection: premature sparsity kills features permanently,
-while conservative temperature slows selection to $O(\tau^2 p)$
-time.
-Result~(iii) shows that, beyond these constraints, the shared
-residual actively drives specialization across features.
+\paragraph{Three models.}
+\textbf{R}~(Random): each stump is assigned a
+random feature, fixed thereafter.
+\textbf{U}~(Unconstrained): the splitting
+direction is a learned unit-norm vector
+(equivalently a two-layer neuron).
+\textbf{E}~(Entmax): the splitting direction
+passes through $\entmax_\alpha$, a
+sparsity-inducing simplex map.
+
 
 % ============================================================
-\section{Problem Setup}
+\section{Models and Mean-Field Dynamics}
 \label{sec:setup}
 % ============================================================
 
-\subsection{Data Model}
+\subsection{Activation and Entmax}
 
-\begin{assumption}[Sparse Additive Model]
-  \label{asm:data}
-  \leavevmode
-  \begin{enumerate}[label=(\alph*)]
-    \item $x_1, \dots, x_p$ are mutually independent with
-          $\E[x_j] = 0$, $\E[x_j^2] = 1$,
-          $\E[x_j^4] \le \kappa_4$ for all $j$.
-    \item $y = \sum_{j \in S} g_j(x_j) + \varepsilon$,
-          $S \subset [p]$, $|S| = k$,
-          $\E[g_j(x_j)] = 0$, $\|g_j\|_{L^2} \le B_g$,
-          $\varepsilon \perp \vx$, $\E[\varepsilon] = 0$.
-  \end{enumerate}
-\end{assumption}
+We use $\sigma_\beta(u) = 1/(1+e^{-\beta u})$
+with Lipschitz constant $\beta/4$.
 
-\begin{assumption}[First-Order Signal]
-  \label{asm:signal}
-  $\kappa_j \coloneqq \E[g_j(x_j) x_j] \neq 0$ for all $j \in S$.
-  Write $\kappa_{\min} = \min_{j \in S} |\kappa_j|$.
-\end{assumption}
-
-\subsection{Soft Decision Stump with Entmax}
-
-A stump is parameterized by $\vtheta = (\vw, b, c) \in \R^{p+2}$:
-\begin{equation}
-  T(\vx;\,\vtheta)
-    = c \cdot \sigma_\beta\!\big(
-        \va_\alpha^\tau(\vw)^\top \vx - b
-      \big),
-  \label{eq:stump}
-\end{equation}
-where $\va_\alpha^\tau(\vw) = \entmax_\alpha(\vw/\tau) \in \simplex$.
-
-\begin{definition}[Entmax]
-  For $\alpha > 1$:
-  $\entmax_\alpha(\vz) = \argmax_{\vp \in \simplex}
-  \{\vp^\top\vz - \Omega_\alpha(\vp)\}$
-  with $\Omega_\alpha(\vp) = \frac{1}{\alpha(\alpha-1)}
-  \sum_j(p_j^\alpha - p_j)$.
-  The solution is
-  $[\entmax_\alpha(\vz)]_j
-  = [(\alpha{-}1)(z_j - \lambda^*)]_+^{1/(\alpha-1)}$
-  where $\lambda^*$ is uniquely determined by
-  $\sum_j [(\alpha{-}1)(z_j - \lambda^*)]_+^{1/(\alpha-1)} = 1$.
-  The support is $\cS(\vz) = \{j : z_j > \lambda^*\}$.
-\end{definition}
-
-\begin{lemma}[Entmax properties {\citep{blondel2020learning}}]
+\begin{lemma}[Entmax Jacobian
+  {\citep{blondel2020learning}}]
   \label{lem:entmax}
-  For $\alpha \in (1,2)$: $\entmax_\alpha$ is differentiable with
-  continuous Jacobian and is $1$-Lipschitz.
-  The Jacobian satisfies $[J_\alpha(\vz)]_{ij} = 0$ whenever
-  $j \notin \cS(\vz)$ (zero columns outside the support).
+  For $\alpha \in (1,2)$,
+  $\entmax_\alpha$ is differentiable and
+  1-Lipschitz.
+  Writing $\mathbf{p} = \entmax_\alpha(\vz)$,
+  $s_j = p_j^{2-\alpha}$,
+  $S_s = \sum_{\cS} s_m$:
+  (a)~$[J_\alpha(\vz)]_{ij} = 0$ for
+  $j \notin \cS(\vz)$.
+  (b)~For $i,j \in \cS$:
+  $[J_\alpha]_{ij}
+  = (s_i\delta_{ij} - s_is_j/S_s)/(\alpha{-}1)$.
+  (c)~At $\mathbf{p} = (1/p)\vone$:
+  $[J_\alpha]_{ij}
+  = \eta_\alpha(\delta_{ij} - 1/p)$
+  with
+  $\eta_\alpha = p^{\alpha-2}/(\alpha{-}1)$.
 \end{lemma}
 
-\subsection{Mean-Field Formulation}
 
-\begin{assumption}[Bounded Parameters]
-  \label{asm:bounded}
-  Parameters lie in
-  $\Theta = \{(\vw,b,c): \|\vw\|_\infty \le W,\,|b|\le B,\,|c|\le C\}$.
-\end{assumption}
+\subsection{Three Models}
 
-The mean-field predictor is
-$f_\mu(\vx) = \int T(\vx;\,\vtheta)\,\dmu(\vtheta)$,
-and each particle evolves by
+\paragraph{Model~E.}
+$T_E(\vx;\vtheta)
+= c\,\sigma_\beta(\va^\top\vx - b)$,
+$\va = \entmax_\alpha(\vw/\tau)$,
+$\vtheta = (\vw,b,c)$.
+
+\paragraph{Model~U.}
+$T_U(\vx;\vtheta)
+= c\,\sigma_\beta(\vw^\top\vx - b)$,
+$\norm{\vw}_2 \le 1$,
+$\vtheta = (\vw,b,c)$.
+
+\paragraph{Model~R.}
+$T_R(\vx;j,b,c)
+= c\,\sigma_\beta(x_j - b)$
+with $j \sim \mathrm{Uniform}([p])$ fixed at
+initialization.
+
+\medskip\noindent
+The $M$-stump ensemble class with
+variation-norm constraint:
 \begin{equation}
-  \dot{\vtheta}(t) = \E_{\vx}\!\big[
-    r_{\mu_t}(\vx) \cdot \nabla_{\vtheta} T(\vx;\,\vtheta(t))
+  \mathcal{F}_X^M
+  = \Big\{
+  f(\vx) = \tfrac{1}{M}\textstyle\sum_{i=1}^M
+  c_i\,\sigma_\beta(\cdots)
+  : |b_i| \le B,\;
+  \tfrac{1}{M}\textstyle\sum_i |c_i|
+  \le C_{\mathrm{var}}
+  \Big\}.
+  \label{eq:class}
+\end{equation}
+
+
+\subsection{Mean-Field Gradient Flow}
+
+If
+\(
+  \mu_M
+  =
+  \tfrac{1}{M}\sum_{i=1}^M \delta_{\vtheta_i},
+\)
+then \(f_{\mu_M}\) reproduces the finite ensemble
+in \eqref{eq:class}. This motivates the
+mean-field predictor
+\[
+  f_\mu(\vx)
+  = \int T_X(\vx;\vtheta)\,\dmu(\vtheta).
+\]
+For Models~E and~U, whose trainable coordinates
+are continuous, we consider the formal
+population Euclidean particle flow
+\begin{equation}
+  \dot{\vtheta}(t)
+  = \E_{\vx,y}\!\big[
+  r_{\mu_t}(\vx)\,
+  \nabla_{\!\vtheta} T_X(\vx;\vtheta)
   \big],
   \qquad
-  r_\mu = f^* - f_\mu.
+  r_\mu \coloneqq y - f_\mu.
   \label{eq:ode}
 \end{equation}
+For Model~R, the feature index \(j\) is a static
+label fixed at initialization, and only the
+continuous coordinates \((b,c)\) evolve:
+\[
+  \frac{\dd}{\dd t}(b,c)
+  =
+  \E_{\vx,y}\!\big[
+    r_{\mu_t}(\vx)\,
+    \nabla_{(b,c)} T_R(\vx;j,b,c)
+  \big].
+\]
+We use these population flows only as a formal
+mean-field motivation and to highlight the
+structural zeros of the original entmax-logit
+dynamics below; we do not analyze here their
+well-posedness or whether the Euclidean dynamics
+preserves the bounded parameter domain.
 
-\begin{proposition}[Mean-Field Limit]
-  \label{prop:mf}
-  Under Assumptions~\ref{asm:data}--\ref{asm:bounded}, the map
-  $\vtheta \mapsto T(\vx;\,\vtheta)$ is Lipschitz with constant
-  $L_T = 1 + C(\sqrt{p}/\tau+1)/(4\beta)$.
-  The drift is bounded on $\Theta$, so for any $T>0$,
-  choosing $W,B,C$ large enough keeps the flow in $\Theta$ on
-  $[0,T]$.
-  The propagation-of-chaos framework of \citet{mei2018mean} gives
-  $\sup_{t\in[0,T]} W_2(\mu_t^{(M)},\mu_t) \to 0$ in probability.
-\end{proposition}
+For all three models,
+$|T_X(\vx;\vtheta)| \le |c|$
+(since $\sigma_\beta \in [0,1]$), so
+$T_X$ is bounded whenever $|c|$ is bounded.
 
-% ============================================================
-\section{Main Results}
-\label{sec:main}
-% ============================================================
-
-\subsection{Irreversible Feature Exclusion}
-
-This is the failure-mode result.
-
-\begin{theorem}[Dead-Feature Absorption]
-  \label{thm:absorption}
-  Fix $\alpha \in (1,2)$, $\tau > 0$.
-  Consider the mean-field gradient flow~\eqref{eq:ode}.
-  If at time $t_0 \ge 0$, a coordinate $j$ satisfies
-  $j \notin \cS(\vw(t_0)/\tau)$, then:
-  \begin{enumerate}[label=(\alph*)]
-    \item \textbf{Weight freezing.}
-          $\dot{w}_j(t) = 0$ for all $t \ge t_0$, so
-          $w_j(t) = w_j(t_0)$ for all $t \ge t_0$.
-    \item \textbf{Threshold monotonicity.}
-          If some in-support feature $m \in \cS(\vw(t_0)/\tau)$
-          has $\dot{w}_m(t_0) > 0$, then the entmax threshold
-          satisfies $\dot{\lambda}^*(t_0) > 0$.
-    \item \textbf{Permanent exclusion.}
-          If $\dot{w}_m(t) > 0$ for at least one
-          $m \in \cS(\vw(t)/\tau)$ for all $t \ge t_0$,
-          then $j \notin \cS(\vw(t)/\tau)$ for all $t \ge t_0$.
-  \end{enumerate}
-\end{theorem}
-
-\begin{proof}
-  \emph{Part (a).}
-  The $w_j$-component of~\eqref{eq:ode} involves
-  $\frac{\partial T}{\partial w_j}
-  = c\,\sigma_\beta'(\va^\top\vx - b)
-  \sum_l \frac{1}{\tau}[J_\alpha(\vw/\tau)]_{lj}\,x_l$.
-  By Lemma~\ref{lem:entmax},
-  $[J_\alpha(\vw/\tau)]_{lj} = 0$ for all $l$ when
-  $j \notin \cS(\vw/\tau)$.
-  Hence $\frac{\partial T}{\partial w_j} = 0$, giving
-  $\dot{w}_j = 0$.
-
-  \emph{Part (b).}
-  Write $z_m = w_m/\tau$ and
-  $\vp = \entmax_\alpha(\vz)$ with $s_m = p_m^{2-\alpha}$.
-  Differentiating the normalization
-  $F(\lambda^*) \coloneqq
-  \sum_{m \in \cS} [(\alpha{-}1)(z_m - \lambda^*)]^{1/(\alpha-1)}
-  = 1$
-  with respect to time:
-  \[
-    0 = \frac{\dd F}{\dd t}
-      = \sum_{m \in \cS} s_m\,(\dot{z}_m - \dot{\lambda}^*)
-      = \sum_{m \in \cS} s_m\,\dot{z}_m
-        - (\vone^\top\vs)\,\dot{\lambda}^*.
-  \]
-  Solving:
-  \begin{equation}
-    \dot{\lambda}^*
-    = \frac{\sum_{m \in \cS} s_m\,\dot{z}_m}{\vone^\top\vs}
-    = \frac{\sum_{m \in \cS} s_m\,\dot{w}_m}
-           {\tau\,\vone^\top\vs}.
-    \label{eq:lambda-dot}
-  \end{equation}
-  Since $s_m > 0$ for $m \in \cS$ and $\dot{w}_m > 0$
-  for at least one such~$m$ (while $\dot{w}_m \ge 0$ for the others
-  during the early phase---see Theorem~\ref{thm:separation}(c)),
-  we get $\dot{\lambda}^* > 0$.
-
-  \emph{Part (c).}
-  By (a), $w_j(t) = w_j(t_0)$ for $t \ge t_0$,
-  so $z_j(t) = z_j(t_0)$ is constant.
-  By (b), $\lambda^*(t)$ is strictly increasing as long as the
-  positivity condition holds.
-  Since $j \notin \cS$ at $t_0$ means $z_j(t_0) \le \lambda^*(t_0)$,
-  and $\lambda^*$ increases while $z_j$ stays fixed,
-  $z_j(t) < \lambda^*(t)$ for all $t > t_0$.
-\end{proof}
-
-\begin{corollary}[Low-Temperature Failure]
-  \label{cor:failure}
-  If the temperature $\tau$ is low enough that some
-  $j^* \in S$ satisfies $j^* \notin \cS(\vw(0)/\tau)$,
-  and the positivity condition of
-  Theorem~\ref{thm:absorption}(c) holds, then:
-  \begin{enumerate}[label=(\alph*)]
-    \item $j^*$ is permanently excluded from the support.
-    \item The predictor $f_{\mu_t}$ cannot represent
-          $g_{j^*}(x_{j^*})$.
-    \item The excess risk satisfies
-          $R[\mu_t] - \inf_\mu R[\mu]
-          \ge \frac{1}{2}\|g_{j^*}\|_{L^2}^2$
-          for all $t \ge 0$.
-  \end{enumerate}
-\end{corollary}
-
-\begin{proof}
-  Part (a) is Theorem~\ref{thm:absorption}(c).
-  For (b): since $j^*$ is excluded, each stump's output
-  $T(\vx;\,\vtheta)$ depends on $x_{j^*}$ only through
-  $a_{j^*} x_{j^*}$ with $a_{j^*} = 0$ (entmax assigns zero weight
-  to excluded features).
-  Thus $f_{\mu_t}$ is constant in $x_{j^*}$.
-  For (c):
-  $\|f^* - f_{\mu_t}\|_{L^2}^2
-  \ge \|\E[f^* - f_{\mu_t} \mid x_{j^*}]\|_{L^2}^2
-  = \|g_{j^*} - \E[f_{\mu_t} \mid x_{j^*}]\|_{L^2}^2
-  = \|g_{j^*}\|_{L^2}^2$,
-  since $\E[f_{\mu_t} \mid x_{j^*}]$ is constant (independent of
-  $x_{j^*}$) and $\E[g_{j^*}] = 0$.
-\end{proof}
-
-\begin{remark}[When does low-temperature failure occur?]
-  \label{rem:failure-condition}
-  For symmetric initialization $\vw(0) = w_0\vone$,
-  $\cS(\vw(0)/\tau) = [p]$ for all $\tau > 0$
-  (all features in support), so failure does not occur.
-  For random initialization $w_j(0) \overset{iid}{\sim}
-  \mathcal{N}(0, \sigma_w^2)$, the spread
-  $\max_j w_j(0) - \min_j w_j(0) = \Theta(\sigma_w\sqrt{\log p})$,
-  and entmax excludes coordinates whose $w_j/\tau$ falls below
-  $\lambda^*$.
-  A sufficient condition for full support is
-  $\tau \ge C_\alpha\,\sigma_w\sqrt{\log p}$
-  for a constant $C_\alpha$ depending on~$\alpha$.
-  Below this threshold, features may be permanently lost.
-\end{remark}
-
-\subsection{Quantitative Bottleneck for Feature Selection}
-
-This is the rate result.
-We use the same notation as before:
-$G_j(\vtheta;\,\mu) = \E[r_\mu(\vx)\,\sigma_\beta'(\va^\top\vx-b)\,x_j]$.
-
-\begin{assumption}[High Temperature]
-  \label{asm:hightemp}
-  $\tau$ is large enough that $\cS(\vw/\tau) = [p]$ for all
-  $\|\vw\|_\infty \le W$.
+\begin{assumption}[Bounded data and parameter domain]
+  \label{asm:bounded}
+  $\norm{\vx}_\infty \le R$ a.s.,
+  $|y| \le B_y$ a.s.;
+  The admissible parameter domain satisfies
+  $|b| \le B$ and
+  $|c| \le C_{\max}$ in all three models, and
+  $\norm{\vw}_2 \le 1$ in Model~U.
 \end{assumption}
 
-\begin{definition}[Early Phase]
-  \label{def:early}
-  $t_{\mathrm{ep}} = \sup\{t \ge 0 :
-  \|f_{\mu_s}\|_{L^2} \le \kappa_{\min}/2
-  \;\forall s \in [0,t]\}$.
+Under Assumption~\ref{asm:bounded},
+$T_X$ is bounded
+($|T_X| \le C_{\max}$),
+Lipschitz in the trainable continuous
+coordinates
+(for Models~E/U in~\(\vtheta\), and for
+Model~R in~\((b,c)\); using
+$\sigma_\beta \in C^\infty$ and, for
+Model~E, differentiability of
+$\entmax_\alpha$ for $\alpha \in (1,2)$),
+and the population risk
+$R[\mu] = \frac{1}{2}\E[(y-f_\mu)^2]$
+is well-defined for probability measures
+supported on the admissible domain. These are
+properties of the model class, not a claim that
+the formal Euclidean flow \eqref{eq:ode}
+preserves the bounds.
+
+
+% ============================================================
+\section{Simplex Mirror Flow for Model~E}
+\label{sec:convergence}
+% ============================================================
+
+This section does not analyze the original
+population Euclidean particle flow in the
+entmax logits. Instead, it proves global
+convergence for a different optimization
+problem: an empirical mirror flow on the
+simplex-parameterized E-class.
+This is the statement needed to justify the
+class-level comparison for Model~E.
+
+\subsection{Why the Original Entmax Flow is Hard}
+
+\begin{proposition}[Structural gradient zeros
+  in Model~E]
+  \label{prop:structural-zeros}
+  For $\alpha \in (1,2)$, $\tau > 0$:
+  at any time~$t$, if
+  $j \notin \cS(\vw(t)/\tau)$ then
+  $\dot{w}_j(t) = 0$
+  (Lemma~\ref{lem:entmax}(a)).
+  Model~U has no such structural zeros
+  ($\sigma_\beta' > 0$ everywhere).
+\end{proposition}
+
+\begin{remark}[Discrete vs.\ continuous dynamics]
+  Model~E's entmax creates discrete feature
+  transitions: features enter and exit the
+  support discontinuously, and while outside,
+  receive no gradient signal.
+  Model~U's dynamics are continuous:
+  all weights evolve smoothly at all times.
+  This makes Model~E more sensitive to
+  initialization and temperature~$\tau$.
+\end{remark}
+
+
+\subsection{Simplex-Parameterized E-Class}
+
+To bypass the structural zeros, we treat the
+split direction \(\va\) itself as the primary
+parameter.
+
+\begin{definition}[Simplex stump domain]
+  \label{def:E-domain}
+  Let
+  \[
+    \Theta_E
+    \coloneqq
+    \simplex \times [-B,B] \times [-C_{\max},C_{\max}],
+  \]
+  and for \(\vtheta=(\va,b,c)\in\Theta_E\),
+  define
+  \[
+    \phi_{\vtheta}(\vx)
+    \coloneqq
+    c\,\sigma_\beta(\va^\top \vx - b).
+  \]
+  The corresponding infinite-width class is
+  \[
+    \mathcal{F}_E^\infty
+    \coloneqq
+    \Bigl\{
+      f_\mu(\vx)
+      =
+      \int_{\Theta_E}\phi_{\vtheta}(\vx)\,\dmu(\vtheta)
+      :
+      \mu \in \mathcal{P}(\Theta_E)
+    \Bigr\}.
+  \]
+  We call \(\mathcal{F}_E^\infty\) the
+  \emph{simplex-parameterized infinite-width
+  E-class}.
 \end{definition}
 
-\begin{theorem}[Feature Gradient Separation]
-  \label{thm:separation}
-  Under Assumptions~\ref{asm:data}--\ref{asm:hightemp},
-  for a particle with $c > 0$ and for $t \in [0, t_{\mathrm{ep}})$:
-  \begin{enumerate}[label=(\alph*)]
-    \item \textbf{Relevant features:}
-    $G_j = \E[r_j^{(\mu)}(x_j)\,x_j]
-    \cdot \E[\sigma_\beta'(Z_j{-}b)] + O(1/p)$
-    for $j \in S$,
-    where $Z_j = \sum_{l \neq j} a_l x_l \perp x_j$ and
-    $\E[r_j^{(\mu)} x_j] \ge \kappa_{\min}/2$ during the early phase.
+\begin{remark}
+  The original entmax stump class is contained in
+  this simplex-parameterized class, because
+  \(\entmax_\alpha(\vw/\tau)\in\simplex\) for
+  every \(\vw\).
+\end{remark}
 
-    \item \textbf{Irrelevant features:}
-    $|G_l| \le C_2/p$ for $l \notin S$.
+\begin{definition}[Empirical risk and mirror flow]
+  \label{def:E-flow}
+  Fix a training sample
+  \(D_n=\{(\vx_i,y_i)\}_{i=1}^n\)
+  satisfying Assumption~\ref{asm:bounded}.
+  For \(\mu \in \mathcal{P}(\Theta_E)\), define
+  \[
+    \hat R_n(\mu)
+    \coloneqq
+    \frac{1}{2n}
+    \sum_{i=1}^n
+    \bigl(
+      y_i - f_\mu(\vx_i)
+    \bigr)^2.
+  \]
+  Let \(m\) be a reference probability measure on
+  \(\Theta_E\) with full support, and let
+  \(q_t\) be densities with respect to~\(m\).
+  Write
+  \[
+    G_q(\vtheta)
+    \coloneqq
+    -\frac{1}{n}
+    \sum_{i=1}^n
+    \bigl(
+      y_i - f_{q\,m}(\vx_i)
+    \bigr)\phi_{\vtheta}(\vx_i),
+  \]
+  and
+  \[
+    \overline G_t
+    \coloneqq
+    \int_{\Theta_E}
+    G_{q_t}(\vtheta)\,q_t(\vtheta)\,\dd m(\vtheta).
+  \]
+  The simplex mean-field mirror flow is
+  \begin{equation}
+    \partial_t q_t(\vtheta)
+    =
+    -q_t(\vtheta)
+    \bigl(
+      G_{q_t}(\vtheta)-\overline G_t
+    \bigr).
+    \label{eq:E-mirror}
+  \end{equation}
+\end{definition}
 
-    \item \textbf{Weight dynamics:}
-    $\dot{w}_j = \frac{c}{\tau p}\,G_j + O(1/p^2)$ for $j \in S$;
-    \quad $\dot{w}_l = O(1/p^2)$ for $l \notin S$.
-
-    \item \textbf{Gap growth:}
-    $\frac{\dd}{\dd t}\Delta(\vw)
-    = \frac{c}{\tau p}\bar{G}_S + O(1/p^2)$,
-    where $\Delta(\vw) = \frac{1}{k}\sum_{j \in S} w_j
-    - \frac{1}{p-k}\sum_{l \notin S} w_l$
-    and $\bar{G}_S > 0$ during the early phase.
+\begin{theorem}[Global convergence of simplex mirror flow]
+  \label{thm:E-global}
+  Under Assumption~\ref{asm:bounded}, fix a
+  full-support reference measure \(m\) on
+  \(\Theta_E\) and an initial density \(q_0\)
+  satisfying
+  \[
+    0 < q_{\min} \le q_0(\vtheta) \le q_{\max}
+    < \infty
+    \qquad
+    \text{$m$-a.e. on \(\Theta_E\).}
+  \]
+  Then:
+  \begin{enumerate}[label=(\alph*),leftmargin=*]
+    \item the mirror flow \eqref{eq:E-mirror}
+    has a unique global solution
+    \(q_t \in C^1([0,\infty);L^1(m))\);
+    \item the empirical risk is monotone:
+    \(t \mapsto \hat R_n(q_t\,m)\) is
+    nonincreasing;
+    \item the empirical risk converges to the
+    global optimum of the simplex-parameterized
+    infinite-width E-class:
+    \[
+      \hat R_n(q_t\,m)
+      \xrightarrow[t\to\infty]{}
+      \inf_{\mu \in \mathcal{P}(\Theta_E)}
+      \hat R_n(\mu).
+    \]
   \end{enumerate}
 \end{theorem}
 
-The proof is in Section~\ref{sec:proofs}.
-Parts (a) and (b) do not assume that $r_\mu$ decomposes
-additively; the proof uses only independence of features and
-$\E[x_j] = 0$.
+\begin{proof}[Proof sketch]
+  The map \(\mu \mapsto \hat R_n(\mu)\) is convex
+  because \(f_\mu\) is linear in~\(\mu\).
+  The flow \eqref{eq:E-mirror} is the
+  infinite-dimensional exponentiated-gradient
+  flow associated with the KL geometry on
+  densities.
+  Its key identities are:
+  \[
+    \frac{\dd}{\dd t}\hat R_n(q_t\,m)
+    =
+    -\operatorname{Var}_{q_t m}(G_{q_t})
+    \le 0
+  \]
+  and, for every comparison density \(\bar q\),
+  \[
+    \hat R_n(q_t\,m) - \hat R_n(\bar q\,m)
+    \le
+    -\frac{\dd}{\dd t}
+    \mathrm{KL}(\bar q\,m \,\|\, q_t\,m).
+  \]
+  Integrating the second inequality yields a
+  \(1/t\) comparison bound against any
+  absolutely continuous competitor; an
+  approximation argument then gives convergence
+  to the global infimum over
+  \(\mathcal{P}(\Theta_E)\).
+  Full details are in
+  Appendix~\ref{app:e-mirror}.
+\end{proof}
 
-\begin{remark}[The $1/(\tau p)$ rate is the price of exploration]
-  The factor $1/p$ in the gap growth rate arises because
-  the high-temperature entmax assigns weight $1/p$ to each feature,
-  diluting the gradient signal.
-  The factor $1/\tau$ comes from the chain rule through
-  $\entmax_\alpha(\vw/\tau)$.
-  Neither factor can be removed without exiting the
-  high-temperature regime (which risks dead features by
-  Theorem~\ref{thm:absorption}).
-  This is the fundamental bottleneck:
-  exploration (high $\tau$, full support) is necessary to avoid
-  irreversible feature loss, but it directly slows feature
-  selection.
+\begin{remark}[Meaning of Theorem~\ref{thm:E-global}]
+  The theorem proves global convergence for a
+  \emph{geometry-correct} optimization of the
+  simplex-parameterized E-class.
+  It does not prove the same statement for the
+  original Euclidean particle flow in the
+  entmax logits~\(\vw\), where
+  Proposition~\ref{prop:structural-zeros}
+  creates face-crossing difficulties.
+  For the class-level comparison, however,
+  Theorem~\ref{thm:E-global} is the relevant
+  statement: the best predictor in the
+  simplex-parameterized infinite-width E-class is
+  algorithmically reachable by a natural
+  simplex-aligned mirror flow.
 \end{remark}
 
-\subsection{Pruning Time}
+\begin{remark}[Finite convex implementation]
+  \label{rem:E-eg}
+  Sampling a large finite dictionary
+  \(\{\vtheta_m\}_{m=1}^M \subset \Theta_E\)
+  and optimizing only the mixture weights by
+  exponentiated gradient yields a concrete
+  finite-particle surrogate.
+  The resulting optimization problem is convex on
+  the simplex of mixing weights and enjoys the
+  standard
+  \(O(\sqrt{\log M / T})\) regret rate.
+  The formal statement is given in
+  Appendix~\ref{app:e-mirror}.
+\end{remark}
 
-Combining the two constraints:
 
-\begin{lemma}[Entmax Support Threshold]
-  \label{lem:threshold}
-  If $\min_{j \in S} w_j - \max_{l \notin S} w_l
-  \ge \Lambda\,\tau$ with
-  $\Lambda = \Lambda(\alpha,k) = 1/((\alpha{-}1)k^{\alpha-1})$,
-  then $\cS(\vw/\tau) \subseteq S$.
-\end{lemma}
+% ============================================================
+\section{Class-Level Comparison}
+\label{sec:class}
+% ============================================================
 
-\begin{proof}
-  Since all $z_j = w_j/\tau$ for $j \in S$ exceed all $z_l$ for
-  $l \notin S$ by at least $\Lambda$, $S \subseteq \cS(\vz)$.
-  The normalization gives
-  $\lambda^* \ge \min_{j \in S} z_j - \Lambda$
-  $\ge \max_{l \notin S} z_l$,
-  so no $l \notin S$ is in the support.
-\end{proof}
+We now characterize the best predictor in each
+class.
+This section introduces the data assumptions
+and shows how the comparison depends on
+the \emph{geometry} of the target's active
+directions relative to each model's admissible
+split directions.
 
-\begin{proposition}[Conditional Pruning Time]
-  \label{prop:pruning}
-  Under symmetric initialization $\vw(0) = w_0\vone$ and
-  fixed~$\tau$, conditional on $t^* \le t_{\mathrm{ep}}$:
-  the support reduces to $S$ by time
-  \begin{equation}
-    t^* = O\!\left(\frac{\tau^2 p}{c\,\kappa_{\min}}\right).
-    \label{eq:tstar}
-  \end{equation}
-\end{proposition}
 
-\begin{proof}
-  By Theorem~\ref{thm:separation}(c),
-  $w_j(t) - w_l(t) \ge \gamma t - O(t/p^2)$ for $j \in S$,
-  $l \notin S$, where
-  $\gamma = \frac{c\kappa_{\min}}{2\tau p}
-  \inf_b \E[\sigma_\beta'(\bar{X}-b)]$.
-  Setting $\gamma t^* = \Lambda\tau$ gives $t^*$.
-\end{proof}
+\subsection{Data Model and Geometry Regimes}
 
-\subsection{The Tradeoff}
+The admissible split directions are nested:
+\[
+  \mathcal{A}_R = \{\ve_1,\dots,\ve_p\}
+  \;\subset\;
+  \mathcal{A}_E = \simplex
+  \;\subset\;
+  \mathcal{A}_U = \{\vw : \norm{\vw}_2 \le 1\}.
+\]
+The performance of each model depends on whether
+the target's active directions lie in the model's
+admissible set.
 
-Theorems~\ref{thm:absorption} and~\ref{thm:separation} together
-determine the feasible regime.
-For random initialization with spread
-$\delta_0 = \Theta(\sigma_w\sqrt{\log p})$:
-\begin{itemize}[leftmargin=*]
-  \item \textbf{Temperature lower bound}
-        (Theorem~\ref{thm:absorption}):
-        $\tau \ge C_\alpha \sigma_w \sqrt{\log p}$
-        to avoid dead features.
-  \item \textbf{Pruning time}
-        (Theorem~\ref{thm:separation} +
-        Proposition~\ref{prop:pruning}):
-        $t^* = O(\tau^2 p / (c\kappa_{\min}))$.
-  \item \textbf{Resulting time complexity}:
-        $t^* = O(\sigma_w^2 p \log p / (c\kappa_{\min}))$.
-\end{itemize}
-The $p \log p$ scaling is a concrete, non-trivial prediction:
-feature selection in $p$-dimensional soft stumps takes at least
-$\Omega(p \log p)$ gradient-flow time with random initialization,
-or $\Omega(p)$ with symmetric initialization.
-This is the quantitative price of sparsity-inducing gating.
+\begin{assumption}[General data model]
+  \label{asm:data}
+  (a)~$\E[\vx] = \mathbf{0}$,
+  $\E[\vx\vx^\top] = I_p$,
+  $\norm{\vx}_\infty \le R$ a.s.
+  (b)~The regression function satisfies
+  \[
+    y = f^*(\vx) + \varepsilon,
+    \qquad
+    f^*(\vx) = \sum_{m=1}^r g_m(\va_m^\top\vx)
+    + u(\vx),
+  \]
+  where $r \ll p$,
+  $\norm{\va_m}_2 = 1$,
+  $\E[\varepsilon \mid \vx] = 0$,
+  and $\norm{u}_{L^2} \le \eta$
+  (model mismatch).
+\end{assumption}
 
-\subsection{Residual-Driven Specialization}
-\label{sec:specialization}
+\begin{assumption}[Barron regularity]
+  \label{asm:barron}
+  Each $g_m$ admits
+  $g_m(t) = \int c\,\sigma_\beta(t{-}b)\,
+  \dd\rho_m(b,c)$
+  with variation norm
+  $V_m = \inf_{\rho_m}\int|c|\,\dd\rho_m$.
+\end{assumption}
 
-The results above concern the \emph{early phase}, where the
-mean-field interaction is weak ($f_\mu \approx 0$).
-We now show that \emph{beyond} the early phase, the residual
-coupling between stumps produces a qualitatively new phenomenon:
-\textbf{dynamic rebalancing of gradient signal across features}.
-This is a genuinely collective effect that does not occur without
-ensemble interaction.
-
-\begin{definition}[Effective signal]
-  \label{def:eff-signal}
-  For $j \in S$, the \emph{effective signal} at time $t$ is
-  \begin{equation}
-    \kappa_j^{\mathrm{eff}}(t)
-      \coloneqq \E[r_j^{(\mu_t)}(x_j) \cdot x_j]
-      = \kappa_j - \E\bigl[\E[f_{\mu_t}(\vx) \mid x_j]\cdot x_j\bigr].
-    \label{eq:eff-signal}
-  \end{equation}
+\begin{definition}[Three data regimes]
+  \label{def:regimes}
+  \leavevmode
+  \begin{enumerate}[label=(\roman*),nosep]
+    \item \emph{Vertex-compatible}:
+    $\va_m = \ve_{j_m}$ for all~$m$
+    (coordinate-sparse additive).
+    \item \emph{Simplex-compatible non-vertex}:
+    $\va_m \in \simplex$ for all~$m$,
+    but $\va_m \neq \ve_j$ for some~$m$
+    (nonneg.\ oblique, e.g.,
+    $g(x_1{+}x_2)$).
+    \item \emph{Signed-oblique}:
+    some $\va_m \notin \simplex$
+    (signed directions, e.g.,
+    $g(x_1{-}x_2)$).
+  \end{enumerate}
 \end{definition}
 
-Since $f_{\mu_t}(\vx)$ decomposes into contributions from
-each feature's stump group (by independence), we have
-$\E[f_{\mu_t} \mid x_j] = f_{\mu_t}^{(j)}(x_j) + \mathrm{const}$,
-where
-$f_{\mu_t}^{(j)}(x_j) = \int_{\mathrm{feat}=j}
-c\,\sigma_\beta(x_j - b)\,\dmu_t$
-is the ensemble's output on feature $j$.
-Thus:
-\begin{equation}
-  \kappa_j^{\mathrm{eff}}(t)
-    = \kappa_j - \E[f_{\mu_t}^{(j)}(x_j)\cdot x_j].
-  \label{eq:eff-signal-decomp}
-\end{equation}
-
-As the stumps on feature $j$ learn $g_j$,
-$\E[f_{\mu_t}^{(j)} x_j]$ increases toward $\kappa_j$,
-and $\kappa_j^{\mathrm{eff}}(t)$ decreases toward zero.
-This is the \emph{residual feedback}: learning feature~$j$
-\emph{weakens its own gradient signal}, redirecting gradient toward
-less-learned features.
-
-\begin{proposition}[Signal Crossing under Residual Coupling]
-  \label{prop:crossing}
-  Consider $k = 2$ features with
-  $\kappa_1 > \kappa_2 > 0$.
-  Suppose the mean-field dynamics is past the pruning phase
-  (support is $S = \{1,2\}$) and the stump group on feature $1$
-  makes progress in the sense that
-  $t \mapsto \E[f_{\mu_t}^{(1)}(x_1)\,x_1]$ is strictly increasing.
-  Then:
-  \begin{enumerate}[label=(\alph*)]
-    \item \textbf{Signal decay:}
-          $\kappa_1^{\mathrm{eff}}(t)$ is strictly decreasing.
-    \item \textbf{Signal crossing:}
-          There exists $t_c > 0$ such that
-          $\kappa_1^{\mathrm{eff}}(t_c) = \kappa_2^{\mathrm{eff}}(t_c)$,
-          provided $\kappa_2^{\mathrm{eff}}$ has not yet fully
-          decayed by time~$t_c$.
-          For $t > t_c$,
-          $\kappa_2^{\mathrm{eff}}(t) > \kappa_1^{\mathrm{eff}}(t)$:
-          the initially weaker feature becomes the stronger signal.
-    \item \textbf{Independent training fails to cross:}
-          Under independent training
-          (each stump minimizes $\E[(y - T(\vx;\,\vtheta))^2]$
-          without residual sharing), the effective signal is
-          $\kappa_j^{\mathrm{eff}} \equiv \kappa_j$ for all $t$,
-          so $\kappa_1^{\mathrm{eff}} > \kappa_2^{\mathrm{eff}}$
-          for all~$t$.
-          No crossing occurs.
-  \end{enumerate}
-\end{proposition}
-
-\begin{proof}
-  Part (a) follows directly from~\eqref{eq:eff-signal-decomp}:
-  $\kappa_1^{\mathrm{eff}}(t)
-  = \kappa_1 - \E[f_{\mu_t}^{(1)} x_1]$,
-  and $\E[f_{\mu_t}^{(1)} x_1]$ is increasing by assumption.
-
-  Part (b): Initially,
-  $\kappa_1^{\mathrm{eff}}(0) = \kappa_1 > \kappa_2
-  = \kappa_2^{\mathrm{eff}}(0)$.
-  If feature~$1$ is learned first (which it is, since
-  $\kappa_1 > \kappa_2$), then $\kappa_1^{\mathrm{eff}}$
-  decreases while $\kappa_2^{\mathrm{eff}}$ remains close
-  to $\kappa_2$ (feature~$2$ is not yet being learned
-  significantly).
-  By the intermediate value theorem, there exists $t_c$ such
-  that $\kappa_1^{\mathrm{eff}}(t_c) = \kappa_2^{\mathrm{eff}}(t_c)$.
-  After $t_c$, the inequality reverses.
-
-  Part (c): Without residual sharing, each stump independently
-  targets $f^*(\vx)$.
-  The gradient signal for feature $j$ in a single stump is
-  $G_j = \E[f^*(\vx)\,\sigma_\beta'(\va^\top\vx-b)\,x_j]$,
-  which is independent of other stumps' parameters.
-  The effective signal is fixed at
-  $\kappa_j^{\mathrm{eff}} = \kappa_j$ for all $t$.
-\end{proof}
-
-\begin{remark}[Why this requires mean-field theory]
-  The signal crossing is a \emph{collective} phenomenon:
-  each stump's gradient depends on the aggregate output $f_\mu$,
-  which in turn depends on the distribution of all stumps.
-  This circular dependence is precisely the mean-field interaction.
-  Without it (independent training), there is no feedback loop
-  and no rebalancing.
-  %
-  The practical consequence is that ensemble training with shared
-  residuals---as in gradient boosting and mean-field dynamics---produces
-  feature-level specialization that independent training cannot
-  achieve.
+\begin{remark}
+  The vertex-compatible regime recovers
+  the standard sparse additive model
+  ($u \equiv 0$, $r = k$, $\va_m = \ve_{j_m}$).
+  The broader formulation reveals
+  what each model is \emph{geometrically
+  matched} to.
 \end{remark}
 
-% ============================================================
-\section{Proofs}
-\label{sec:proofs}
-% ============================================================
 
-\subsection{Proof of Theorem~\ref{thm:separation}}
+\subsection{Estimation (Data-Regime Independent)}
 
-\paragraph{Setup.}
-Write $\va = \entmax_\alpha(\vw/\tau)$ with
-$a_j = 1/p + O(W/(\tau p))$ under Assumption~\ref{asm:hightemp}.
-For each $j$, decompose $\va^\top\vx = a_j x_j + Z_j$ where
-$Z_j = \sum_{l \neq j} a_l x_l \perp x_j$.
+The Rademacher complexity depends only on the
+\emph{model's} admissible direction set, not
+on the target.
 
-Define the conditional signal
-$\phi_j(x_j) = \E_{\vx_{-j}}[r_\mu(\vx) \cdot
-\sigma_\beta'(a_j x_j + Z_j - b)]$,
-so that $G_j = \E_{x_j}[\phi_j(x_j) \cdot x_j]$.
+\begin{theorem}[Rademacher complexity]
+  \label{thm:rad}
+  Under Assumption~\ref{asm:data}(a)
+  and~\ref{asm:bounded}:
+  \begin{enumerate}[label=(\alph*),leftmargin=*]
+    \item E/R:\;
+    $\Rad(\mathcal{F}_{E/R}^M)
+    = O(C_{\mathrm{var}}\beta R
+    \sqrt{\log p/n})$.
+    \item U:\;
+    $\Rad(\mathcal{F}_U^M)
+    = O(C_{\mathrm{var}}\beta R
+    \sqrt{p/n})$.
+  \end{enumerate}
+  (For~R, $p \to |J|$ with $|J| = p$
+  w.h.p.\ when $M \ge 2p\log p$.)
+\end{theorem}
 
-\paragraph{Step 1: Taylor expansion.}
-Since $a_j = O(1/p)$:
-$\sigma_\beta'(a_j x_j + Z_j - b)
-= \sigma_\beta'(Z_j - b) + \sigma_\beta''(Z_j - b)\,a_j x_j
-+ O(x_j^2/p^2)$.
+\begin{proof}
+  Contraction ($\sigma_\beta{-}1/2$ is
+  $(\beta/4)$-Lipschitz, vanishes at~$0$)
+  reduces to the linear Rademacher:
+  $R\sqrt{2\log p/n}$ (simplex, E/R)
+  or $R\sqrt{p/n}$ ($\ell_2$ ball, U).
+\end{proof}
 
-The mean-field predictor satisfies
-$f_\mu(\vx) = f_\mu^{(0)}(\vx_{-j}) + h_j(\vx_{-j})\,x_j
-+ O(x_j^2/p^2)$,
-where $h_j = \int c' a_j' \sigma_\beta'(Z_j' - b')\dmu = O(C/(4\beta p))$
-pointwise, and the remainder bound
-$|O(x_j^2/p^2)| \le Cx_j^2/(4\beta^2 p^2)$
-holds uniformly over $\mu$ supported on $\Theta$.
+\begin{remark}
+  The $\sqrt{\log p}$ vs.\ $\sqrt{p}$ gap
+  is an architectural consequence of
+  simplex vs.\ $\ell_2$ ball---it holds
+  in all three data regimes.
+\end{remark}
 
-\paragraph{Step 2: Part (b) ($l \notin S$).}
-$\phi_l(x_l) = \phi_l^{(0)} + \phi_l'(0)\,x_l + O(x_l^2/p^2)$
-where $\phi_l^{(0)} = \E_{\vx_{-l}}[(f^*(x_S) - f_\mu^{(0)})
-\sigma_\beta'(Z_l - b)]$
-is independent of $x_l$.
-Since $\E[x_l] = 0$:
-$G_l = \phi_l^{(0)} \cdot 0 + \phi_l'(0) \cdot \E[x_l^2]
-+ O(\E[|x_l|^3]/p^2) = \phi_l'(0) + O(1/p^2)$.
 
-Now $\phi_l'(0) = a_l\,\E[(f^*{-}f_\mu^{(0)})\sigma_\beta''(Z_l{-}b)]
-- \E[h_l\,\sigma_\beta'(Z_l{-}b)]$.
-Both terms are $O(1/p)$:
-$|a_l| \le 1/p + O(W/(\tau p))$ and $|h_l| \le C/(4\beta p)$.
-So $|G_l| \le C_2/p$.
-This proves part (b).
+\subsection{Approximation (Data-Regime Dependent)}
 
-\paragraph{Step 3: Part (a) ($j \in S$).}
-The residual contains $g_j(x_j)$:
-$\phi_j(x_j)
-= g_j(x_j)\,\E_{Z_j}[\sigma_\beta'(Z_j{-}b)]
-+ (\text{terms independent of } x_j) + O(x_j/p)$.
+Unlike estimation, the approximation error
+depends on the \emph{match} between the model's
+admissible directions and the target's active
+directions.
 
-Hence $G_j = \E[g_j(x_j)x_j]\,\E[\sigma_\beta'(Z_j{-}b)]
-- \E[\E[f_\mu \mid x_j]\,x_j]\,\E[\sigma_\beta'(Z_j{-}b)]
-+ O(1/p)$.
+We first define the two geometry-mismatch
+quantities, then state the approximation
+theorem.
 
-During the early phase, $\|f_\mu\|_{L^2} \le \kappa_{\min}/2$, so
-by Jensen's inequality
-$|\E[\E[f_\mu \mid x_j]\,x_j]| \le \|f_\mu\|_{L^2}
-\le \kappa_{\min}/2$.
-Thus $\E[r_j^{(\mu)}(x_j)\,x_j] \ge |\kappa_j| - \kappa_{\min}/2
-\ge \kappa_{\min}/2$.
-This proves part (a).
+\begin{definition}[Geometry mismatch]
+  \label{def:mismatch}
+  \emph{Simplex distance.}\;
+  For a unit direction~$\va$,
+  $d_E(\va) = \inf_{\bar\va \in \simplex}
+  \norm{\va - \bar\va}_2$.
+  %
+  \emph{Projection bias.}\;
+  The additive-projection error of~$f^*$ is
+  \[
+  \Gamma_{\mathrm{add}}(f^*)
+  = \mathrm{Var}(f^*)
+  - \textstyle\sum_{j=1}^p
+  \mathrm{Var}(\E[f^* \mid x_j]),
+  \]
+  i.e., the total interaction variance in
+  the ANOVA decomposition under independent
+  features.
+\end{definition}
 
-\paragraph{Step 4: Parts (c) and (d).}
-$\dot{w}_j = \frac{c}{\tau}(\frac{G_j}{p}
-- \frac{\sum_l G_l}{p^2}) + O(1/p^2)
-= \frac{c}{\tau p}\,G_j + O(1/p^2)$
-for $j \in S$ (since $\sum_l G_l = O(k)$ gives
-$\sum G_l/p^2 = O(1/p^2)$).
-For $l \notin S$: $G_l = O(1/p)$, so $\dot{w}_l = O(1/p^2)$.
-The gap dynamics follows. \qed
+\begin{remark}[Quantifying projection bias]
+  \label{rem:proj-bias}
+  For a single ridge
+  $g(\va^\top\vx)$ with centered
+  nonlinear~$g$
+  and independent Gaussian $x_j$,
+  the projection bias has the form
+  \[
+  \Gamma_{\mathrm{add}}
+  = \mathrm{Var}(g)
+  \cdot \big(1 - \norm{\va}_4^4\big)
+  + \textup{higher-order terms}.
+  \]
+  The ``spread factor''
+  $1 - \norm{\va}_4^4 \in [0,\,1{-}1/p]$
+  measures how far $\va$ is from a
+  coordinate axis:
+  $\norm{\ve_j}_4^4 = 1$ (vertex, bias${}=0$);
+  $a_l = 1/\sqrt{s}$ on $s$~coordinates gives
+  $1 - 1/s$;
+  fully spread gives $1 - 1/p \approx 1$.
+  For linear~$g$, $\Gamma_{\mathrm{add}} = 0$
+  (additive decomposition is exact).
+  The bias is significant only when~$g$ is
+  nonlinear \emph{and} $\va$ is oblique.
+\end{remark}
+
+\begin{theorem}[Approximation by regime]
+  \label{thm:approx}
+  Under
+  Assumptions~\ref{asm:data}--\ref{asm:barron}
+  with $C_{\mathrm{var}} \ge \sum_m V_m$ and
+  $V_m = V$:
+  \begin{enumerate}[label=(\roman*),leftmargin=*]
+    \item \emph{Vertex-compatible}
+    ($\va_m = \ve_{j_m}$, $\eta = 0$):\;
+    E/U achieve $r^2V^2/M$;
+    R achieves $O(rpV^2/M)$
+    (w.h.p., random allocation).
+    \item \emph{Simplex-compatible}
+    ($\va_m \in \simplex$):\;
+    E/U achieve $r^2V^2/M + \eta^2$;
+    R incurs
+    \[
+    \Gamma_{\mathrm{add}}(f^*)
+    + O(rpV^2/M),
+    \]
+    where $\Gamma_{\mathrm{add}} \ge 0$
+    is the projection bias
+    (Definition~\ref{def:mismatch};
+    quantified in Remark~\ref{rem:proj-bias}).
+    \item \emph{Signed-oblique}
+    ($\va_m \notin \simplex$):\;
+    U achieves $r^2V^2/M + \eta^2$.
+    E incurs a simplex-mismatch bias:
+    \[
+    \inf_{\mathcal{F}_E^M}
+    \norm{f^*{-}f}^2
+    \le
+    \Big(\frac{\beta}{4}
+    \textstyle\sum_m V_m\,d_E(\va_m)\Big)^2
+    + \frac{r^2V^2}{M}
+    + \eta^2.
+    \]
+    R incurs
+    $\Gamma_{\mathrm{add}}(f^*)
+    + O(rpV^2/M)$
+    (both biases).
+  \end{enumerate}
+\end{theorem}
+
+\begin{proof}
+  (i)~Barron--Jones
+  \citep{barron1993universal,jones1992simple}
+  for E/U (active directions in
+  $\mathcal{A}_E \cap \mathcal{A}_U$);
+  per-feature Barron--Jones + Chernoff
+  + Lemma~\ref{lem:cross} for R.
+  (ii)~E/U: same Barron--Jones
+  (directions in $\mathcal{A}_E$);
+  R: decompose error as
+  $\norm{f^* - h_{\mathrm{add}}^*}^2
+  + \norm{h_{\mathrm{add}}^* - f_R}^2$
+  where $h_{\mathrm{add}}^*$ is the best
+  additive approximation.
+  (iii)~For E: replace each $\va_m$ by
+  $\bar\va_m \in \simplex$ with
+  $\norm{\va_m - \bar\va_m}_2
+  = d_E(\va_m)$.
+  The $L^2$ error per ridge:
+  $\norm{g_m(\va_m^\top\vx)
+  - g_m(\bar\va_m^\top\vx)}_{L^2}
+  \le (\beta/4)\,V_m\,d_E(\va_m)$,
+  using $\sigma_\beta$-Lipschitz and
+  $\norm{(\va_m{-}\bar\va_m)^\top\vx}_{L^2}
+  = d_E(\va_m)$
+  (since $\E[\vx\vx^\top] = I$).
+  Sum over $m$ and add Barron--Jones
+  discretization.
+\end{proof}
+
+\begin{table}[t]
+\centering
+\caption{Approximation error by data regime
+($\eta = 0$, $V_m = V$).
+Each cell shows the dominant term beyond
+the universal $O(r^2V^2/M)$ discretization.}
+\label{tab:approx-regime}
+\small
+\begin{tabular}{@{}lccc@{}}
+  \toprule
+  Data regime & R & E & U \\
+  \midrule
+  Vertex
+  & $O(rpV^2/M)$
+  & $O(r^2V^2/M)$
+  & $O(r^2V^2/M)$ \\[3pt]
+  Simplex
+  & $\Gamma_{\mathrm{add}}(f^*)
+    {+}\,O(\frac{rpV^2}{M})$
+  & $O(r^2V^2/M)$
+  & $O(r^2V^2/M)$ \\[3pt]
+  Signed-obl.
+  & $\Gamma_{\mathrm{add}}(f^*)
+    {+}\,O(\frac{rpV^2}{M})$
+  & $O(\beta^2 r^2 V^2 d_E^2)
+    {+}\,O(\frac{r^2V^2}{M})$
+  & $O(r^2V^2/M)$ \\
+  \bottomrule
+\end{tabular}
+\end{table}
+
+\begin{remark}[Interpretation of the biases]
+  $\Gamma_{\mathrm{add}}$ is irreducible
+  (does not vanish as $M \to \infty$):
+  coordinate-additive stumps fundamentally
+  cannot represent nonlinear oblique ridges.
+  The simplex bias
+  $O(\beta^2 r^2 V^2 d_E^2)$ is also
+  irreducible but $p$-independent;
+  it depends only on how far the target
+  directions are from the simplex.
+  Model~U's approximation is always
+  $O(r^2V^2/M + \eta^2)$:
+  it pays no geometry-mismatch penalty in any
+  regime, at the cost of higher estimation
+  ($\sqrt{p/n}$ vs.\ $\sqrt{\log p/n}$).
+\end{remark}
+
+
+\subsection{End-to-End Excess Risk}
+
+\begin{theorem}[ERM excess risk]
+  \label{thm:excess}
+  Let $\hat{f}_X$ be the ERM over
+  $\mathcal{F}_X^M$.
+  With probability $\ge 1{-}\delta$:
+  \[
+  R[\hat{f}_X] - R^*
+  \le \underbrace{
+  \inf_{\mathcal{F}_X^M}\norm{f^*{-}f}^2
+  }_{\textup{approx (regime-dep.)}}
+  + \underbrace{
+  O((B_y{+}C_{\mathrm{var}})
+  \Rad(\mathcal{F}_X^M))
+  }_{\textup{estimation (regime-indep.)}}
+  + \textup{conc.}
+  \]
+  For Model~E, Section~\ref{sec:convergence}
+  shows that the corresponding
+  simplex-parameterized infinite-width class
+  optimum is algorithmically reachable by
+  simplex mirror flow.
+\end{theorem}
+
+\begin{remark}[Each model has a winning regime]
+  \label{rem:winning}
+  \begin{itemize}[nosep]
+    \item \textbf{Vertex-compatible}:
+    E wins (best estimation $\sqrt{\log p/n}$
+    + best approximation $r^2V^2/M$).
+    R is safe but pays $\Theta(p/r)$
+    in stump count.
+    \item \textbf{Simplex-compatible}:
+    E and U are both geometry-matched;
+    E has better estimation
+    ($\sqrt{\log p}$ vs.\ $\sqrt{p}$);
+    R is mismatched.
+    \item \textbf{Signed-oblique}:
+    U is the only geometry-matched model.
+    E pays a simplex-mismatch bias;
+    R pays both biases.
+    U's estimation cost $\sqrt{p/n}$ is
+    the price of this flexibility.
+  \end{itemize}
+\end{remark}
+
 
 % ============================================================
 \section{Discussion}
 \label{sec:discussion}
 % ============================================================
 
-\paragraph{What this theory uncovers.}
-The qualitative advice ``explore broadly, then sparsify'' is
-common wisdom.
-The contribution of this paper is not that advice, but the
-identification of precise dynamical mechanisms that underlie it:
-(i)~absorbing dead-feature states that give a
-\emph{lower bound on temperature}
-(Theorem~\ref{thm:absorption});
-(ii)~a $O(1/(\tau p))$ gap-growth bottleneck that gives an
-\emph{upper bound on selection speed}
-(Theorem~\ref{thm:separation});
-and (iii)~residual-driven signal crossing that shows
-why ensemble coupling produces feature-level specialization
-(Proposition~\ref{prop:crossing}).
-The interplay of (i) and (ii) yields a concrete
-time--temperature tradeoff ($t^* = O(\tau^2 p)$);
-result~(iii) shows that this tradeoff is not merely a constraint
-but part of a richer dynamics in which the ensemble self-organizes
-across features.
+\paragraph{Summary.}
+We studied three feature-selection strategies
+in mean-field soft decision stump ensembles
+along two axes.
+On the \emph{optimization} axis
+(Section~\ref{sec:convergence}):
+we showed that Model~E admits a
+geometry-correct global optimization theory:
+after reparameterizing split directions
+directly on the simplex,
+the simplex mirror flow converges to the
+global optimum of the simplex-parameterized
+infinite-width E-class.
+On the \emph{performance} axis
+(Section~\ref{sec:class}):
+the excess risk decomposes into
+a regime-independent estimation term
+(governed by the simplex-vs-ball
+architecture) and a regime-dependent
+approximation term (governed by the
+geometry match between model and data).
+The three data regimes
+(vertex-compatible, simplex-compatible,
+signed-oblique) each favor a different model
+(Table~\ref{tab:approx-regime},
+Remark~\ref{rem:winning}).
 
-\paragraph{Implications for model design.}
-The $\Omega(p)$ lower bound on feature-selection time
-(with symmetric initialization) reveals a structural disadvantage
-of gradient-trained soft trees relative to greedy (hard) trees:
-greedy splitting evaluates each feature independently and does
-not pay the $1/p$ dilution cost.
-This may partially explain the continued practical dominance of
-hard tree ensembles on high-dimensional tabular
-data~\citep{grinsztajn2022tree}.
-On the other hand, Proposition~\ref{prop:crossing} shows a
-potential advantage of soft-tree ensembles: the residual coupling
-creates feature-level specialization that could lead to
-more balanced coverage of multi-feature targets than
-independent stump training.
+\paragraph{No single model dominates.}
+E has the best estimation
+($\sqrt{\log p/n}$) and the best
+approximation when the target is
+simplex-compatible---but it is
+geometry-mismatched for signed-oblique
+targets.
+U handles all target geometries at the cost
+of $\sqrt{p/n}$ estimation.
+R avoids all dynamics overhead but is
+limited to coordinate-aligned targets and
+pays a $\Theta(p/r)$ stump penalty.
+The \emph{choice of model is a bet on the
+data geometry}: vertex → E or R;
+simplex → E; signed-oblique → U.
 
 \paragraph{Limitations.}
-Our analysis of feature discovery (Theorems~\ref{thm:absorption}
-and~\ref{thm:separation}) is restricted to the early phase.
-Proposition~\ref{prop:crossing} goes beyond the early phase
-but assumes that in-support features make progress; a fully
-coupled gap--risk analysis remains open.
-Throughout, we assume depth-one trees, additive targets with
-independent covariates, and first-order signal ($\kappa_j \neq 0$).
-Extending to deeper trees, feature interactions, and higher
-information exponents are important open directions.
+Our setting is stylized: depth-one stumps
+and uncorrelated features.
+The optimization theorem in
+Section~\ref{sec:convergence} concerns the
+simplex mirror flow for the
+simplex-parameterized E-class, not the
+original Euclidean particle flow in the
+entmax logits.
+Whether the original entmax-logit dynamics
+also converges globally remains open.
+We do not prove comparable global
+optimization statements here for Model~U.
+Empirical validation is not provided.
+
+
+% ============================================================
+\appendix
+\section{Proofs}
+
+\subsection{Proofs for Section~\ref{sec:convergence}}
+\label{app:e-mirror}
+
+\begin{proposition}[Convexity of the simplex E-risk]
+  \label{prop:E-convex}
+  The map
+  \(
+    \mu \mapsto \hat R_n(\mu)
+  \)
+  is convex on \(\mathcal{P}(\Theta_E)\).
+\end{proposition}
+
+\begin{proof}
+  The predictor
+  \(
+    f_\mu(\vx)
+    =
+    \int_{\Theta_E}\phi_{\vtheta}(\vx)\,\dmu(\vtheta)
+  \)
+  is linear in~\(\mu\), and
+  \[
+    (u_1,\dots,u_n)
+    \mapsto
+    \frac{1}{2n}\sum_{i=1}^n (y_i-u_i)^2
+  \]
+  is convex.
+  Composing a convex map with a linear map
+  gives convexity.
+\end{proof}
+
+\begin{proposition}[Functional derivative]
+  \label{prop:E-derivative}
+  For a density \(q\) with respect to~\(m\),
+  let
+  \[
+    r_q(\vx_i)
+    \coloneqq
+    y_i - f_{q\,m}(\vx_i).
+  \]
+  Then the first variation of \(\hat R_n(q\,m)\)
+  is
+  \[
+    G_q(\vtheta)
+    =
+    -\frac{1}{n}
+    \sum_{i=1}^n
+    r_q(\vx_i)\,\phi_{\vtheta}(\vx_i).
+  \]
+  Moreover,
+  \begin{align}
+    \norm{G_q}_{L^\infty(m)}
+    &\le C_{\max}(B_y + C_{\max}),
+    \label{eq:app-G-bdd}\\
+    \norm{G_q-G_{\tilde q}}_{L^\infty(m)}
+    &\le
+    C_{\max}^2 \norm{q-\tilde q}_{L^1(m)}.
+    \label{eq:app-G-lip}
+  \end{align}
+\end{proposition}
+
+\begin{proof}
+  Let \(h \in L^1(m)\) with \(\int h\,\dd m=0\).
+  Since
+  \[
+    f_{(q+\varepsilon h)m}(\vx_i)
+    =
+    f_{q\,m}(\vx_i)
+    + \varepsilon
+    \int \phi_{\vtheta}(\vx_i)h(\vtheta)\,\dd m(\vtheta),
+  \]
+  differentiating at \(\varepsilon=0\) yields
+  \[
+    \frac{\dd}{\dd\varepsilon}
+    \hat R_n((q+\varepsilon h)m)\Big|_{\varepsilon=0}
+    =
+    \int G_q(\vtheta)h(\vtheta)\,\dd m(\vtheta).
+  \]
+  This gives the derivative formula.
+
+  Because \(\abs{\phi_{\vtheta}(\vx_i)} \le \abs{c}
+  \le C_{\max}\),
+  \[
+    \abs{f_{q\,m}(\vx_i)}
+    \le
+    \int \abs{\phi_{\vtheta}(\vx_i)}q(\vtheta)\,\dd m(\vtheta)
+    \le C_{\max},
+  \]
+  hence
+  \(
+    \abs{r_q(\vx_i)} \le B_y + C_{\max}
+  \),
+  which proves \eqref{eq:app-G-bdd}.
+  Also,
+  \[
+    \abs{f_{q\,m}(\vx_i)-f_{\tilde q\,m}(\vx_i)}
+    \le
+    C_{\max}\norm{q-\tilde q}_{L^1(m)},
+  \]
+  and substituting this in the formula for
+  \(G_q-G_{\tilde q}\) gives
+  \eqref{eq:app-G-lip}.
+\end{proof}
+
+\begin{proposition}[Well-posedness of the mirror flow]
+  \label{prop:E-wellposed}
+  Under the assumptions of
+  Theorem~\ref{thm:E-global}, the mirror flow
+  \eqref{eq:E-mirror} has a unique global
+  solution \(q_t \in C^1([0,\infty);L^1(m))\).
+  For every \(t\ge 0\):
+  \begin{enumerate}[label=(\alph*),nosep]
+    \item \(q_t\) is a probability density,
+    \item \(q_t(\vtheta) > 0\) for \(m\)-a.e.
+    \(\vtheta\),
+    \item
+    \[
+      q_t(\vtheta)
+      =
+      q_0(\vtheta)\,
+      \exp\!\Bigl(
+        -\int_0^t
+        (G_{q_s}(\vtheta)-\overline G_s)\,\dd s
+      \Bigr).
+    \]
+  \end{enumerate}
+\end{proposition}
+
+\begin{proof}
+  Define
+  \[
+    \mathcal V(q)
+    \coloneqq
+    -q\bigl(G_q-\langle G_q,q\rangle_m\bigr),
+    \qquad
+    \langle G_q,q\rangle_m
+    \coloneqq
+    \int G_q q\,\dd m.
+  \]
+  By Proposition~\ref{prop:E-derivative},
+  \(G_q\) is bounded uniformly and Lipschitz from
+  \(L^1(m)\) to \(L^\infty(m)\). Thus
+  \(\mathcal V\) is locally Lipschitz on
+  \(L^1(m)\), so Picard--Lindel\"of gives a
+  unique local solution \(q_t\) on a maximal
+  interval \([0,T_{\max})\).
+
+  Integrating \eqref{eq:E-mirror} over
+  \(\Theta_E\) gives
+  \[
+    \frac{\dd}{\dd t}\int q_t\,\dd m = 0,
+  \]
+  hence the total mass stays equal to~\(1\).
+  Therefore \(\norm{q_t}_{L^1(m)}=1\) on
+  \([0,T_{\max})\). Since
+  \(\norm{G_q}_{L^\infty(m)}
+  \le C_{\max}(B_y+C_{\max})\),
+  \[
+    \norm{\mathcal V(q_t)}_{L^1(m)}
+    \le
+    \norm{q_t}_{L^1(m)}
+    \norm{
+      G_{q_t}-\langle G_{q_t},q_t\rangle_m
+    }_{L^\infty(m)}
+    \le 2C_{\max}(B_y+C_{\max}),
+  \]
+  so blow-up cannot occur in finite time and the
+  local solution extends globally.
+  The explicit formula follows by solving the
+  scalar ODE pointwise in~\(\vtheta\), and the
+  positivity of \(q_0\) is preserved.
+\end{proof}
+
+\begin{proposition}[Risk dissipation and KL inequality]
+  \label{prop:E-kl}
+  Along the mirror flow:
+  \begin{align}
+    \frac{\dd}{\dd t}\hat R_n(q_t\,m)
+    &=
+    -\operatorname{Var}_{q_t m}(G_{q_t})
+    \le 0,
+    \label{eq:app-dissipation}\\
+    \hat R_n(q_t\,m)-\hat R_n(\bar q\,m)
+    &\le
+    -\frac{\dd}{\dd t}
+    \mathrm{KL}(\bar q\,m \,\|\, q_t\,m)
+    \label{eq:app-kl}
+  \end{align}
+  for every comparison density \(\bar q\) with
+  \(\mathrm{KL}(\bar q\,m \,\|\, q_0\,m)<\infty\).
+  Consequently, for every \(T>0\),
+  \begin{equation}
+    \hat R_n(q_T\,m)-\hat R_n(\bar q\,m)
+    \le
+    \frac{
+      \mathrm{KL}(\bar q\,m \,\|\, q_0\,m)
+    }{T}.
+    \label{eq:app-ergodic}
+  \end{equation}
+\end{proposition}
+
+\begin{proof}
+  By the chain rule and
+  Proposition~\ref{prop:E-derivative},
+  \[
+    \frac{\dd}{\dd t}\hat R_n(q_t\,m)
+    =
+    \int G_{q_t}(\vtheta)\,
+    \partial_t q_t(\vtheta)\,\dd m(\vtheta).
+  \]
+  Substituting \eqref{eq:E-mirror} gives
+  \[
+    -\int G_{q_t}^2 q_t\,\dd m
+    + \Bigl(\int G_{q_t}q_t\,\dd m\Bigr)^2,
+  \]
+  which is
+  \(-\operatorname{Var}_{q_t m}(G_{q_t})\).
+
+  For the KL derivative, use
+  Proposition~\ref{prop:E-wellposed}:
+  \[
+    \frac{\dd}{\dd t}
+    \mathrm{KL}(\bar q\,m \,\|\, q_t\,m)
+    =
+    -\int \bar q(\vtheta)
+    \frac{\partial_t q_t(\vtheta)}{q_t(\vtheta)}
+    \,\dd m(\vtheta).
+  \]
+  Substituting \eqref{eq:E-mirror},
+  \[
+    \frac{\dd}{\dd t}
+    \mathrm{KL}(\bar q\,m \,\|\, q_t\,m)
+    =
+    \int G_{q_t}(\bar q-q_t)\,\dd m.
+  \]
+  By convexity of \(\hat R_n\)
+  (Proposition~\ref{prop:E-convex}),
+  \[
+    \hat R_n(\bar q\,m)
+    \ge
+    \hat R_n(q_t\,m)
+    + \int G_{q_t}(\bar q-q_t)\,\dd m,
+  \]
+  which yields \eqref{eq:app-kl}. Integrating
+  over \([0,T]\) and using the monotonicity from
+  \eqref{eq:app-dissipation} gives
+  \eqref{eq:app-ergodic}.
+\end{proof}
+
+\begin{lemma}[Absolutely continuous approximation]
+  \label{lem:E-approx}
+  Let \(\mu^\star \in \mathcal{P}(\Theta_E)\).
+  For every \(\varepsilon>0\), there exists a
+  bounded density \(\bar q_\varepsilon\) with
+  respect to~\(m\) such that
+  \[
+    \hat R_n(\bar q_\varepsilon\,m)
+    \le
+    \hat R_n(\mu^\star) + \varepsilon
+  \]
+  and
+  \(
+    \mathrm{KL}(\bar q_\varepsilon\,m \,\|\, q_0\,m)
+    < \infty.
+  \)
+\end{lemma}
+
+\begin{proof}
+  Since \(\Theta_E\) is compact and the family of
+  functions
+  \(
+    \{\vtheta \mapsto \phi_{\vtheta}(\vx_i)\}_{i=1}^n
+  \)
+  is continuous, it is uniformly continuous.
+  Hence there exists \(\delta>0\) such that,
+  whenever \(d(\vtheta,\vtheta')\le\delta\),
+  \[
+    \max_{1\le i\le n}
+    \abs{
+      \phi_{\vtheta}(\vx_i)-\phi_{\vtheta'}(\vx_i)
+    }
+    \le \eta_\varepsilon
+  \]
+  for a tolerance \(\eta_\varepsilon>0\) chosen
+  sufficiently small below.
+
+  Choose a finite Borel partition
+  \(\Theta_E=\bigsqcup_{\ell=1}^L A_\ell\) with
+  \(\operatorname{diam}(A_\ell)\le\delta\), and
+  pick \(\vtheta_\ell \in A_\ell\). Define
+  \[
+    \tilde\mu
+    \coloneqq
+    \sum_{\ell=1}^L
+    \mu^\star(A_\ell)\,\delta_{\vtheta_\ell}.
+  \]
+  Then
+  \[
+    \max_{1\le i\le n}
+    \abs{
+      f_{\mu^\star}(\vx_i)-f_{\tilde\mu}(\vx_i)
+    }
+    \le \eta_\varepsilon.
+  \]
+
+  After merging repeated support points, assume
+  \(\vtheta_1,\dots,\vtheta_L\) are distinct.
+  Choose pairwise disjoint open neighborhoods
+  \(U_\ell \ni \vtheta_\ell\) so small that
+  \(m(U_\ell)>0\) for every \(\ell\) (by full
+  support of~\(m\)) and
+  \[
+    \sup_{\vtheta \in U_\ell}
+    \max_{1\le i\le n}
+    \abs{
+      \phi_{\vtheta}(\vx_i)-\phi_{\vtheta_\ell}(\vx_i)
+    }
+    \le \eta_\varepsilon.
+  \]
+  Define
+  \[
+    \bar q_\varepsilon(\vtheta)
+    \coloneqq
+    \sum_{\ell=1}^L
+    \mu^\star(A_\ell)\,
+    \frac{\mathbf{1}_{U_\ell}(\vtheta)}{m(U_\ell)}.
+  \]
+  Because the \(U_\ell\) are disjoint,
+  \(\bar q_\varepsilon\) is a bounded density.
+  Moreover,
+  \[
+    \max_{1\le i\le n}
+    \abs{
+      f_{\bar q_\varepsilon m}(\vx_i)-f_{\tilde\mu}(\vx_i)
+    }
+    \le \eta_\varepsilon.
+  \]
+  The empirical risk depends only on the finitely
+  many bounded moments
+  \(
+    \int \phi_{\vtheta}(\vx_i)\,\dmu(\vtheta),
+  \)
+  so choosing \(\eta_\varepsilon\) sufficiently
+  small gives
+  \[
+    \hat R_n(\bar q_\varepsilon\,m)
+    \le
+    \hat R_n(\mu^\star) + \varepsilon.
+  \]
+  Since \(q_0 \ge q_{\min}>0\) a.e.,
+  \(\mathrm{KL}(\bar q_\varepsilon\,m \,\|\, q_0\,m)\)
+  is finite.
+\end{proof}
+
+\begin{proof}[Proof of Theorem~\ref{thm:E-global}]
+  Existence and monotonicity are exactly
+  Proposition~\ref{prop:E-wellposed} and
+  \eqref{eq:app-dissipation}.
+
+  Let
+  \[
+    \hat R_n^\star
+    \coloneqq
+    \inf_{\mu \in \mathcal{P}(\Theta_E)}
+    \hat R_n(\mu),
+  \]
+  and choose \(\mu^\star\) attaining this
+  infimum. Such a minimizer exists because
+  \(\Theta_E\) is compact and
+  \(\hat R_n\) is continuous under weak
+  convergence of measures.
+
+  Fix \(\varepsilon>0\), and let
+  \(\bar q_\varepsilon\) be given by
+  Lemma~\ref{lem:E-approx}. Applying
+  \eqref{eq:app-ergodic} to \(\bar q_\varepsilon\)
+  yields
+  \[
+    \hat R_n(q_T\,m)
+    -
+    \hat R_n(\bar q_\varepsilon\,m)
+    \le
+    \frac{
+      \mathrm{KL}(\bar q_\varepsilon\,m \,\|\, q_0\,m)
+    }{T}.
+  \]
+  Therefore
+  \[
+    \limsup_{T\to\infty}
+    \bigl(
+      \hat R_n(q_T\,m) - \hat R_n^\star
+    \bigr)
+    \le \varepsilon.
+  \]
+  Since \(\varepsilon\) is arbitrary and
+  \(\hat R_n(q_T\,m)\ge \hat R_n^\star\), the
+  limit exists and equals~\(0\).
+\end{proof}
+
+\begin{proposition}[Finite convex surrogate]
+  \label{prop:E-eg}
+  Sample
+  \(\vtheta_1,\dots,\vtheta_M \in \Theta_E\)
+  from the reference measure~\(m\), and define
+  \[
+    f_\pi(\vx)
+    \coloneqq
+    \sum_{m=1}^M \pi_m \phi_{\vtheta_m}(\vx),
+    \qquad
+    \pi \in \Delta^{M-1}.
+  \]
+  Then
+  \(
+    \pi \mapsto \hat R_n(\pi)
+  \)
+  is convex on \(\Delta^{M-1}\).
+  Exponentiated gradient on~\(\pi\) satisfies
+  the standard regret bound
+  \[
+    \frac{1}{T}
+    \sum_{t=0}^{T-1}
+    \bigl(
+      \hat R_n(\pi^t)-\hat R_n(\pi^\star)
+    \bigr)
+    \le
+    O\!\Bigl(
+      C_{\max}(B_y+C_{\max})
+      \sqrt{\frac{\log M}{T}}
+    \Bigr).
+  \]
+\end{proposition}
+
+\begin{proof}
+  Convexity follows because \(f_\pi\) is linear
+  in~\(\pi\) and the squared loss is convex.
+  The partial derivatives satisfy
+  \[
+    \Bigl|
+    \frac{\partial \hat R_n}{\partial \pi_m}
+    \Bigr|
+    \le C_{\max}(B_y+C_{\max}),
+  \]
+  so the standard mirror-descent regret bound on
+  the finite simplex applies.
+\end{proof}
+
+\subsection{Cross-Term Bound}
+
+\begin{lemma}
+  \label{lem:cross}
+  For $h_j(x_j)$ of independent variables
+  with $|S|{=}k$:
+  $\E[(\sum_S h_j)^2]
+  \le (1{+}k)\sum_S\E[h_j^2]$.
+\end{lemma}
+
+\begin{proof}
+  $\E[(\sum h_j)^2]
+  = \sum\E[h_j^2]
+  + 2\sum_{j<l}\E[h_j]\E[h_l]$.
+  By Cauchy--Schwarz:
+  $|2\sum_{j<l}a_ja_l|
+  \le (k{-}1)\sum a_j^2
+  \le k\sum\E[h_j^2]$.
+\end{proof}
+
 
 % ============================================================
 \begin{thebibliography}{99}
 
-\bibitem[Blondel et~al.(2020)]{blondel2020learning}
-M.~Blondel, A.~F.~T. Martins, and V.~Niculae.
-\newblock Learning with {Fenchel-Young} losses.
+\bibitem[Ba et~al.(2022)]{ba2022high}
+J.~Ba et~al.
+\newblock High-dimensional asymptotics of
+  feature learning.
+\newblock \emph{NeurIPS}, 2022.
+
+\bibitem[Barron(1993)]{barron1993universal}
+A.~R.~Barron.
+\newblock Universal approximation bounds for
+  superpositions of a sigmoidal function.
+\newblock \emph{IEEE TIT}, 39(3):930--945, 1993.
+
+\bibitem[Bartlett \& Mendelson(2002)]
+  {bartlett2002rademacher}
+P.~L.~Bartlett and S.~Mendelson.
+\newblock Rademacher and Gaussian complexities.
+\newblock \emph{JMLR}, 3:463--482, 2002.
+
+\bibitem[Blondel et~al.(2020)]
+  {blondel2020learning}
+M.~Blondel, A.~F.~T.~Martins, and V.~Niculae.
+\newblock Learning with Fenchel-Young losses.
 \newblock \emph{JMLR}, 21(35):1--69, 2020.
 
-\bibitem[Chizat and Bach(2018)]{chizat2018global}
+\bibitem[Chizat \& Bach(2018)]
+  {chizat2018global}
 L.~Chizat and F.~Bach.
-\newblock On the global convergence of gradient descent for
-  over-parameterized models using optimal transport.
-\newblock In \emph{NeurIPS}, 2018.
+\newblock On the global convergence of gradient
+  descent for over-parameterized models.
+\newblock \emph{NeurIPS}, 2018.
 
-\bibitem[Frosst and Hinton(2017)]{frosst2017distilling}
+\bibitem[Frosst \& Hinton(2017)]
+  {frosst2017distilling}
 N.~Frosst and G.~Hinton.
-\newblock Distilling a neural network into a soft decision tree.
-\newblock In \emph{CEx Workshop at AI*IA}, 2017.
+\newblock Distilling a neural network into a
+  soft decision tree.
+\newblock \emph{CEx Workshop}, 2017.
 
-\bibitem[Grinsztajn et~al.(2022)]{grinsztajn2022tree}
-L.~Grinsztajn, E.~Oyallon, and G.~Varoquaux.
-\newblock Why do tree-based models still outperform deep learning on
-  typical tabular data?
-\newblock In \emph{NeurIPS}, 2022.
+\bibitem[Hazimeh et~al.(2020)]
+  {hazimeh2020tree}
+H.~Hazimeh et~al.
+\newblock The tree ensemble layer.
+\newblock \emph{ICML}, 2020.
 
-\bibitem[Hazimeh et~al.(2020)]{hazimeh2020tree}
-H.~Hazimeh, N.~Ponomareva, P.~Mol, Z.~Tan, and R.~Mazumder.
-\newblock The tree ensemble layer: Differentiability meets conditional
-  computation.
-\newblock In \emph{ICML}, 2020.
+\bibitem[Ho(1998)]{ho1998random}
+T.~K.~Ho.
+\newblock The random subspace method for
+  constructing decision forests.
+\newblock \emph{IEEE TPAMI}, 20(8):832--844, 1998.
+
+\bibitem[Jones(1992)]{jones1992simple}
+L.~K.~Jones.
+\newblock A simple lemma on greedy approximation.
+\newblock \emph{Ann.\ Statist.},
+  20(1):608--613, 1992.
+
+\bibitem[Makovoz(1996)]{makovoz1996random}
+Y.~Makovoz.
+\newblock Random approximants and neural networks.
+\newblock \emph{J.~Approx.\ Theory},
+  85(1):98--109, 1996.
 
 \bibitem[Mei et~al.(2018)]{mei2018mean}
-S.~Mei, A.~Montanari, and P.-M. Nguyen.
-\newblock A mean field view of the landscape of two-layer neural
-  networks.
+S.~Mei, A.~Montanari, and P.-M.~Nguyen.
+\newblock A mean field view of two-layer
+  neural networks.
 \newblock \emph{PNAS}, 115(33):E7665--E7671, 2018.
 
-\bibitem[Peters et~al.(2019)]{peters2019sparse}
-B.~Peters, V.~Niculae, and A.~F.~T. Martins.
+\bibitem[Peters et~al.(2019)]
+  {peters2019sparse}
+B.~Peters, V.~Niculae, and
+A.~F.~T.~Martins.
 \newblock Sparse sequence-to-sequence models.
-\newblock In \emph{ACL}, 2019.
+\newblock \emph{ACL}, 2019.
 
-\bibitem[Popov et~al.(2020)]{popov2020neural}
+\bibitem[Popov et~al.(2020)]
+  {popov2020neural}
 S.~Popov, S.~Morozov, and A.~Babenko.
-\newblock Neural oblivious decision ensembles for deep learning on
-  tabular data.
-\newblock In \emph{ICLR}, 2020.
+\newblock Neural oblivious decision ensembles.
+\newblock \emph{ICLR}, 2020.
+
+\bibitem[Rahimi \& Recht(2007)]
+  {rahimi2007random}
+A.~Rahimi and B.~Recht.
+\newblock Random features for large-scale
+  kernel machines.
+\newblock \emph{NeurIPS}, 2007.
 
 \end{thebibliography}
 

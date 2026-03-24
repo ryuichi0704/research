@@ -1,0 +1,240 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage[nameinlink,noabbrev]{cleveref}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  citecolor=blue!50!black,
+  urlcolor=blue!50!black,
+}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{remark}[theorem]{Remark}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\PP}{\mathcal{P}}
+\newcommand{\dd}{\,\mathrm{d}}
+
+\title{Companion Note: Reduced-Surrogate and One-Feature Analyses}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This companion note archives the reduced-surrogate calculations that were removed from the main Level-B mean-field note in order to keep the main story architecture-faithful.
+The results below are still useful as mechanism calculations, but they should be read as auxiliary rather than as the core theory for TabM/BatchEnsemble.
+\end{abstract}
+
+\section{Scope}
+
+The main note now focuses on
+\begin{enumerate}[leftmargin=2em]
+  \item the abstract fixed-$M$ mean-field PDE, and
+  \item the semifaithful Level-B two-layer MLP-style model with global head modulations.
+\end{enumerate}
+This companion note collects two more aggressive simplifications:
+\begin{enumerate}[leftmargin=2em]
+  \item a particle-friendly reduced scalar surrogate, and
+  \item one-feature special cases used to study small-time coupling generation.
+\end{enumerate}
+These models are useful for explicit algebra, but they are not meant to be exact transcriptions of the official TabM architecture.
+
+\section{Reduced Scalar Surrogate}
+
+We begin with the reduced independent-head surrogate
+\begin{equation}
+  \psi_\alpha(x;\theta)
+  =
+  a_\alpha \sigma(v_\alpha w^\top x),
+  \qquad
+  \theta=(w,(a_\alpha,v_\alpha)_{\alpha=1}^M).
+  \label{eq:tabm-proxy}
+\end{equation}
+It keeps
+\begin{enumerate}[leftmargin=2em]
+  \item one shared hidden feature $w$,
+  \item a member-specific scalar modulation $v_\alpha$,
+  \item an independent output coefficient $a_\alpha$ for each member.
+\end{enumerate}
+
+For brevity, write
+\[
+  h_\alpha(x;\theta)=v_\alpha w^\top x,
+  \qquad
+  s_\alpha(x;\theta)=\sigma(h_\alpha(x;\theta)),
+  \qquad
+  \dot{s}_\alpha(x;\theta)=\sigma'(h_\alpha(x;\theta)).
+\]
+
+\begin{proposition}[Exact gradients and kernels for the reduced scalar surrogate]
+\label{prop:explicit-kernel}
+For the model \eqref{eq:tabm-proxy},
+\[
+  \partial_{a_\alpha}\psi_\alpha(x;\theta)=s_\alpha(x;\theta),
+\]
+\[
+  \partial_{v_\alpha}\psi_\alpha(x;\theta)
+  =
+  a_\alpha \dot{s}_\alpha(x;\theta)\, w^\top x,
+\]
+\[
+  \nabla_w \psi_\alpha(x;\theta)
+  =
+  a_\alpha v_\alpha \dot{s}_\alpha(x;\theta)\, x.
+\]
+Consequently, for $\alpha \neq \beta$,
+\begin{equation}
+  K_{\alpha\beta}(x,x';\rho)
+  =
+  \int
+  a_\alpha v_\alpha \dot{s}_\alpha(x;\theta)\,
+  a_\beta v_\beta \dot{s}_\beta(x';\theta)\,
+  (x^\top x')
+  \,\rho(\dd \theta),
+  \label{eq:offdiag}
+\end{equation}
+while the diagonal entries are
+\begin{align}
+  K_{\alpha\alpha}(x,x';\rho)
+  &=
+  \int
+  s_\alpha(x;\theta)s_\alpha(x';\theta)\,\rho(\dd \theta)
+  \nonumber\\
+  &\quad
+  +
+  \int
+  a_\alpha^2 \dot{s}_\alpha(x;\theta)\dot{s}_\alpha(x';\theta)
+  (w^\top x)(w^\top x')
+  \,\rho(\dd \theta)
+  \nonumber\\
+  &\quad
+  +
+  \int
+  a_\alpha^2 v_\alpha^2 \dot{s}_\alpha(x;\theta)\dot{s}_\alpha(x';\theta)
+  (x^\top x')
+  \,\rho(\dd \theta).
+  \label{eq:diag}
+\end{align}
+\end{proposition}
+
+\begin{proof}
+The derivative formulas follow directly from the chain rule.
+For example,
+\[
+  \nabla_w \psi_\alpha(x;\theta)
+  =
+  a_\alpha \sigma'(v_\alpha w^\top x)\, v_\alpha x
+  =
+  a_\alpha v_\alpha \dot{s}_\alpha(x;\theta)\, x.
+\]
+
+Now compute
+\[
+  K_{\alpha\beta}(x,x';\rho)
+  =
+  \int
+  \langle \nabla_\theta \psi_\alpha(x;\theta),\nabla_\theta \psi_\beta(x';\theta) \rangle
+  \,\rho(\dd \theta).
+\]
+If $\alpha\neq\beta$, the coordinates $a_\alpha,v_\alpha$ and $a_\beta,v_\beta$ are disjoint, so the only common trainable coordinate is $w$.
+This gives \eqref{eq:offdiag}.
+If $\alpha=\beta$, the $a_\alpha$-, $v_\alpha$-, and shared $w$-coordinates all contribute, yielding \eqref{eq:diag}.
+\end{proof}
+
+\begin{remark}
+For the independent-head reduced surrogate, off-diagonal coupling is carried entirely by the shared feature coordinate $w$.
+This is the cleanest algebraic expression of the intuition that independent output heads suppress direct output-level collectivity.
+\end{remark}
+
+\subsection{Comparison with a shared-output surrogate}
+
+Consider instead
+\begin{equation}
+  \psi_\alpha^{\mathrm{full}}(x;\theta)
+  =
+  a\, \sigma(v_\alpha w^\top x),
+  \label{eq:full-be}
+\end{equation}
+where the output coordinate $a$ is shared across ensemble members.
+
+\begin{proposition}[A reduced shared-output surrogate has an extra off-diagonal term]
+\label{prop:shared-output}
+For the proxy \eqref{eq:full-be}, the off-diagonal kernel entries satisfy, for $\alpha\neq\beta$,
+\begin{align}
+  K^{\mathrm{full}}_{\alpha\beta}(x,x';\rho)
+  &=
+  \int
+  \sigma(v_\alpha w^\top x)\,
+  \sigma(v_\beta w^\top x')
+  \,\rho(\dd \theta)
+  \nonumber\\
+  &\quad
+  +
+  \int
+  a^2 v_\alpha v_\beta
+  \sigma'(v_\alpha w^\top x)\sigma'(v_\beta w^\top x')
+  (x^\top x')
+  \,\rho(\dd \theta).
+  \label{eq:full-be-kernel}
+\end{align}
+Compared with \eqref{eq:offdiag}, there is an additional direct shared-output contribution
+\[
+  \int
+  \sigma(v_\alpha w^\top x)\,
+  \sigma(v_\beta w^\top x')
+  \,\rho(\dd \theta).
+\]
+\end{proposition}
+
+\begin{proof}
+Differentiate \eqref{eq:full-be}:
+\[
+  \partial_a \psi_\alpha^{\mathrm{full}}(x;\theta)
+  =
+  \sigma(v_\alpha w^\top x),
+\]
+\[
+  \nabla_w \psi_\alpha^{\mathrm{full}}(x;\theta)
+  =
+  a v_\alpha \sigma'(v_\alpha w^\top x)\, x.
+\]
+If $\alpha\neq\beta$, the coordinates $v_\alpha$ and $v_\beta$ are disjoint, but now the output coordinate $a$ is shared.
+Hence the inner product has two surviving pieces: the product of the $a$-derivatives and the product of the $w$-derivatives.
+This gives \eqref{eq:full-be-kernel}.
+\end{proof}
+
+\begin{remark}
+The point of \cref{prop:explicit-kernel,prop:shared-output} is structural rather than architectural:
+independent output coordinates remove the most direct shared-output source of off-diagonal coupling,
+while shared hidden features still provide an indirect coupling mechanism.
+\end{remark}
+
+\section{Archived Small-Time Analyses}
+
+\input{tabm_meanfield_levelc_smalltime_body.tex}
+
+\begin{thebibliography}{2}
+
+\bibitem{embedded-ensembles}
+M.~Velikanov, R.~Kail, I.~Anokhin, R.~Vashurin, M.~Panov, A.~Zaytsev, and D.~Yarotsky.
+\newblock \emph{Embedded Ensembles: Infinite Width Limit and Operating Regimes}.
+\newblock AISTATS, 2022.
+
+\end{thebibliography}
+
+\end{document}

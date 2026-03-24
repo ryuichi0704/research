@@ -1,0 +1,1094 @@
+\subsection{A rigorous small-time coupling-generation theorem in a minimal shared-feature proxy}
+
+The previous results explain why exact symmetry suppresses headwise disagreement.
+The next question is whether training can create off-diagonal coupling from an initially decoupled state.
+For the multidimensional reduced surrogate \eqref{eq:tabm-proxy}, a general small-time theorem still remains open.
+However, one can already prove the phenomenon in a minimal special case that still retains the key mechanism:
+independent output heads coupled only through one shared feature coordinate.
+
+\begin{proposition}[A minimal shared-feature proxy creates off-diagonal coupling at second order]
+\label{prop:small-time-generation}
+Consider the one-dimensional proxy
+\begin{equation}
+  \psi_\alpha(x;\theta)=a_\alpha w x,
+  \qquad
+  \theta=(w,a_1,\dots,a_M)\in \R^{M+1},
+  \label{eq:minimal-proxy}
+\end{equation}
+which is the linear-activation special case of an independent-head shared-feature model.
+Assume squared loss
+\[
+  \ell(z,y)=\frac12 (z-y)^2,
+\]
+and a single-atom data law
+\[
+  \mathsf P=\delta_{(1,y_*)}
+  \qquad
+  \text{with } y_*\neq 0.
+\]
+Let $\rho_t$ denote a local deterministic mean-field solution for this polynomial model, smooth at $t=0$.
+Assume the initial law $\rho_0$ is exchangeable across the coordinates $(a_\alpha)_{\alpha=1}^M$ and satisfies
+\[
+  w=1
+  \qquad
+  \rho_0\text{-almost surely},
+\]
+\[
+  \int a_\alpha\,\rho_0(\dd \theta)=0,
+  \qquad
+  \int a_\alpha a_\beta\,\rho_0(\dd \theta)=0
+  \quad
+  (\alpha\neq\beta),
+\]
+and
+\[
+  \int a_\alpha^2\,\rho_0(\dd \theta)=\sigma_a^2>0.
+\]
+Then for every $\alpha\neq\beta$,
+\begin{equation}
+  K_{\alpha\beta}(1,1;\rho_0)=0,
+  \qquad
+  \frac{\dd}{\dd t}K_{\alpha\beta}(1,1;\rho_t)\Big|_{t=0}=0,
+  \label{eq:small-time-zero}
+\end{equation}
+but
+\begin{equation}
+  \frac{\dd^2}{\dd t^2}K_{\alpha\beta}(1,1;\rho_t)\Big|_{t=0}
+  =
+  \frac{2y_*^2(1+\sigma_a^2)}{M^2}
+  >0.
+  \label{eq:small-time-positive}
+\end{equation}
+Consequently,
+\[
+  K_{\alpha\beta}(1,1;\rho_t)>0
+  \qquad
+  \text{for all sufficiently small } t>0.
+\]
+\end{proposition}
+
+\begin{proof}
+For the proxy \eqref{eq:minimal-proxy}, the output is
+\[
+  f_\alpha(1;\rho)=\int a_\alpha w\,\rho(\dd \theta).
+\]
+The polynomial particle flow associated with \eqref{eq:minimal-proxy} is permutation-equivariant in the coordinates $(a_\alpha)_{\alpha=1}^M$.
+Since $\rho_0$ is exchangeable, $\rho_t$ remains exchangeable for small times, and therefore all head outputs coincide.
+We denote this common output by
+\[
+  m(t)=f_\alpha(1;\rho_t).
+\]
+Write
+\[
+  r(t)=m(t)-y_*,
+  \qquad
+  \bar a=\frac1M \sum_{\gamma=1}^M a_\gamma.
+\]
+The mean-field potential equals
+\[
+  V(\theta;\rho_t)
+  =
+  \frac1M \sum_{\gamma=1}^M r(t)\,a_\gamma w
+  =
+  r(t)\,\bar a\,w.
+\]
+Therefore the particle dynamics is
+\begin{equation}
+  \dot w = -r(t)\bar a,
+  \qquad
+  \dot a_\alpha = -\frac{r(t)}{M}w.
+  \label{eq:minimal-flow}
+\end{equation}
+
+For $\alpha\neq\beta$, the off-diagonal kernel comes only from the shared coordinate $w$:
+\[
+  K_{\alpha\beta}(1,1;\rho_t)
+  =
+  \int a_\alpha a_\beta\,\rho_t(\dd \theta).
+\]
+Define
+\[
+  C_{\alpha\beta}(t)=K_{\alpha\beta}(1,1;\rho_t)=\int a_\alpha a_\beta\,\rho_t(\dd \theta).
+\]
+By the assumptions on $\rho_0$,
+\[
+  C_{\alpha\beta}(0)=0.
+\]
+
+Differentiate along the flow \eqref{eq:minimal-flow}:
+\begin{align}
+  \dot C_{\alpha\beta}(t)
+  &=
+  \int \bigl(\dot a_\alpha a_\beta + a_\alpha \dot a_\beta\bigr)\,\rho_t(\dd \theta)
+  \nonumber\\
+  &=
+  -\frac{r(t)}{M}
+  \int w(a_\alpha+a_\beta)\,\rho_t(\dd \theta).
+  \label{eq:first-C}
+\end{align}
+At $t=0$, we have $r(0)=-y_*$, $w=1$, and the means of $a_\alpha,a_\beta$ are zero.
+Hence $\dot C_{\alpha\beta}(0)=0$, proving \eqref{eq:small-time-zero}.
+
+Differentiate \eqref{eq:first-C} once more:
+\begin{align}
+  \ddot C_{\alpha\beta}(t)
+  &=
+  -\frac{\dot r(t)}{M}
+  \int w(a_\alpha+a_\beta)\,\rho_t(\dd \theta)
+  \nonumber\\
+  &\quad
+  -\frac{r(t)}{M}
+  \int \dot w (a_\alpha+a_\beta)\,\rho_t(\dd \theta)
+  \nonumber\\
+  &\quad
+  -\frac{r(t)}{M}
+  \int w(\dot a_\alpha+\dot a_\beta)\,\rho_t(\dd \theta).
+  \label{eq:second-C}
+\end{align}
+At $t=0$, the first line vanishes again because
+\[
+  \int w(a_\alpha+a_\beta)\,\rho_0(\dd \theta)=0.
+\]
+Using \eqref{eq:minimal-flow}, $w=1$, and $r(0)=-y_*$, we obtain
+\[
+  \dot w(0)=y_* \bar a,
+  \qquad
+  \dot a_\alpha(0)=\dot a_\beta(0)=\frac{y_*}{M}.
+\]
+Substituting into \eqref{eq:second-C} yields
+\begin{align*}
+  \ddot C_{\alpha\beta}(0)
+  &=
+  \frac{y_*^2}{M}
+  \int \bar a(a_\alpha+a_\beta)\,\rho_0(\dd \theta)
+  +
+  \frac{2y_*^2}{M^2}
+  \int 1\,\rho_0(\dd \theta).
+\end{align*}
+By exchangeability and the moment assumptions,
+\[
+  \int \bar a(a_\alpha+a_\beta)\,\rho_0(\dd \theta)
+  =
+  \frac1M
+  \sum_{\gamma=1}^M
+  \int a_\gamma(a_\alpha+a_\beta)\,\rho_0(\dd \theta)
+  =
+  \frac{2\sigma_a^2}{M}.
+\]
+Therefore
+\[
+  \ddot C_{\alpha\beta}(0)
+  =
+  \frac{2y_*^2 \sigma_a^2}{M^2}
+  +
+  \frac{2y_*^2}{M^2}
+  =
+  \frac{2y_*^2(1+\sigma_a^2)}{M^2},
+\]
+which is \eqref{eq:small-time-positive}.
+Since $C_{\alpha\beta}(t)$ is $C^2$ in time for this polynomial flow,
+Taylor's theorem implies
+\[
+  C_{\alpha\beta}(t)
+  =
+  \frac12 \ddot C_{\alpha\beta}(0)t^2 + o(t^2),
+\]
+so $C_{\alpha\beta}(t)>0$ for all sufficiently small $t>0$.
+\end{proof}
+
+\begin{remark}
+\Cref{prop:small-time-generation} is intentionally modest but conceptually important.
+It shows that one does not need a shared output parameter to create collective coupling:
+a single shared feature coordinate already suffices.
+Thus, even in an independent-head architecture, training can move the system away from an initially decoupled state.
+What remains open is to prove an analogue for the full multidimensional reduced surrogate \eqref{eq:tabm-proxy},
+and beyond that for an architecture-faithful layerwise surrogate of BatchEnsemble/TabM.
+\end{remark}
+
+\begin{proposition}[A nonlinear one-feature proxy yields an explicit second-order criterion]
+\label{prop:nonlinear-small-time}
+Consider the one-dimensional nonlinear proxy
+\begin{equation}
+  \psi_\alpha(x;\theta)=a_\alpha \sigma(wx),
+  \qquad
+  \theta=(w,a_1,\dots,a_M)\in \R^{M+1},
+  \label{eq:one-feature-proxy}
+\end{equation}
+with $\sigma \in C^3(\R)$.
+Assume squared loss
+\[
+  \ell(z,y)=\frac12 (z-y)^2,
+\]
+and the single-atom data law
+\[
+  \mathsf P=\delta_{(1,y_*)}
+  \qquad
+  \text{with } y_*\neq 0.
+\]
+Let $\rho_t$ denote a local deterministic mean-field solution for this model, smooth at $t=0$.
+Assume the initial law $\rho_0$ satisfies
+\[
+  w=w_0
+  \qquad
+  \rho_0\text{-almost surely},
+\]
+and that the coordinates $a_1,\dots,a_M$ are independent, identically distributed, centered, and symmetric, with variance
+\[
+  \int a_\alpha^2\,\rho_0(\dd \theta)=\tau^2>0.
+\]
+Then, for every $\alpha\neq\beta$,
+\[
+  K_{\alpha\beta}(1,1;\rho_0)=0,
+  \qquad
+  \frac{\dd}{\dd t}K_{\alpha\beta}(1,1;\rho_t)\Big|_{t=0}=0,
+\]
+and
+\begin{equation}
+  \frac{\dd^2}{\dd t^2}K_{\alpha\beta}(1,1;\rho_t)\Big|_{t=0}
+  =
+  \frac{2y_*^2 \sigma'(w_0)^2}{M^2}\,
+  \Gamma_\sigma(w_0,\tau^2),
+  \label{eq:nonlinear-second}
+\end{equation}
+where
+\begin{equation}
+  \Gamma_\sigma(w_0,\tau^2)
+  =
+  \sigma(w_0)^2
+  +
+  \tau^2 \sigma'(w_0)^2
+  +
+  4\tau^2 \sigma(w_0)\sigma''(w_0)
+  +
+  2\tau^4
+  \bigl(
+    2\sigma''(w_0)^2+\sigma'(w_0)\sigma'''(w_0)
+  \bigr).
+  \label{eq:gamma-sigma}
+\end{equation}
+In particular, if
+\[
+  \Gamma_\sigma(w_0,\tau^2)>0,
+\]
+then
+\[
+  K_{\alpha\beta}(1,1;\rho_t)>0
+  \qquad
+  \text{for all sufficiently small }t>0.
+\]
+\end{proposition}
+
+\begin{proof}
+Write
+\[
+  S(w)=\sigma(w),
+  \qquad
+  D(w)=\sigma'(w),
+  \qquad
+  E(w)=\sigma''(w),
+  \qquad
+  G(w)=\sigma'''(w).
+\]
+For the proxy \eqref{eq:one-feature-proxy},
+\[
+  f_\alpha(1;\rho)=\int a_\alpha S(w)\,\rho(\dd \theta).
+\]
+By exchangeability, the deterministic outputs coincide for small times; write
+\[
+  m(t)=f_\alpha(1;\rho_t),
+  \qquad
+  r(t)=m(t)-y_*,
+  \qquad
+  \bar a=\frac1M \sum_{\gamma=1}^M a_\gamma.
+\]
+The mean-field potential is
+\[
+  V(\theta;\rho_t)
+  =
+  \frac1M \sum_{\gamma=1}^M r(t)a_\gamma S(w)
+  =
+  r(t)\bar a S(w),
+\]
+so the particle dynamics is
+\begin{equation}
+  \dot w=-r(t)\bar a D(w),
+  \qquad
+  \dot a_\alpha=-\frac{r(t)}{M}S(w).
+  \label{eq:one-feature-flow}
+\end{equation}
+
+For $\alpha\neq\beta$, the off-diagonal kernel is
+\[
+  K_{\alpha\beta}(1,1;\rho_t)
+  =
+  \int a_\alpha a_\beta D(w)^2\,\rho_t(\dd \theta).
+  \label{eq:one-feature-kernel}
+\]
+Define
+\[
+  C_{\alpha\beta}(t)=K_{\alpha\beta}(1,1;\rho_t).
+\]
+Because $a_\alpha$ and $a_\beta$ are independent and centered under $\rho_0$,
+\[
+  C_{\alpha\beta}(0)=0.
+  \label{eq:one-feature-zero}
+\]
+
+We first record the moments that will be used repeatedly:
+\begin{equation}
+  \E_{\rho_0}[a_\alpha]=0,
+  \qquad
+  \E_{\rho_0}[a_\alpha a_\beta]=0
+  \quad (\alpha\neq\beta),
+  \qquad
+  \E_{\rho_0}[a_\alpha \bar a]=\frac{\tau^2}{M},
+  \label{eq:one-feature-moments-1}
+\end{equation}
+\begin{equation}
+  \E_{\rho_0}[a_\alpha a_\beta \bar a]=0,
+  \qquad
+  \E_{\rho_0}[a_\alpha a_\beta \bar a^2]=\frac{2\tau^4}{M^2}
+  \quad (\alpha\neq\beta).
+  \label{eq:one-feature-moments-2}
+\end{equation}
+The last identity follows by expanding
+\[
+  \bar a^2
+  =
+  \frac1{M^2}\sum_{i,j=1}^M a_i a_j
+\]
+and using independence and centering:
+only the pairs $(i,j)=(\alpha,\beta)$ and $(i,j)=(\beta,\alpha)$ survive.
+
+At time $0$, write
+\[
+  S_0=S(w_0),
+  \qquad
+  D_0=D(w_0),
+  \qquad
+  E_0=E(w_0),
+  \qquad
+  G_0=G(w_0).
+\]
+Because $m(0)=0$, we have
+\[
+  r(0)=-y_*.
+\]
+From \eqref{eq:one-feature-flow},
+\begin{equation}
+  \dot a_\alpha(0)=\frac{y_* S_0}{M},
+  \qquad
+  \dot w(0)=y_* D_0 \bar a.
+  \label{eq:one-feature-first}
+\end{equation}
+
+Differentiate $m(t)=\E_{\rho_t}[a_\alpha S(w)]$ at $t=0$:
+\[
+  \dot m(0)
+  =
+  \E_{\rho_0}\bigl[\dot a_\alpha(0)S_0 + a_\alpha D_0 \dot w(0)\bigr]
+  =
+  \frac{y_*S_0^2}{M}
+  +
+  \frac{y_*\tau^2 D_0^2}{M},
+\]
+where we used \eqref{eq:one-feature-moments-1}.
+Hence
+\begin{equation}
+  \dot r(0)=\frac{y_*}{M}\bigl(S_0^2+\tau^2 D_0^2\bigr).
+  \label{eq:one-feature-rdot}
+\end{equation}
+Differentiating \eqref{eq:one-feature-flow} once more gives
+\begin{equation}
+  \ddot a_\alpha(0)
+  =
+  -\frac{y_*S_0}{M^2}\bigl(S_0^2+\tau^2 D_0^2\bigr)
+  +
+  \frac{y_*^2 D_0^2}{M}\bar a,
+  \label{eq:one-feature-addot}
+\end{equation}
+\begin{equation}
+  \ddot w(0)
+  =
+  \frac{y_*^2 S_0 D_0}{M}
+  -
+  \frac{y_*D_0}{M}\bigl(S_0^2+\tau^2 D_0^2\bigr)\bar a
+  +
+  y_*^2 D_0 E_0 \bar a^2.
+  \label{eq:one-feature-wddot}
+\end{equation}
+
+Now differentiate \eqref{eq:one-feature-kernel}.
+Since
+\[
+  \frac{\dd}{\dd t} D(w(t))^2 = 2D(w(t))E(w(t))\dot w(t),
+\]
+we obtain
+\[
+  \dot C_{\alpha\beta}(t)
+  =
+  \E_{\rho_t}
+  \Bigl[
+    \bigl(\dot a_\alpha a_\beta + a_\alpha \dot a_\beta\bigr)D(w)^2
+    +
+    2a_\alpha a_\beta D(w)E(w)\dot w
+  \Bigr].
+\]
+Evaluating at $t=0$ and using \eqref{eq:one-feature-first}, \eqref{eq:one-feature-moments-1}, and \eqref{eq:one-feature-moments-2},
+\[
+  \dot C_{\alpha\beta}(0)=0.
+  \label{eq:one-feature-first-zero}
+\]
+
+Differentiate once more.
+Using
+\[
+  \frac{\dd^2}{\dd t^2} D(w(t))^2
+  =
+  2\bigl(E(w)^2+D(w)G(w)\bigr)\dot w(t)^2
+  +
+  2D(w)E(w)\ddot w(t),
+\]
+we get
+\begin{align}
+  \ddot C_{\alpha\beta}(0)
+  &=
+  D_0^2\,
+  \E_{\rho_0}
+  \bigl[
+    \ddot a_\alpha(0)a_\beta
+    +
+    2\dot a_\alpha(0)\dot a_\beta(0)
+    +
+    a_\alpha \ddot a_\beta(0)
+  \bigr]
+  \nonumber\\
+  &\quad
+  +
+  4D_0E_0\,
+  \E_{\rho_0}
+  \bigl[
+    \bigl(\dot a_\alpha(0)a_\beta+a_\alpha \dot a_\beta(0)\bigr)\dot w(0)
+  \bigr]
+  \nonumber\\
+  &\quad
+  +
+  \E_{\rho_0}
+  \Bigl[
+    a_\alpha a_\beta
+    \bigl(
+      2(E_0^2+D_0G_0)\dot w(0)^2
+      +
+      2D_0E_0\ddot w(0)
+    \bigr)
+  \Bigr].
+  \label{eq:one-feature-second-start}
+\end{align}
+
+We compute the three lines separately.
+By \eqref{eq:one-feature-first}, \eqref{eq:one-feature-addot}, and \eqref{eq:one-feature-moments-1},
+\begin{align}
+  \text{first line of \eqref{eq:one-feature-second-start}}
+  &=
+  \frac{2y_*^2 D_0^2}{M^2}
+  \bigl(
+    S_0^2+\tau^2 D_0^2
+  \bigr).
+  \label{eq:one-feature-line1}
+\end{align}
+Using \eqref{eq:one-feature-first} and \eqref{eq:one-feature-moments-1},
+\begin{align}
+  \text{second line of \eqref{eq:one-feature-second-start}}
+  &=
+  \frac{8y_*^2 \tau^2 S_0 D_0^2 E_0}{M^2}.
+  \label{eq:one-feature-line2}
+\end{align}
+Finally, using \eqref{eq:one-feature-first}, \eqref{eq:one-feature-wddot}, and \eqref{eq:one-feature-moments-2},
+\begin{align}
+  \text{third line of \eqref{eq:one-feature-second-start}}
+  &=
+  \frac{4y_*^2 \tau^4 D_0^2}{M^2}
+  \bigl(
+    2E_0^2+D_0G_0
+  \bigr).
+  \label{eq:one-feature-line3}
+\end{align}
+Summing \eqref{eq:one-feature-line1}--\eqref{eq:one-feature-line3} proves
+\[
+  \ddot C_{\alpha\beta}(0)
+  =
+  \frac{2y_*^2 D_0^2}{M^2}
+  \Bigl[
+    S_0^2
+    +
+    \tau^2 D_0^2
+    +
+    4\tau^2 S_0 E_0
+    +
+    2\tau^4(2E_0^2+D_0G_0)
+  \Bigr],
+\]
+which is exactly \eqref{eq:nonlinear-second}--\eqref{eq:gamma-sigma}.
+If $\Gamma_\sigma(w_0,\tau^2)>0$, Taylor's theorem gives
+\[
+  C_{\alpha\beta}(t)
+  =
+  \frac12 \ddot C_{\alpha\beta}(0)t^2 + o(t^2)
+  >0
+\]
+for all sufficiently small $t>0$.
+\end{proof}
+
+\begin{remark}
+\Cref{prop:nonlinear-small-time} is substantially stronger than the linear toy theorem.
+It gives an explicit second-order criterion for whether shared-feature learning creates positive collective coupling:
+the sign is controlled by $\Gamma_\sigma(w_0,\tau^2)$.
+Therefore the onset of collectivity is not universal even in this one-feature proxy;
+it depends quantitatively on the activation, the feature initialization, and the head variance.
+\end{remark}
+
+\begin{corollary}[Activation-dependent onset of collectivity]
+\label{cor:activation-examples}
+Under the assumptions of \cref{prop:nonlinear-small-time}:
+\begin{enumerate}[leftmargin=2em]
+  \item if $\sigma(z)=z$, then
+  \[
+    \Gamma_\sigma(w_0,\tau^2)=w_0^2+\tau^2>0,
+  \]
+  so positive off-diagonal coupling is always generated at second order;
+  \item if $\sigma(z)=\log(1+e^z)$ and $w_0=0$, then
+  \[
+    \Gamma_\sigma(0,\tau^2)
+    =
+    (\log 2)^2
+    +
+    \Bigl(
+      \log 2+\frac14
+    \Bigr)\tau^2
+    +
+    \frac14 \tau^4
+    >0,
+  \]
+  so softplus initialization at the origin always generates positive collective coupling at second order;
+  \item if $\sigma(z)=\tanh z$ and $w_0=0$, then
+  \[
+    \Gamma_\sigma(0,\tau^2)
+    =
+    \tau^2(1-4\tau^2).
+  \]
+  Hence the second-order onset is positive for $\tau^2<1/4$, vanishes at $\tau^2=1/4$, and is negative for $\tau^2>1/4$.
+\end{enumerate}
+\end{corollary}
+
+\begin{proof}
+For $\sigma(z)=z$, we have
+\[
+  \sigma(w_0)=w_0,
+  \qquad
+  \sigma'(w_0)=1,
+  \qquad
+  \sigma''(w_0)=\sigma'''(w_0)=0.
+\]
+Substituting into \eqref{eq:gamma-sigma} gives
+\[
+  \Gamma_\sigma(w_0,\tau^2)=w_0^2+\tau^2.
+\]
+
+For softplus at $w_0=0$,
+\[
+  \sigma(0)=\log 2,
+  \qquad
+  \sigma'(0)=\frac12,
+  \qquad
+  \sigma''(0)=\frac14,
+  \qquad
+  \sigma'''(0)=0.
+\]
+Substituting into \eqref{eq:gamma-sigma} yields the stated expression, whose coefficients are all positive.
+
+For $\tanh$ at $w_0=0$,
+\[
+  \sigma(0)=0,
+  \qquad
+  \sigma'(0)=1,
+  \qquad
+  \sigma''(0)=0,
+  \qquad
+  \sigma'''(0)=-2.
+\]
+Hence \eqref{eq:gamma-sigma} becomes
+\[
+  \Gamma_\sigma(0,\tau^2)
+  =
+  \tau^2 + 2\tau^4(-2)
+  =
+  \tau^2(1-4\tau^2).
+\]
+This proves the claim.
+\end{proof}
+
+\begin{remark}
+\Cref{cor:activation-examples} gives a concrete practitioner-facing lesson:
+the early onset of collectivity is not merely an architectural property.
+Even in the same independent-head shared-feature proxy, smooth ReLU-like activations such as softplus force positive second-order coupling at the origin,
+whereas odd activations such as $\tanh$ can suppress or even reverse the second-order onset when the head variance is large.
+\end{remark}
+
+\begin{proposition}[Trainable input modulation still yields an explicit second-order criterion]
+\label{prop:input-modulated-small-time}
+Consider the one-feature input-modulated proxy
+\begin{equation}
+  \psi_\alpha(x;\theta)=a_\alpha \sigma(v_\alpha w x),
+  \qquad
+  \theta=(w,(a_\gamma,v_\gamma)_{\gamma=1}^M)\in \R^{2M+1},
+  \label{eq:input-modulated-proxy}
+\end{equation}
+with $\sigma\in C^3(\R)$.
+Assume squared loss, the single-atom data law
+\[
+  \mathsf P=\delta_{(1,y_*)}
+  \qquad
+  \text{with } y_*\neq 0,
+\]
+and let $\rho_t$ be a local deterministic mean-field solution, smooth at $t=0$.
+Assume the initial law $\rho_0$ satisfies
+\[
+  w=w_0,
+  \qquad
+  v_\alpha=v_0
+  \quad
+  \rho_0\text{-almost surely for every }\alpha,
+\]
+and that the coordinates $a_1,\dots,a_M$ are independent, identically distributed, centered, and symmetric, with variance
+\[
+  \int a_\alpha^2\,\rho_0(\dd \theta)=\tau^2>0.
+\]
+Set
+\[
+  z_0=v_0w_0,
+  \qquad
+  S_0=\sigma(z_0),
+  \qquad
+  D_0=\sigma'(z_0),
+  \qquad
+  E_0=\sigma''(z_0),
+  \qquad
+  G_0=\sigma'''(z_0).
+\]
+Then, for every $\alpha\neq\beta$,
+\[
+  K_{\alpha\beta}(1,1;\rho_0)=0,
+  \qquad
+  \frac{\dd}{\dd t}K_{\alpha\beta}(1,1;\rho_t)\Big|_{t=0}=0,
+\]
+and
+\begin{equation}
+  \frac{\dd^2}{\dd t^2}K_{\alpha\beta}(1,1;\rho_t)\Big|_{t=0}
+  =
+  \frac{2y_*^2 D_0^2}{M^2}\,
+  \Lambda_\sigma(w_0,v_0,\tau^2),
+  \label{eq:input-modulated-second}
+\end{equation}
+where
+\begin{align}
+  \Lambda_\sigma(w_0,v_0,\tau^2)
+  &=
+  v_0^2 S_0^2
+  +
+  2\tau^2 v_0 w_0 D_0 S_0
+  +
+  2\tau^2 v_0^2(2v_0^2+w_0^2)E_0 S_0
+  +
+  \tau^2 v_0^4 D_0^2
+  \nonumber\\
+  &\quad
+  +
+  \tau^4(v_0^2+w_0^2)D_0^2
+  +
+  2\tau^4 v_0 w_0(4v_0^2+w_0^2)D_0E_0
+  \nonumber\\
+  &\quad
+  +
+  \tau^4 v_0^2(4v_0^4+3v_0^2w_0^2+w_0^4)E_0^2
+  +
+  2\tau^4 v_0^4(v_0^2+w_0^2)D_0G_0.
+  \label{eq:lambda-sigma-modulated}
+\end{align}
+In particular, if
+\[
+  \Lambda_\sigma(w_0,v_0,\tau^2)>0,
+\]
+then
+\[
+  K_{\alpha\beta}(1,1;\rho_t)>0
+  \qquad
+  \text{for all sufficiently small }t>0.
+\]
+\end{proposition}
+
+\begin{proof}
+Write
+\[
+  \bar a=\frac1M\sum_{\gamma=1}^M a_\gamma,
+  \qquad
+  Q=\frac1M\sum_{\gamma=1}^M a_\gamma^2.
+\]
+By symmetry, the deterministic outputs agree for small times; write
+\[
+  m(t)=f_\alpha(1;\rho_t),
+  \qquad
+  r(t)=m(t)-y_*.
+\]
+The mean-field potential is
+\[
+  V(\theta;\rho_t)
+  =
+  \frac{r(t)}{M}
+  \sum_{\gamma=1}^M a_\gamma \sigma(v_\gamma w),
+\]
+so the particle flow is
+\begin{equation}
+  \dot w
+  =
+  -\frac{r(t)}{M}\sum_{\gamma=1}^M a_\gamma \sigma'(v_\gamma w)v_\gamma,
+  \qquad
+  \dot a_\alpha
+  =
+  -\frac{r(t)}{M}\sigma(v_\alpha w),
+  \qquad
+  \dot v_\alpha
+  =
+  -\frac{r(t)}{M}a_\alpha \sigma'(v_\alpha w)w.
+  \label{eq:input-modulated-flow}
+\end{equation}
+
+For $\alpha\neq\beta$, only the shared coordinate $w$ contributes to the off-diagonal kernel, so
+\begin{equation}
+  K_{\alpha\beta}(1,1;\rho_t)
+  =
+  \int
+  a_\alpha a_\beta
+  H(v_\alpha,w)H(v_\beta,w)\,
+  \rho_t(\dd \theta),
+  \qquad
+  H(v,w)=v\sigma'(vw).
+  \label{eq:input-modulated-kernel}
+\end{equation}
+At $t=0$, $v_\alpha=v_\beta=v_0$ almost surely and $a_\alpha,a_\beta$ are independent and centered, hence
+\[
+  K_{\alpha\beta}(1,1;\rho_0)=0.
+  \label{eq:input-modulated-zero}
+\]
+
+We record the only moments that survive the later expansion:
+\begin{align}
+  \E_{\rho_0}[a_\alpha \bar a]
+  &=
+  \frac{\tau^2}{M},
+  &
+  \E_{\rho_0}[a_\alpha a_\beta \bar a]
+  &=
+  0,
+  \label{eq:input-modulated-moments-1}
+  \\
+  \E_{\rho_0}[a_\alpha a_\beta \bar a^2]
+  &=
+  \frac{2\tau^4}{M^2},
+  &
+  \E_{\rho_0}[a_\alpha^2 a_\beta^2]
+  &=
+  \tau^4,
+  \label{eq:input-modulated-moments-2}
+  \\
+  \E_{\rho_0}[a_\alpha a_\beta a_\alpha \bar a]
+  &=
+  \E_{\rho_0}[a_\alpha a_\beta a_\beta \bar a]
+  =
+  \frac{\tau^4}{M},
+  &
+  \E_{\rho_0}[a_\alpha a_\beta Q]
+  &=
+  0.
+  \label{eq:input-modulated-moments-3}
+\end{align}
+
+At time $0$, $m(0)=0$ and therefore
+\[
+  r(0)=-y_*.
+\]
+From \eqref{eq:input-modulated-flow},
+\begin{equation}
+  \dot a_\alpha(0)=\frac{y_*S_0}{M},
+  \qquad
+  \dot v_\alpha(0)=\frac{y_*w_0D_0}{M}a_\alpha,
+  \qquad
+  \dot w(0)=y_*v_0D_0\bar a.
+  \label{eq:input-modulated-first}
+\end{equation}
+Differentiating
+\[
+  m(t)=\E_{\rho_t}[a_\alpha \sigma(v_\alpha w)]
+\]
+at $t=0$ gives
+\begin{equation}
+  \dot r(0)
+  =
+  \frac{y_*}{M}
+  \Bigl[
+    S_0^2+\tau^2D_0^2(v_0^2+w_0^2)
+  \Bigr].
+  \label{eq:input-modulated-rdot}
+\end{equation}
+
+We next differentiate $H(v,w)=v\sigma'(vw)$.
+At $(v_0,w_0)$,
+\[
+  H(v_0,w_0)=v_0D_0,
+  \qquad
+  \partial_v H(v_0,w_0)=D_0+z_0E_0,
+  \qquad
+  \partial_w H(v_0,w_0)=v_0^2E_0.
+  \label{eq:input-modulated-H-first}
+\]
+Combining \eqref{eq:input-modulated-first} with \eqref{eq:input-modulated-H-first} yields
+\[
+  \dot H_\alpha(0)
+  =
+  y_*D_0
+  \Bigl[
+    \frac{w_0(D_0+z_0E_0)}{M}a_\alpha
+    +
+    v_0^3E_0\bar a
+  \Bigr].
+  \label{eq:input-modulated-Hdot}
+\]
+Differentiating \eqref{eq:input-modulated-kernel} once and using
+\eqref{eq:input-modulated-first},
+\eqref{eq:input-modulated-moments-1},
+\eqref{eq:input-modulated-moments-2},
+and \eqref{eq:input-modulated-Hdot},
+all terms vanish by centering and symmetry, so
+\[
+  \frac{\dd}{\dd t}K_{\alpha\beta}(1,1;\rho_t)\Big|_{t=0}=0.
+\]
+
+Differentiate \eqref{eq:input-modulated-kernel} once more and group the result into
+\begin{align*}
+  \ddot K_{\alpha\beta}(0)
+  &=
+  L_1+L_2+L_3,
+  \\
+  L_1
+  &=
+  H(v_0,w_0)^2
+  \E_{\rho_0}
+  \bigl[
+    \ddot a_\alpha(0)a_\beta
+    +
+    2\dot a_\alpha(0)\dot a_\beta(0)
+    +
+    a_\alpha \ddot a_\beta(0)
+  \bigr],
+  \\
+  L_2
+  &=
+  2H(v_0,w_0)
+  \E_{\rho_0}
+  \bigl[
+    (\dot a_\alpha(0)a_\beta+a_\alpha\dot a_\beta(0))
+    (\dot H_\alpha(0)+\dot H_\beta(0))
+  \bigr],
+  \\
+  L_3
+  &=
+  \E_{\rho_0}
+  \bigl[
+    a_\alpha a_\beta
+    \bigl(
+      H(v_0,w_0)(\ddot H_\alpha(0)+\ddot H_\beta(0))
+      +
+      2\dot H_\alpha(0)\dot H_\beta(0)
+    \bigr)
+  \bigr].
+\end{align*}
+
+Using \eqref{eq:input-modulated-rdot}, one obtains
+\[
+  \ddot a_\alpha(0)
+  =
+  -\frac{y_*S_0}{M^2}
+  \Bigl[
+    S_0^2+\tau^2D_0^2(v_0^2+w_0^2)
+  \Bigr]
+  +
+  y_*^2D_0^2
+  \Bigl[
+    \frac{w_0^2}{M^2}a_\alpha+\frac{v_0^2}{M}\bar a
+  \Bigr].
+\]
+Substituting this into $L_1$ and using \eqref{eq:input-modulated-moments-1} gives
+\begin{equation}
+  L_1
+  =
+  \frac{2y_*^2D_0^2v_0^2}{M^2}
+  \Bigl[
+    S_0^2+\tau^2D_0^2v_0^2
+  \Bigr].
+  \label{eq:input-modulated-L1}
+\end{equation}
+
+Using \eqref{eq:input-modulated-Hdot} together with \eqref{eq:input-modulated-moments-1}--\eqref{eq:input-modulated-moments-3} yields
+\begin{equation}
+  L_2
+  =
+  \frac{4y_*^2D_0^2S_0\tau^2v_0}{M^2}
+  \Bigl[
+    D_0w_0 + 2E_0v_0^3 + E_0v_0w_0^2
+  \Bigr].
+  \label{eq:input-modulated-L2}
+\end{equation}
+
+For $L_3$, a second differentiation of $H(v_\alpha(t),w(t))$ shows that only the monomials proportional to
+\[
+  a_\alpha a_\beta,
+  \qquad
+  a_\alpha a_\beta \bar a^2,
+  \qquad
+  a_\alpha a_\beta a_\alpha \bar a,
+  \qquad
+  a_\alpha a_\beta a_\beta \bar a,
+  \qquad
+  a_\alpha^2 a_\beta^2
+\]
+survive after expectation; all odd terms and all terms containing $Q$ vanish by
+\eqref{eq:input-modulated-moments-1}--\eqref{eq:input-modulated-moments-3}.
+The surviving contribution is
+\begin{equation}
+  L_3
+  =
+  \frac{2y_*^2D_0^2\tau^4}{M^2}
+  \Bigl[
+    D_0^2(v_0^2+w_0^2)
+    +
+    2D_0E_0v_0w_0(4v_0^2+w_0^2)
+  \Bigr.
+  \label{eq:input-modulated-L3}
+\end{equation}
+\[
+  \Bigl.
+    +
+    v_0^2E_0^2(4v_0^4+3v_0^2w_0^2+w_0^4)
+    +
+    2D_0G_0v_0^4(v_0^2+w_0^2)
+  \Bigr].
+\]
+Summing \eqref{eq:input-modulated-L1}--\eqref{eq:input-modulated-L3} yields
+\eqref{eq:input-modulated-second}--\eqref{eq:lambda-sigma-modulated}.
+If $\Lambda_\sigma(w_0,v_0,\tau^2)>0$, Taylor's theorem gives
+\[
+  K_{\alpha\beta}(1,1;\rho_t)
+  =
+  \frac12
+  \frac{\dd^2}{\dd t^2}
+  K_{\alpha\beta}(1,1;\rho_t)\Big|_{t=0}
+  t^2
+  +
+  o(t^2)
+  >
+  0
+\]
+for all sufficiently small $t>0$.
+\end{proof}
+
+\begin{remark}
+\Cref{prop:input-modulated-small-time} is the closest rigorous surrogate in this note to the modulation mechanism that appears in BatchEnsemble/TabM hidden layers.
+It shows that even after replacing the fixed shared feature by a trainable input modulation $v_\alpha$,
+the early onset of collective coupling can still be written in closed form.
+At the same time, the criterion is visibly more intricate than \eqref{eq:gamma-sigma}:
+the modulation dynamics introduces additional mixed terms involving $w_0$, $v_0$, and higher activation derivatives.
+\end{remark}
+
+\begin{corollary}[Activation-dependent onset with trainable input modulation]
+\label{cor:modulated-activation-examples}
+Under the assumptions of \cref{prop:input-modulated-small-time}:
+\begin{enumerate}[leftmargin=2em]
+  \item if $\sigma(z)=z$, then
+  \[
+    \Lambda_\sigma(w_0,v_0,\tau^2)
+    =
+    (\tau^2+v_0^2)\bigl(\tau^2(v_0^2+w_0^2)+v_0^2w_0^2\bigr)>0,
+  \]
+  so positive off-diagonal coupling is always generated at second order;
+  \item if $\sigma(z)=\log(1+e^z)$ and $w_0=0$, then
+  \[
+    \Lambda_\sigma(0,v_0,\tau^2)
+    =
+    \frac{v_0^2}{4}
+    \Bigl[
+      \tau^4v_0^4+\tau^4+\tau^2v_0^2+4\tau^2v_0^2\log 2+4(\log 2)^2
+    \Bigr]
+    >0,
+  \]
+  so softplus initialization at the origin always generates positive collective coupling at second order;
+  \item if $\sigma(z)=\tanh z$ and $w_0=0$, then
+  \[
+    \Lambda_\sigma(0,v_0,\tau^2)
+    =
+    \tau^2v_0^2\bigl(v_0^2+\tau^2-4\tau^2v_0^4\bigr).
+  \]
+  Hence the second-order onset is positive when $v_0^2+\tau^2>4\tau^2v_0^4$, vanishes at equality, and is negative when $v_0^2+\tau^2<4\tau^2v_0^4$.
+\end{enumerate}
+\end{corollary}
+
+\begin{proof}
+For $\sigma(z)=z$, we have
+\[
+  S_0=z_0=v_0w_0,
+  \qquad
+  D_0=1,
+  \qquad
+  E_0=G_0=0.
+\]
+Substituting into \eqref{eq:lambda-sigma-modulated} gives the stated factorization.
+
+For softplus at $w_0=0$,
+\[
+  S_0=\log 2,
+  \qquad
+  D_0=\frac12,
+  \qquad
+  E_0=\frac14,
+  \qquad
+  G_0=0.
+\]
+Substituting into \eqref{eq:lambda-sigma-modulated} yields the stated expression, whose coefficients are all positive.
+
+For $\tanh$ at $w_0=0$,
+\[
+  S_0=0,
+  \qquad
+  D_0=1,
+  \qquad
+  E_0=0,
+  \qquad
+  G_0=-2.
+\]
+Hence \eqref{eq:lambda-sigma-modulated} becomes
+\[
+  \Lambda_\sigma(0,v_0,\tau^2)
+  =
+  \tau^2v_0^4+\tau^4v_0^2-4\tau^4v_0^6
+  =
+  \tau^2v_0^2\bigl(v_0^2+\tau^2-4\tau^2v_0^4\bigr).
+\]
+This proves the claim.
+\end{proof}
+
+\begin{remark}
+\Cref{cor:modulated-activation-examples} sharpens the previous activation story.
+With trainable input modulation, softplus still forces positive second-order collectivity at the origin,
+but the odd case $\tanh$ now has a different threshold:
+for the common choice $v_0=1$, the sign switch occurs at $\tau^2=1/3$ rather than $\tau^2=1/4$.
+So the modulation dynamics does not merely preserve the earlier picture; it quantitatively moves the boundary between ``early collective'' and ``early anti-collective'' behavior.
+\end{remark}
+
