@@ -423,6 +423,50 @@ So the correct conclusion is not that the large-$K$ theory breaks in depth. Rath
   \item a short-time theorem plus continuation criterion.
 \end{enumerate}
 
+\paragraph{A heuristic hierarchy of head-specific parameters.}
+The three-layer proxy also suggests a useful practitioner-facing distinction
+between different locations of head-specific modulation.
+
+First, the top-layer variables $a$ and $s_2$ act \emph{after} the last
+nonlinearity. Conditional on the lower-layer features, the predictor is affine
+in these variables, so centered coordinatewise perturbations are expected to
+average out with width in much the same way as the readout coefficients do in
+the two-layer note.
+
+Second, the intermediate variables $s_1$ and $r_2$ act before averaging but are
+themselves $m$-dimensional. If they are initialized with iid coordinates from a
+common law and do not carry any additional low-dimensional structure, then each
+head sees an empirical coordinate law that concentrates around the same
+population law as $m\to\infty$. In that regime, these modulations may still
+change the \emph{common} infinite-width predictor, but they are less natural
+candidates for order-one head-to-head diversity that survives width.
+
+By contrast, the input-side modulation $r_1\in\R^d$ is low-dimensional and
+global: it affects every neuron coherently and does not self-average with $m$.
+Thus if the infinite-width predictor map
+\[
+  r_1 \mapsto \Phi_t(r_1)\in L^2(\mathsf P_X)
+\]
+is nonconstant on the support of the head law, then $r_1$ is the most natural
+source of width-persistent functional diversity. Likewise, nonlinearity of
+$\Phi_t$ in $r_1$ is the most natural source of width-persistent ensemble bias.
+
+This heuristic does \emph{not} say that middle-layer modulations can never
+matter. Rather, it suggests a hierarchy:
+\begin{enumerate}[leftmargin=2em]
+  \item output-side and post-feature perturbations are the most likely to wash
+  out with width;
+  \item width-dimensional coordinatewise masks may alter the common limit but
+  often self-average as sources of head-to-head variation;
+  \item low-dimensional early modulations are the most plausible source of
+  diversity and bias that remain visible even at very large width.
+\end{enumerate}
+
+For practitioners, the design implication is clear: if the goal is diversity
+that survives increasing width, then it is more promising to place head-specific
+parameters in early, low-dimensional, pre-nonlinear locations than to rely only
+on late readout perturbations or width-dimensional coordinatewise masks.
+
 \paragraph{Bottom line.}
 Three layers are indeed more faithful and more practitioner-relevant than two, precisely because the shared hidden-to-hidden matrix makes efficient ensembling nontrivial. But this same feature is also the first place where the concrete proof stops being a straightforward extension of the two-layer argument.
 

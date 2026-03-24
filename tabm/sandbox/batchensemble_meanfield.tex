@@ -1,0 +1,668 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{bm}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage[nameinlink,noabbrev]{cleveref}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  citecolor=blue!50!black,
+  urlcolor=blue!50!black,
+}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{lemma}[theorem]{Lemma}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{assumption}[theorem]{Assumption}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\PP}{\mathcal{P}}
+\newcommand{\W}{W_1}
+\newcommand{\dd}{\,\mathrm{d}}
+
+\title{Fixed-\texorpdfstring{$K$}{K} Width Mean-Field Theory for Bias-Free Two-Layer BatchEnsemble}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We formulate a fixed-$K$, width-to-infinity theory for a bias-free two-layer BatchEnsemble-style model with neuron-wise hidden modulations and optional head-global input-side fast weights. The general large-width object is a deterministic PDE-ODE system for the neuron law and the head-global state. This formulation makes it possible to compare, within a single note, two qualitatively different regimes: the no-input-modulation case $s\equiv\mathbf 1$, where the limit reduces to a single deterministic transport PDE and permutation-symmetric initialization forces exact head collapse; and the input-modulated case $s\neq \mathbf 1$, where the large-width limit remains conditionally deterministic but can retain order-one randomness through the finite-dimensional head-global initialization. We prove global characteristic well-posedness, stability, and finite-width convergence in an abstract bounded-Lipschitz setting and derive the corresponding comparisons for the two concrete regimes.
+\end{abstract}
+
+\section{Introduction}
+
+Fix the ensemble size $K$ and send the width $m$ to infinity. For BatchEnsemble-style models, this separates two distinct kinds of head-specific structure.
+
+\begin{enumerate}[leftmargin=2em]
+  \item \emph{Neuron-wise head structure}: variables such as $r_{\alpha,j}$ that are attached to individual neurons and therefore self-average with width.
+  \item \emph{Head-global structure}: variables such as $s_\alpha$ that stay finite-dimensional when $m\to\infty$ and therefore do not self-average.
+\end{enumerate}
+
+The purpose of this note is to keep both possibilities in a single formulation and compare what the width limit does in each case. The concrete two-layer family is
+\begin{equation}
+  f_\alpha^m(x)
+  :=
+  \frac1m\sum_{j=1}^m
+  a_j\,
+  \sigma\!\bigl(
+    r_{\alpha,j}\,w_j^\top(s_\alpha\odot x)
+  \bigr),
+  \qquad
+  \alpha\in\{1,\dots,K\},
+  \label{eq:model}
+\end{equation}
+where $a_j\in\R$ and $w_j\in\R^{d_x}$ are shared, $r_{\alpha,j}\in\R$ is a head-$\alpha$ hidden modulation attached to neuron $j$, and $s_\alpha\in\R^{d_x}$ is a head-global input-side fast weight.
+
+Two special cases will matter throughout:
+\begin{enumerate}[leftmargin=2em]
+  \item \emph{No input modulation}: $s_\alpha\equiv \mathbf 1$ for all heads. Then all head-specific quantities already live inside the neuron state, so the width limit reduces to a single transport PDE.
+  \item \emph{Input modulation present}: the vectors $s_\alpha$ are kept as genuine variables. Then the width limit is a coupled PDE-ODE system, and order-one randomness can survive through the initial law of $s$.
+\end{enumerate}
+
+This split is the key reason to keep the general formulation. It lets us compare, theorem by theorem, what width does in the purely neuron-level regime and what changes once a finite-dimensional head-global environment is present.
+
+\section{Concrete Model}
+
+\subsection{Finite-width BatchEnsemble-style network}
+
+Fix an input dimension $d_x$, a hidden width $m$, and an ensemble size
+$K\in\{1,2,\dots\}$. For each neuron $j\in\{1,\dots,m\}$, let
+\[
+  a_j\in\R,\qquad
+  w_j\in\R^{d_x},\qquad
+  r_{\alpha,j}\in\R\quad (\alpha=1,\dots,K),
+\]
+and let
+\[
+  s=(s_1,\dots,s_K)\in(\R^{d_x})^K,
+  \qquad
+  s_\alpha\in\R^{d_x}.
+\]
+The finite-width model is \eqref{eq:model}.
+
+The width-$m$ neuron empirical measure is
+\begin{equation}
+  \rho^m
+  :=
+  \frac1m\sum_{j=1}^m \delta_{\theta_j},
+  \qquad
+  \theta_j=(a_j,w_j,r_{1,j},\dots,r_{K,j}).
+  \label{eq:empirical}
+\end{equation}
+Thus the head-specific variables split naturally into
+\begin{enumerate}[leftmargin=2em]
+  \item neuron-level coordinates $(r_{1,j},\dots,r_{K,j})$ inside $\theta_j$,
+  \item the head-global vector $s=(s_1,\dots,s_K)$.
+\end{enumerate}
+
+\subsection{The two regimes}
+
+The same concrete model contains the two regimes we want to compare.
+
+\paragraph{$s=\mathbf 1$.}
+If every $s_\alpha$ is fixed to the all-ones vector, then
+\begin{equation}
+  f_{\alpha,\mathrm{noin}}^m(x)
+  :=
+  \frac1m\sum_{j=1}^m
+  a_j\,
+  \sigma\!\bigl(
+    r_{\alpha,j}\,w_j^\top x
+  \bigr).
+  \label{eq:model-noin}
+\end{equation}
+There is no remaining head-global variable, so width self-averaging acts on the entire head-specific state.
+
+\paragraph{$s\neq \mathbf 1$.}
+If $s$ is retained as a trainable or random head-global variable, then width only averages the neuron-level coordinates. The large-width limit will therefore still depend on $s$ through a finite-dimensional ODE or through the initial random environment.
+
+\section{Abstract Framework}
+
+\subsection{State variables and outputs}
+
+Let $\Theta=\R^D$ denote the single-neuron state space and let
+\[
+  \mathcal S=\R^{K d_s}
+\]
+denote the space of head-global variables. Write
+\[
+  s=(s_1,\dots,s_K)\in\mathcal S,
+  \qquad
+  s_\alpha\in\R^{d_s}.
+\]
+Let $(\mathcal X\times\mathcal Y,\mathsf P)$ be the data space.
+
+For each head $\alpha\in\{1,\dots,K\}$, let
+\[
+  \Psi_\alpha:\mathcal X\times\Theta\times\mathcal S\to\R
+\]
+be a feature map. Given a neuron law $\rho\in\PP_1(\Theta)$ and a head-global state
+$s\in\mathcal S$, define
+\begin{equation}
+  f_\alpha(x;\rho,s)
+  :=
+  \int_\Theta \Psi_\alpha(x;\theta,s)\,\rho(\dd\theta).
+  \label{eq:output}
+\end{equation}
+The head-averaged population risk is
+\begin{equation}
+  \mathcal R(\rho,s)
+  :=
+  \E_{(x,y)\sim\mathsf P}
+  \Bigl[
+    \frac1K\sum_{\alpha=1}^K \ell(f_\alpha(x;\rho,s),y)
+  \Bigr].
+  \label{eq:risk}
+\end{equation}
+
+\begin{definition}[Mean-field drifts]
+Assume $\ell$ is differentiable in its first argument. Define
+\begin{equation}
+  B(\theta;\rho,s)
+  :=
+  -\E_{(x,y)\sim\mathsf P}
+  \Bigl[
+    \frac1K\sum_{\alpha=1}^K
+    \partial_1\ell(f_\alpha(x;\rho,s),y)\,
+    \nabla_\theta \Psi_\alpha(x;\theta,s)
+  \Bigr]
+  \label{eq:drift-B}
+\end{equation}
+and
+\begin{equation}
+  G_\alpha(\rho,s)
+  :=
+  -\E_{(x,y)\sim\mathsf P}
+  \Bigl[
+    \frac1K
+    \partial_1\ell(f_\alpha(x;\rho,s),y)\,
+    \int_\Theta \nabla_{s_\alpha}\Psi_\alpha(x;\theta,s)\,\rho(\dd\theta)
+  \Bigr].
+  \label{eq:drift-G}
+\end{equation}
+Write
+\[
+  G(\rho,s):=(G_\alpha(\rho,s))_{\alpha=1}^K\in\mathcal S.
+\]
+The fixed-$K$ mean-field system is
+\begin{align}
+  \partial_t \rho_t
+  +
+  \nabla_\theta\cdot\bigl(\rho_t B(\theta;\rho_t,s_t)\bigr)
+  &=0,
+  \label{eq:pde}\\
+  \dot s_t &= G(\rho_t,s_t).
+  \label{eq:ode}
+\end{align}
+\end{definition}
+
+\begin{definition}[Characteristic solutions]
+Fix $T>0$ and an initial condition $(\rho_0,s_0)\in\PP_1(\Theta)\times\mathcal S$.
+A pair
+\[
+  (\rho_t,s_t)_{t\in[0,T]}
+  \in
+  C\bigl([0,T],\PP_1(\Theta)\times\mathcal S\bigr)
+\]
+is a characteristic solution of \cref{eq:pde,eq:ode} if there exists a flow
+\[
+  \Phi:[0,T]\times\Theta\to\Theta
+\]
+such that, for $\rho_0$-almost every $\theta$,
+\[
+  \dot\Phi_t(\theta)=B(\Phi_t(\theta);\rho_t,s_t),
+  \qquad
+  \Phi_0(\theta)=\theta,
+  \qquad
+  \rho_t=(\Phi_t)_\#\rho_0,
+\]
+while $s_t$ solves \cref{eq:ode}.
+\end{definition}
+
+\subsection{Structural assumptions}
+
+Let $S_K$ be the permutation group on $\{1,\dots,K\}$. For $\pi\in S_K$, let
+\[
+  \Pi_\pi^\mathcal S(s_1,\dots,s_K)
+  =
+  (s_{\pi^{-1}(1)},\dots,s_{\pi^{-1}(K)}).
+\]
+Assume also that for each $\pi$ there is a linear isometry
+$\Pi_\pi^\Theta:\Theta\to\Theta$ representing the corresponding permutation of
+head-labelled coordinates inside the neuron state.
+
+\begin{assumption}[Bounded-Lipschitz structure and permutation equivariance]
+\label{ass:main}
+There exist finite constants
+\[
+  B_\Psi,\ B_{\nabla\Psi},\ L_\Psi,\ L_{\nabla\Psi},\ L_\ell,\ C_\ell
+\]
+such that the following hold uniformly over all $\alpha\in\{1,\dots,K\}$ and
+$x\in\mathcal X$.
+\begin{enumerate}[label=(\roman*),leftmargin=2em]
+  \item The maps $\Psi_\alpha(x;\cdot,\cdot)$, $\nabla_\theta\Psi_\alpha(x;\cdot,\cdot)$,
+  and $\nabla_{s_\alpha}\Psi_\alpha(x;\cdot,\cdot)$ are globally bounded by
+  $B_\Psi$ and $B_{\nabla\Psi}$ and globally Lipschitz in $(\theta,s)$ with
+  constants $L_\Psi$ and $L_{\nabla\Psi}$.
+  \item $\partial_1\ell(\cdot,y)$ is globally Lipschitz with constant $L_\ell$
+  and uniformly bounded by $C_\ell$ for all $y\in\mathcal Y$.
+  \item The feature maps are permutation-equivariant:
+  \begin{equation}
+    \Psi_\alpha(x;\Pi_\pi^\Theta\theta,\Pi_\pi^\mathcal S s)
+    =
+    \Psi_{\pi^{-1}(\alpha)}(x;\theta,s)
+    \qquad
+    \forall \pi\in S_K.
+    \label{eq:equiv}
+  \end{equation}
+\end{enumerate}
+\end{assumption}
+
+\begin{remark}[Concrete BatchEnsemble family]
+\label{rem:concrete}
+For the model \eqref{eq:model}, take
+\[
+  \Theta_{\mathrm{BE}}
+  =
+  \R\times\R^{d_x}\times\R^K,
+  \qquad
+  \theta=(a,w,r_1,\dots,r_K),
+  \qquad
+  \mathcal S_{\mathrm{BE}}=(\R^{d_x})^K.
+\]
+Then \eqref{eq:model} is of the abstract form \eqref{eq:output} with
+\begin{equation}
+  \Psi_\alpha^{\mathrm{BE}}(x;\theta,s)
+  :=
+  a\,\sigma\!\bigl(r_\alpha\,w^\top(s_\alpha\odot x)\bigr).
+  \label{eq:psi-concrete}
+\end{equation}
+The no-input model \eqref{eq:model-noin} is recovered by fixing
+$s_\alpha\equiv\mathbf 1$ for all heads, equivalently by taking the feature maps
+to be independent of the dummy variable $s$. After composing the raw coordinates
+with smooth clipping maps whose images and first derivatives are globally bounded
+and permutation-equivariant, the family \eqref{eq:psi-concrete} fits
+\cref{ass:main}.
+\end{remark}
+
+\section{General Width Limit}
+
+\begin{proposition}[Output and drift Lipschitz bounds]
+\label{prop:lipschitz}
+Assume \cref{ass:main}. Then for every $x\in\mathcal X$ and every $\alpha$,
+\begin{equation}
+  |f_\alpha(x;\rho,s)-f_\alpha(x;\mu,\bar s)|
+  \le
+  L_\Psi\bigl(\W(\rho,\mu)+\|s-\bar s\|\bigr).
+  \label{eq:out-lip}
+\end{equation}
+Moreover, there exist finite constants $L_B,L_G$ depending only on the constants
+in \cref{ass:main} such that
+\begin{align}
+  \|B(\theta;\rho,s)-B(\eta;\mu,\bar s)\|
+  &\le
+  L_B\bigl(
+    \|\theta-\eta\|+\W(\rho,\mu)+\|s-\bar s\|
+  \bigr),
+  \label{eq:B-lip}\\
+  \|G(\rho,s)-G(\mu,\bar s)\|
+  &\le
+  L_G\bigl(\W(\rho,\mu)+\|s-\bar s\|\bigr).
+  \label{eq:G-lip}
+\end{align}
+\end{proposition}
+
+\begin{proof}
+The output bound \eqref{eq:out-lip} follows from the dual formulation of $\W$ and
+the $L_\Psi$-Lipschitz property of $\Psi_\alpha(x;\cdot,\cdot)$. For the drift
+in $\theta$, decompose
+\[
+  B(\theta;\rho,s)-B(\eta;\mu,\bar s)=I_1+I_2,
+\]
+where
+\begin{align*}
+  I_1
+  &:=
+  -\E\Bigl[
+    \frac1K\sum_{\alpha=1}^K
+    \bigl(
+      \partial_1\ell(f_\alpha(x;\rho,s),y)
+      -
+      \partial_1\ell(f_\alpha(x;\mu,\bar s),y)
+    \bigr)
+    \nabla_\theta\Psi_\alpha(x;\theta,s)
+  \Bigr],\\
+  I_2
+  &:=
+  -\E\Bigl[
+    \frac1K\sum_{\alpha=1}^K
+    \partial_1\ell(f_\alpha(x;\mu,\bar s),y)
+    \bigl(
+      \nabla_\theta\Psi_\alpha(x;\theta,s)
+      -
+      \nabla_\theta\Psi_\alpha(x;\eta,\bar s)
+    \bigr)
+  \Bigr].
+\end{align*}
+Using \eqref{eq:out-lip}, the Lipschitz property of $\partial_1\ell$, and the
+bounds in \cref{ass:main} yields \eqref{eq:B-lip}. The proof of \eqref{eq:G-lip}
+is identical, replacing $\nabla_\theta\Psi_\alpha$ with
+$\nabla_{s_\alpha}\Psi_\alpha$.
+\end{proof}
+
+\begin{theorem}[Deterministic well-posedness, stability, and particle convergence]
+\label{thm:deterministic}
+Assume \cref{ass:main}, fix $T>0$, and let $(\rho_0,s_0)\in\PP_1(\Theta)\times\mathcal S$.
+
+\begin{enumerate}[label=(\roman*),leftmargin=2em]
+  \item There exists a unique characteristic solution
+  \[
+    (\rho_t,s_t)_{t\in[0,T]}
+    \in
+    C\bigl([0,T],\PP_1(\Theta)\times\mathcal S\bigr)
+  \]
+  of \cref{eq:pde,eq:ode}.
+  \item There exists a constant $C_T<\infty$ such that for any two initial data
+  $(\rho_0,s_0)$ and $(\mu_0,\bar s_0)$ with corresponding solutions
+  $(\rho_t,s_t)$ and $(\mu_t,\bar s_t)$,
+  \begin{equation}
+    \sup_{t\in[0,T]}
+    \bigl(
+      \W(\rho_t,\mu_t)+\|s_t-\bar s_t\|
+    \bigr)
+    \le
+    C_T
+    \bigl(
+      \W(\rho_0,\mu_0)+\|s_0-\bar s_0\|
+    \bigr).
+    \label{eq:det-stability}
+  \end{equation}
+  \item Let deterministic particles and head-global states satisfy
+  \begin{align*}
+    \dot\theta_{j,t}^m &= B(\theta_{j,t}^m;\rho_t^m,s_t^m),
+    \qquad
+    \rho_t^m=\frac1m\sum_{j=1}^m\delta_{\theta_{j,t}^m},\\
+    \dot s_t^m &= G(\rho_t^m,s_t^m).
+  \end{align*}
+  If
+  \[
+    \W(\rho_0^m,\rho_0)+\|s_0^m-s_0\|\xrightarrow[m\to\infty]{}0,
+  \]
+  then
+  \begin{equation}
+    \sup_{t\in[0,T]}
+    \bigl(
+      \W(\rho_t^m,\rho_t)+\|s_t^m-s_t\|
+    \bigr)
+    \le
+    C_T\bigl(\W(\rho_0^m,\rho_0)+\|s_0^m-s_0\|\bigr)
+    \xrightarrow[m\to\infty]{}0.
+    \label{eq:particle-conv}
+  \end{equation}
+  In particular,
+  \[
+    \sup_{t\in[0,T]}
+    |f_\alpha(x;\rho_t^m,s_t^m)-f_\alpha(x;\rho_t,s_t)|
+    \to 0
+  \]
+  for every fixed $\alpha$ and $x$.
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+By \cref{prop:lipschitz}, the coupled vector field in
+\cref{eq:pde,eq:ode} is
+globally Lipschitz in $(\theta,\rho,s)$ on finite-horizon balls, so standard
+Picard iteration yields existence and uniqueness of a characteristic solution.
+
+For stability, let $\Phi_t$ and $\bar\Phi_t$ be the characteristic flows of the
+two solutions. Start from an optimal coupling of $\rho_0$ and $\mu_0$, transport
+it by $(\Phi_t,\bar\Phi_t)$, and combine the resulting estimate with
+\eqref{eq:B-lip} and \eqref{eq:G-lip}. Gronwall then yields
+\eqref{eq:det-stability}.
+
+For particle convergence, note that $(\rho_t^m,s_t^m)$ is itself a characteristic
+solution of \cref{eq:pde,eq:ode} with initial data $(\rho_0^m,s_0^m)$. Applying
+\eqref{eq:det-stability} with $(\mu_t,\bar s_t)=(\rho_t^m,s_t^m)$ gives
+\eqref{eq:particle-conv}, and the predictor convergence follows from
+\eqref{eq:out-lip}.
+\end{proof}
+
+\begin{corollary}[Random initialization]
+\label{cor:random}
+Assume \cref{ass:main}, fix $T>0$, and let $(\rho_0,s_0)$ be a possibly random
+initial environment. Suppose the random initial data $(\rho_0^m,s_0^m)$ satisfy
+\[
+  \W(\rho_0^m,\rho_0)+\|s_0^m-s_0\|\xrightarrow[m\to\infty]{}0
+\]
+in probability, almost surely, or in $L^1$. Let $(\rho_t^m,s_t^m)$ be the
+finite-width particle/head system and let $(\rho_t,s_t)$ be the characteristic
+solution of \cref{eq:pde,eq:ode} started from $(\rho_0,s_0)$. Then the same mode
+of convergence holds uniformly on $[0,T]$:
+\[
+  \sup_{t\in[0,T]}
+  \bigl(
+    \W(\rho_t^m,\rho_t)+\|s_t^m-s_t\|
+  \bigr)
+  \to 0.
+\]
+Consequently, the infinite-width predictor vector is a measurable function of the
+initial environment $(\rho_0,s_0)$.
+\end{corollary}
+
+\begin{proof}
+This is an immediate consequence of \eqref{eq:particle-conv}.
+\end{proof}
+
+\section{Regime A: \texorpdfstring{$s=\mathbf 1$}{s=1}}
+
+\subsection{Reduction to a single PDE}
+
+If the feature maps are independent of the head-global variable, then the general
+framework reduces to the no-input case. Formally, this is the specialization
+\[
+  \Psi_\alpha(x;\theta,s)\equiv \Psi_\alpha^{\mathrm{noin}}(x;\theta),
+\]
+which includes \eqref{eq:model-noin}. Then \eqref{eq:drift-G} vanishes and the
+ODE for $s_t$ disappears.
+
+\begin{corollary}[No-input reduction]
+\label{cor:noinput}
+Assume \cref{ass:main} and suppose the feature maps are independent of $s$. Then
+the fixed-$K$ mean-field system reduces to the transport PDE
+\begin{equation}
+  \partial_t \rho_t
+  +
+  \nabla_\theta\cdot\bigl(\rho_t B(\theta;\rho_t)\bigr)
+  =
+  0,
+  \label{eq:pde-noinput}
+\end{equation}
+where
+\[
+  B(\theta;\rho)
+  :=
+  -\E_{(x,y)\sim\mathsf P}
+  \Bigl[
+    \frac1K\sum_{\alpha=1}^K
+    \partial_1\ell(f_\alpha(x;\rho),y)\,
+    \nabla_\theta\Psi_\alpha^{\mathrm{noin}}(x;\theta)
+  \Bigr].
+\]
+All conclusions of \cref{thm:deterministic,cor:random} remain valid with the
+head-global state deleted.
+\end{corollary}
+
+\begin{proof}
+If $\Psi_\alpha$ does not depend on $s$, then $\nabla_{s_\alpha}\Psi_\alpha=0$
+and hence $G\equiv 0$. The ODE component decouples and can be discarded.
+\end{proof}
+
+\subsection{Deterministic limit and symmetric collapse}
+
+In the no-input regime, standard i.i.d.\ initialization from a deterministic law
+produces a deterministic infinite-width limit because there is no residual
+head-global random environment.
+
+\begin{corollary}[Deterministic infinite-width limit when \texorpdfstring{$s=\mathbf 1$}{s=1}]
+\label{cor:noinput-det}
+In the setting of \cref{cor:noinput}, assume that the empirical initial laws
+$\rho_0^m$ converge to a deterministic law $\rho_0$ in probability, almost
+surely, or in $L^1$. Then the infinite-width predictor vector
+\[
+  \bigl(f_1(\cdot;\rho_t),\dots,f_K(\cdot;\rho_t)\bigr)
+\]
+is deterministic.
+\end{corollary}
+
+\begin{proof}
+This is \cref{cor:random} with no head-global variable present.
+\end{proof}
+
+The symmetry structure becomes especially strong in this regime.
+
+\begin{proposition}[Permutation symmetry is preserved when \texorpdfstring{$s=\mathbf 1$}{s=1}]
+\label{prop:collapse}
+Assume the no-input setting of \cref{cor:noinput}. If the initial law $\rho_0$
+is invariant under every $\Pi_\pi^\Theta$, i.e.
+\[
+  (\Pi_\pi^\Theta)_\#\rho_0=\rho_0
+  \qquad
+  \forall \pi\in S_K,
+\]
+then the unique characteristic solution of \eqref{eq:pde-noinput} satisfies
+\[
+  (\Pi_\pi^\Theta)_\#\rho_t=\rho_t
+  \qquad
+  \forall t\ge 0,\ \forall \pi\in S_K.
+\]
+Consequently,
+\begin{equation}
+  f_1(x;\rho_t)=\cdots=f_K(x;\rho_t)
+  \qquad
+  \forall x\in\mathcal X,\ \forall t\ge 0.
+  \label{eq:collapse}
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+Define $\tilde\rho_t:=(\Pi_\pi^\Theta)_\#\rho_t$. Because the feature maps do not
+depend on $s$, \eqref{eq:equiv} reduces to
+\[
+  \Psi_\alpha^{\mathrm{noin}}(x;\Pi_\pi^\Theta\theta)
+  =
+  \Psi_{\pi^{-1}(\alpha)}^{\mathrm{noin}}(x;\theta).
+\]
+Hence
+\begin{align*}
+  f_\alpha(x;\tilde\rho_t)
+  &=
+  \int \Psi_\alpha^{\mathrm{noin}}(x;\theta)\,\tilde\rho_t(\dd\theta)\\
+  &=
+  \int \Psi_\alpha^{\mathrm{noin}}(x;\Pi_\pi^\Theta\eta)\,\rho_t(\dd\eta)\\
+  &=
+  \int \Psi_{\pi^{-1}(\alpha)}^{\mathrm{noin}}(x;\eta)\,\rho_t(\dd\eta)\\
+  &=
+  f_{\pi^{-1}(\alpha)}(x;\rho_t).
+\end{align*}
+Applying the same identity to the drift shows
+\[
+  B(\Pi_\pi^\Theta\theta;\tilde\rho_t)
+  =
+  \Pi_\pi^\Theta B(\theta;\rho_t).
+\]
+Therefore $\tilde\rho_t$ solves the same PDE as $\rho_t$ with the same initial
+law. Uniqueness gives $\tilde\rho_t=\rho_t$. The collapse identity
+\eqref{eq:collapse} then follows by choosing a permutation sending any head
+index to any other one.
+\end{proof}
+
+\begin{corollary}[Standard symmetric initialization collapses when \texorpdfstring{$s=\mathbf 1$}{s=1}]
+\label{cor:noinput-collapse}
+In the setting of \cref{cor:noinput-det}, if the deterministic limit law
+$\rho_0$ is permutation-symmetric in the head coordinates, then the infinite-width
+limit satisfies \eqref{eq:collapse}.
+\end{corollary}
+
+\section{Regime B: \texorpdfstring{$s\neq \mathbf 1$}{s≠1}}
+
+\subsection{Conditional determinism}
+
+Once the head-global variable $s$ is kept, the width limit remains deterministic
+conditional on $(\rho_0,s_0)$, but need not be deterministic unconditionally.
+
+\begin{corollary}[Surviving randomness comes from the head-global environment]
+\label{cor:randomness}
+Assume \cref{ass:main}. If $(\rho_0,s_0)$ is deterministic, then the infinite-width
+predictor vector is deterministic. If $\rho_0$ is deterministic but $s_0$ is
+random, then any order-one randomness that survives at infinite width is induced
+entirely by the law of $s_0$.
+\end{corollary}
+
+\begin{proof}
+This is immediate from \cref{cor:random}, because the limit trajectory is a
+measurable function of $(\rho_0,s_0)$.
+\end{proof}
+
+\subsection{What no longer follows automatically}
+
+In this regime, permutation symmetry of the neuron law alone no longer forces
+collapse, because the predictors also depend on the head-global coordinates
+$s_\alpha$. To obtain collapse one would need a stronger symmetric manifold that
+couples both the neuron law and the head-global state. Without such a condition,
+the PDE-ODE limit can remain head-dependent even at infinite width.
+
+\begin{remark}[Comparison with the no-input regime]
+The contrast with \cref{prop:collapse} is structural. When $s=\mathbf 1$, all
+head dependence lives inside the neuron law, so permutation symmetry of that law
+is enough to identify all head predictors. When $s\neq\mathbf 1$, the predictor
+map depends on an additional finite-dimensional variable that width does not
+average out. This is why the $s\neq\mathbf 1$ regime naturally leads to a
+conditional deterministic theory rather than to automatic leading-order collapse.
+\end{remark}
+
+\section{Comparison}
+
+The single formulation above makes the two regimes easy to compare.
+
+\paragraph{State variable.}
+With $s=\mathbf 1$, the correct large-width state is just the neuron law $\rho_t$.
+With $s\neq\mathbf 1$, it is the pair $(\rho_t,s_t)$.
+
+\paragraph{Limit equation.}
+With $s=\mathbf 1$, one gets a single transport PDE. With $s\neq\mathbf 1$, one
+gets a coupled PDE-ODE system.
+
+\paragraph{Randomness at infinite width.}
+With $s=\mathbf 1$, standard deterministic-law initialization produces a
+deterministic limit. With $s\neq\mathbf 1$, order-one randomness can survive
+through the initial law of the finite-dimensional head-global environment.
+
+\paragraph{Symmetry and collapse.}
+With $s=\mathbf 1$, permutation-symmetric initialization forces exact head
+collapse in the infinite-width limit. With $s\neq\mathbf 1$, symmetry of the
+neuron law alone is no longer enough; one must also control the head-global
+state.
+
+\paragraph{Interpretation.}
+The no-input regime is the cleanest width mean-field limit for fixed $K$: width
+averages everything that is head-specific. The input-modulated regime is the
+next level of complexity: width still averages neuron-level fluctuations, but it
+does not remove head-global asymmetry.
+
+\end{document}

@@ -45,7 +45,7 @@
 \maketitle
 
 \begin{abstract}
-We study a different asymptotic regime for efficient ensembles: instead of sending the hidden width to infinity at fixed ensemble size, we fix the width $m$ and let the number of heads $K$ grow. Motivated by a two-layer BatchEnsemble-like proxy with independent output heads and head-wise averaged loss, we identify the empirical measure of head-specific states as the natural large-$K$ object. The first key point is structural: parameter sharing does not obstruct a head mean-field description, because the pair consisting of the shared backbone state and the empirical head law is already an exact closed state variable at finite $K$. Under an order-one head-learning scaling with limit $\lambda\in[0,\infty)$, one obtains a coupled ODE-transport system for the shared parameters and the head law. For the concrete two-layer proxy we then prove a finite-horizon large-$K$ theorem under bounded-support initialization. This note is intended as a clean starting point for a large-ensemble theory parallel to, rather than replacing, the fixed-$K$ width-mean-field analysis.
+We study a different asymptotic regime for efficient ensembles: instead of sending the hidden width to infinity at fixed ensemble size, we fix the width $m$ and let the number of heads $K$ grow. Motivated by a two-layer BatchEnsemble-like proxy with independent output heads and head-wise averaged loss, we identify the empirical measure of head-specific states as the natural large-$K$ object. The first key point is structural: parameter sharing does not obstruct a head mean-field description, because the pair consisting of the shared backbone state and the empirical head law is already an exact closed state variable at finite $K$. After normalizing time so that the shared dynamics remain order one, equal learning rates would make the head dynamics degenerate as $K\to\infty$; the nontrivial regime instead keeps an order-one effective head-learning scale $\lambda\in[0,\infty)$. This yields a coupled ODE-transport system for the shared parameters and the head law. The practically relevant observable is then the induced predictor law, obtained by pushing the head law through the map $z\mapsto f(\cdot;q_t,z)$: state-level non-collapse alone does not imply functional diversity, but any exact function-level collapse must come from degeneracy of that map rather than from the transport equation crushing the head law. For the concrete two-layer proxy we prove a finite-horizon large-$K$ theorem under bounded-support initialization. This note is intended as a clean starting point for a large-ensemble theory parallel to, rather than replacing, the fixed-$K$ width-mean-field analysis.
 \end{abstract}
 
 \section{Introduction}
@@ -56,10 +56,16 @@ This note explores a different limit: what happens when the number of heads itse
 \[
   \frac1K\sum_{\alpha=1}^K \ell(f_\alpha,y),
 \]
-the answer is not automatic. Increasing $K$ changes both the averaging seen by the shared backbone and the per-parameter gradient scale seen by each head. In the present note we focus on the nontrivial regime in which the effective head learning rate remains order one as $K$ grows, so that the empirical measure of head states evolves by a transport equation coupled to the shared backbone. This replaces the question ``do all heads become identical?'' by the question ``does the head population law remain dispersed or collapse to a Dirac mass?'' It is a different notion of collectivity from the fixed-$K$ width-mean-field collapse theorem, and it may be closer to the operational question practitioners ask when they scale the ensemble size.
+the answer is not automatic. Increasing $K$ changes both the averaging seen by the shared backbone and the raw gradient scale seen by each head. In particular, with equal learning rates across shared and head-specific parameters, each head receives a gradient of order $1/K$, so the naive large-$K$ limit freezes the head states. In the present note we therefore focus on the nontrivial regime in which the head-side learning rate is scaled so that the \emph{effective} head learning remains order one as $K$ grows. In that regime the empirical measure of head states evolves by a transport equation coupled to the shared backbone. This replaces the question ``do all heads become identical?'' by the question ``what head population law is selected, and what predictor law does it induce?'' It is a different notion of collectivity from the fixed-$K$ width-mean-field collapse theorem, and it may be closer to the operational question practitioners ask when they scale the ensemble size.
+
+This perspective is complementary to the infinite-width GP/NTK literature. In lazy or NTK-type limits, randomness at initialization can survive at order one and the training dynamics is described by a kernel or linearized model \citep{embedded-ensembles,chizat2019lazy,mei2019}. Here the width $m$ is fixed, the shared backbone can keep feature-learning, and the macroscopic object is instead a transport equation for head states evolving in a finite-dimensional common environment. The relevant ``large object'' is therefore not an initialization kernel but a time-dependent head law.
 
 \paragraph{Main message.}
-For head-wise averaged losses, taking $K\to\infty$ still fits a mean-field template, but the correct mean-field object is the empirical distribution of head states rather than a single common predictor. Parameter sharing does not break this description: it enters only through a common backbone state driven by the empirical head law. Under order-one head learning, one obtains a nontrivial ODE-PDE system. In that system, persistent diversity is represented by a non-monomorphic head law, and finite-time exact state collapse from dispersed initial data is impossible under the bounded-Lipschitz characteristic flow.
+For head-wise averaged losses, taking $K\to\infty$ still fits a mean-field template, but the correct mean-field object is the empirical distribution of head states rather than a single common predictor. Parameter sharing does not break this description: it enters only through a common backbone state driven by the empirical head law. The practically relevant observable is the induced predictor law
+\[
+  \bigl(z\mapsto f(\cdot;q_t,z)\bigr)_{\#}\nu_t.
+\]
+A dispersed head law does not by itself imply functional diversity, and a Dirac predictor law can arise even when $\nu_t$ is not a Dirac mass. Under order-one head learning one obtains a nontrivial ODE-PDE system; under bounded-Lipschitz characteristic flow, exact state collapse from dispersed initial data is impossible, so any exact function-level collapse must come from degeneracy of the head-to-predictor map rather than from the transport equation itself.
 
 \section{Setup}
 \label{sec:setup}
@@ -162,7 +168,7 @@ For every fixed $K$ and every $\lambda_K\ge 0$, the pair $(q_t^K,\nu_t^K)$ is an
   0
   \label{eq:closure-nu}
 \end{align}
-in the sense of distributions. In particular, if two labeled head configurations have the same initial shared state $q_0^K$ and the same empirical measure $\nu_0^K$, then they generate the same trajectories $q_t^K$ and $\nu_t^K$ for all future times.
+in the sense of distributions. In particular, whenever the labeled ODE system \eqref{eq:general-q}--\eqref{eq:general-z} is uniquely solvable on a time interval, two labeled head configurations with the same initial shared state $q_0^K$ and the same empirical measure $\nu_0^K$ generate the same trajectories $q_t^K$ and $\nu_t^K$ on that interval.
 \end{proposition}
 
 \begin{proof}
@@ -200,6 +206,21 @@ We write the finite-$K$ system directly in terms of the effective head-learning 
 \[
   \lambda_K \to \lambda \in [0,\infty).
 \]
+To relate $\lambda_K$ to actual optimization, suppose the head-averaged risk \eqref{eq:riskK} is trained by gradient flow with shared-side learning rate $\eta_{q,K}$ and head-side learning rate $\eta_{z,K}$. After rescaling time by $\eta_{q,K}$, the dynamics takes the form
+\begin{align}
+  \dot q_t^K
+  &=
+  \frac1K\sum_{\alpha=1}^K \mathcal F(q_t^K,z_{\alpha,t}^K),
+  \label{eq:raw-scaled-q}
+  \\
+  \dot z_{\alpha,t}^K
+  &=
+  \frac{\eta_{z,K}}{K\eta_{q,K}}\,
+  \mathcal G(q_t^K,z_{\alpha,t}^K).
+  \label{eq:raw-scaled-z}
+\end{align}
+Thus $\lambda_K=\eta_{z,K}/(K\eta_{q,K})$. In particular, equal learning rates give $\lambda_K=1/K\to 0$, so the large-$K$ limit freezes the head law at leading order. The present note keeps $\lambda_K\to\lambda$ explicit in order to treat both this degenerate regime ($\lambda=0$) and the nontrivial transport regime ($\lambda>0$), the latter requiring $\eta_{z,K}\sim K\eta_{q,K}$.
+
 The corresponding empirical system is exactly
 \begin{align}
   \dot q_t^K
@@ -585,6 +606,8 @@ where
 The additional hypothesis makes $(q,\nu)\mapsto \int f(x;q,z)\nu(\dd z)$ Lipschitz uniformly over $x\in\mathcal X_\ast$ with respect to $\|q-\bar q\|+\W(\nu,\bar\nu)$. The claim therefore follows directly from \eqref{eq:head-mf-conv}.
 \end{proof}
 
+From a practical point of view, however, the averaged predictor is still not the full story. The more informative object is the \emph{predictor law} induced by the head law under the map $z\mapsto f(\cdot;q_t,z)$. We record the state-level no-collapse fact first because it isolates what the transport equation can and cannot do before turning to function-level collapse itself.
+
 \subsection{Bi-Lipschitz Transport and No Finite-Time State Collapse}
 
 In the large-$K$ formulation, the right analogue of headwise collapse is no longer equality of finitely many functions. Instead, it is concentration of the head law onto a single state. Under the bounded-Lipschitz dynamics above, even that state-level collapse cannot occur in finite time unless it is already present initially.
@@ -623,6 +646,212 @@ so that $\nu_t=\Phi_{t\#}\nu_0$. Because the vector field is globally Lipschitz 
   z \mapsto f(\cdot;q_t,z)
 \]
 rather than from the transport equation crushing the head law to a point.
+
+\subsection{Predictor-Law Regimes: Disagreement and Bias}
+
+State-level polymorphism is not the same thing as predictor-level diversity. The
+practically relevant function-space object is the predictor law obtained by pushing the head law
+forward through the map $z\mapsto f(\cdot;q_t,z)$.
+
+\begin{proposition}[Predictor-law collapse criterion and disagreement variance]
+\label{prop:disagreement}
+Assume the hypotheses of \cref{thm:head-mf}, fix $t\ge 0$, and suppose that
+\[
+  H_t:\mathcal Z\to L^2(\mathsf P_X),
+  \qquad
+  H_t(z):=f(\cdot;q_t,z),
+\]
+belongs to $L^2(\nu_t;L^2(\mathsf P_X))$. Define the predictor mean
+\[
+  \bar H_t := \int_{\mathcal Z} H_t(z)\,\nu_t(\dd z)
+\]
+and the disagreement energy
+\[
+  \mathcal D_t
+  :=
+  \iint_{\mathcal Z\times\mathcal Z}
+  \|H_t(z)-H_t(z')\|_{L^2(\mathsf P_X)}^2\,
+  \nu_t(\dd z)\nu_t(\dd z').
+\]
+Define also the predictor law
+\[
+  \Pi_t := (H_t)_\# \nu_t \in \PP\bigl(L^2(\mathsf P_X)\bigr).
+\]
+Then
+\begin{equation}
+  \mathcal D_t
+  =
+  2\int_{\mathcal Z}
+  \|H_t(z)-\bar H_t\|_{L^2(\mathsf P_X)}^2\,
+  \nu_t(\dd z).
+  \label{eq:disagreement-variance}
+\end{equation}
+Moreover, the following are equivalent:
+\begin{enumerate}[leftmargin=2em]
+  \item $\Pi_t$ is a Dirac mass;
+  \item $\mathcal D_t=0$;
+  \item $H_t(z)=\bar H_t$ for $\nu_t$-almost every $z$.
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+Let $Z,Z'$ be iid random variables with law $\nu_t$. Since $H_t(Z)$ is a
+square-integrable random element of the Hilbert space $L^2(\mathsf P_X)$,
+\[
+  \mathcal D_t
+  =
+  \E\|H_t(Z)-H_t(Z')\|_{L^2(\mathsf P_X)}^2.
+\]
+Expanding the square in a Hilbert space and using the independence and identical
+distribution of $Z$ and $Z'$ gives
+\begin{align*}
+  \mathcal D_t
+  &=
+  \E\|H_t(Z)\|_{L^2(\mathsf P_X)}^2
+  +
+  \E\|H_t(Z')\|_{L^2(\mathsf P_X)}^2
+  -
+  2\bigl\langle \E H_t(Z), \E H_t(Z') \bigr\rangle_{L^2(\mathsf P_X)}
+  \\
+  &=
+  2\E\|H_t(Z)-\bar H_t\|_{L^2(\mathsf P_X)}^2,
+\end{align*}
+which is \eqref{eq:disagreement-variance}. The characterization of the case
+$\mathcal D_t=0$ is the standard fact that a nonnegative square-integrable
+random variable has zero expectation if and only if it vanishes almost surely.
+This is equivalent to $H_t(Z)$ being almost surely constant, which in turn is
+equivalent to the pushforward law $\Pi_t$ being a Dirac mass.
+\end{proof}
+
+\begin{corollary}[Injectivity prevents function-level collapse]
+\label{cor:injective}
+Assume the hypotheses of \cref{prop:disagreement}, and suppose that there exists
+$c_t>0$ such that
+\[
+  \|H_t(z)-H_t(z')\|_{L^2(\mathsf P_X)}
+  \ge
+  c_t\|z-z'\|
+  \qquad
+  \forall z,z'\in\operatorname{supp}\nu_t.
+\]
+Let
+\[
+  \bar z_t := \int_{\mathcal Z} z\,\nu_t(\dd z),
+  \qquad
+  V_t^2 := \int_{\mathcal Z}\|z-\bar z_t\|^2\,\nu_t(\dd z).
+\]
+Then
+\begin{equation}
+  \mathcal D_t \ge 2c_t^2 V_t^2.
+  \label{eq:disagreement-lower}
+\end{equation}
+In particular, $\Pi_t$ is a Dirac mass if and only if $\nu_t$ is a Dirac mass.
+\end{corollary}
+
+\begin{proof}
+Let $Z,Z'$ be iid with law $\nu_t$. The lower Lipschitz bound gives
+\[
+  \mathcal D_t
+  =
+  \E\|H_t(Z)-H_t(Z')\|_{L^2(\mathsf P_X)}^2
+  \ge
+  c_t^2 \E\|Z-Z'\|^2
+  =
+  2c_t^2 V_t^2.
+\]
+If $\Pi_t$ is a Dirac mass, then \eqref{eq:disagreement-lower} implies
+$V_t=0$, hence $\nu_t$ is a Dirac mass. The converse is immediate.
+\end{proof}
+
+\begin{corollary}[Lipschitz sensitivity controls disagreement and Jensen bias]
+\label{cor:bias}
+Assume the hypotheses of \cref{prop:disagreement}, and in addition assume that
+\[
+  \int_{\mathcal Z}\|z\|^2\,\nu_t(\dd z)<\infty.
+\]
+Let
+\[
+  \bar z_t := \int_{\mathcal Z} z\,\nu_t(\dd z),
+  \qquad
+  V_t^2 := \int_{\mathcal Z}\|z-\bar z_t\|^2\,\nu_t(\dd z).
+\]
+If $H_t$ is $L_t$-Lipschitz on $\operatorname{supp}\nu_t$, then
+\begin{align}
+  \mathcal D_t &\le 2L_t^2 V_t^2,
+  \label{eq:disagreement-lip}
+  \\
+  \|\bar H_t-H_t(\bar z_t)\|_{L^2(\mathsf P_X)}
+  &\le
+  L_t V_t.
+  \label{eq:bias-lip}
+\end{align}
+If moreover $H_t$ is affine on the convex hull of $\operatorname{supp}\nu_t$,
+then
+\begin{equation}
+  \bar H_t = H_t(\bar z_t).
+  \label{eq:bias-affine}
+\end{equation}
+\end{corollary}
+
+\begin{proof}
+Let $Z,Z'$ be iid with law $\nu_t$. By the Lipschitz property of $H_t$,
+\[
+  \|H_t(Z)-H_t(Z')\|_{L^2(\mathsf P_X)}
+  \le
+  L_t\|Z-Z'\|.
+\]
+Squaring and taking expectations yields
+\[
+  \mathcal D_t
+  \le
+  L_t^2 \E\|Z-Z'\|^2.
+\]
+Since $Z,Z'$ are iid,
+\[
+  \E\|Z-Z'\|^2
+  =
+  2\E\|Z-\bar z_t\|^2
+  =
+  2V_t^2,
+\]
+which proves \eqref{eq:disagreement-lip}. Likewise,
+\[
+  \|\bar H_t-H_t(\bar z_t)\|_{L^2(\mathsf P_X)}
+  =
+  \left\|
+    \int_{\mathcal Z}\bigl(H_t(z)-H_t(\bar z_t)\bigr)\,\nu_t(\dd z)
+  \right\|_{L^2(\mathsf P_X)}
+  \le
+  \int_{\mathcal Z}\|H_t(z)-H_t(\bar z_t)\|_{L^2(\mathsf P_X)}\,\nu_t(\dd z)
+\]
+by Minkowski. The Lipschitz bound gives
+\[
+  \|\bar H_t-H_t(\bar z_t)\|_{L^2(\mathsf P_X)}
+  \le
+  L_t \int_{\mathcal Z}\|z-\bar z_t\|\,\nu_t(\dd z)
+  \le
+  L_t V_t,
+\]
+proving \eqref{eq:bias-lip}. Finally, if $H_t$ is affine on
+$\operatorname{co}(\operatorname{supp}\nu_t)$, then $\bar z_t$ belongs to that
+convex hull and linearity of Bochner integration gives \eqref{eq:bias-affine}.
+\end{proof}
+
+\paragraph{Regime taxonomy.}
+\Cref{prop:mono,prop:disagreement,cor:injective,cor:bias} suggest three distinct levels of
+regime classification.
+\begin{enumerate}[leftmargin=2em]
+  \item \emph{Function regime}: the predictor law $\Pi_t$ is monomorphic if it is a Dirac mass and polymorphic otherwise; quantitatively, the ensemble is functionally collective when $\mathcal D_t$ is small and functionally diverse when $\mathcal D_t$ is appreciable. By \cref{prop:disagreement}, this is determined by the predictor law rather than by $\nu_t$ alone.
+  \item \emph{State regime}: $\nu_t$ is monomorphic if it is a Dirac mass and polymorphic otherwise. By \cref{prop:mono}, finite-time state collapse cannot occur from dispersed initial data, but by \cref{prop:disagreement} this need not decide the function regime unless the map $H_t$ is nondegenerate on $\operatorname{supp}\nu_t$.
+  \item \emph{Bias regime}: the ensemble is bias-negligible when $\|\bar H_t-H_t(\bar z_t)\|$ is small and bias-relevant when this Jensen gap is non-negligible. By \cref{cor:bias}, small Lipschitz sensitivity or approximate affinity of $H_t$ suppresses this bias.
+\end{enumerate}
+Thus a head population may be state-polymorphic but still functionally
+collective if the map $z\mapsto H_t(z)$ is nearly constant on the support of
+$\nu_t$. Conversely, if $H_t$ is injective or quantitatively nondegenerate on
+that support, then state polymorphism forces function polymorphism by
+\cref{cor:injective}. A functionally diverse ensemble can still be
+bias-negligible if $H_t$ varies along the support of $\nu_t$ but remains
+approximately affine.
 
 \subsection{Finite-Horizon Moment Bounds for the Concrete Proxy}
 
@@ -1297,11 +1526,15 @@ Hence $(\bar q_t,\bar\nu_t)$ also solves the extended system driven by $\widetil
 \subsection{Practical Interpretation}
 
 The large-$K$ theory developed here should be read as the regime in which the
-head-specific learning remains order one as $K$ grows. In that regime,
+head-specific learning remains order one as $K$ grows \emph{after compensating
+for the raw $1/K$ gradient scale of a head-averaged objective}. In that regime,
 increasing $K$ turns the ensemble into a deterministic head population whose
 law evolves according to \eqref{eq:limit-nu}. This is the regime relevant to
 the concrete theorem below and to the population-level interpretation of
-ensemble diversity used throughout the note.
+ensemble diversity used throughout the note. By contrast, with equal learning
+rates across shared and head-specific parameters one has $\lambda_K=1/K\to 0$,
+so the leading-order large-$K$ limit freezes the head law instead of transporting
+it.
 
 \section{Discussion}
 \label{sec:discussion}
@@ -1332,6 +1565,218 @@ present draft. Those extensions are interesting, but they substantially
 complicate the note and obscure the clean bounded-support story above. Likewise,
 we do not try to turn the local heuristic discussion of predictor-law shape,
 disagreement, and bias into a global theorem here.
+
+\paragraph{Practitioner-facing reading.}
+The regime taxonomy above suggests that ensemble size $K$ should not be viewed
+as the only diversity knob. In the large-$K$ picture, increasing $K$ mainly
+reduces Monte-Carlo error in approximating the population predictor
+\[
+  \bar f_t(x)=\int f(x;q_t,z)\,\nu_t(\dd z),
+\]
+once the underlying law $\nu_t$ is already determined. What changes the regime
+itself is the pair consisting of the state law $\nu_t$ and the sensitivity of
+the predictor map $H_t:z\mapsto f(\cdot;q_t,z)$ on its support.
+
+This leads to three practical diagnostics:
+\begin{enumerate}[leftmargin=2em]
+  \item monitor a \emph{disagreement proxy}, such as empirical pairwise
+  predictor variance across heads, to distinguish functionally collective from
+  functionally diverse behaviour;
+  \item compare the ensemble mean to the prediction of the average head state,
+  when such an average head is meaningful, to detect bias-relevant regimes;
+  \item sweep $K$ jointly with width $m$ or with the strength of head-specific
+  parameterization, because a small disagreement signal under large $K$ often
+  indicates that the bottleneck is predictor sensitivity rather than sampling
+  noise.
+\end{enumerate}
+
+In this light, a practitioner who observes little gain from increasing $K$
+should first ask whether the ensemble is in a functionally collective regime.
+If so, increasing $K$ further is unlikely to help much; stronger head-specific
+initialization, earlier head-specific modulation, or a larger shared width $m$
+are the more natural interventions. Conversely, if disagreement is appreciable
+but the ensemble mean keeps drifting away from the prediction of an average
+head, then one is likely in a bias-relevant regime where the head dependence is
+genuinely nonlinear.
+
+\paragraph{A simple width heuristic.}
+The two-layer proxy also suggests a useful distinction between two possible
+sources of head diversity.
+
+\begin{proposition}[Readout-only diversity self-averages with width]
+\label{prop:readout-self-average}
+Fix a shared state $q=((w_j,b_j)_{j=1}^m)$ and a common modulation vector
+$r\in\R^d$. Let
+\[
+  \phi_j^r(x):=\sigma\bigl(w_j^\top(r\odot x)+b_j\bigr).
+\]
+For each head $\alpha$, define
+\[
+  F_\alpha^m(x)
+  :=
+  \frac1m\sum_{j=1}^m a_{\alpha,j}\phi_j^r(x),
+  \qquad
+  a_{\alpha,j}=\bar a_j+\xi_{\alpha,j},
+\]
+where conditional on $(q,r)$ the random variables $\xi_{\alpha,j}$ are
+independent across $\alpha$ and $j$, satisfy
+\[
+  \E[\xi_{\alpha,j}\mid q,r]=0,
+  \qquad
+  \E[\xi_{\alpha,j}^2\mid q,r]\le v_a,
+\]
+and let
+\[
+  \bar F^m(x)
+  :=
+  \frac1m\sum_{j=1}^m \bar a_j\phi_j^r(x).
+\]
+Then
+\[
+  \E[F_\alpha^m(x)\mid q,r]=\bar F^m(x)
+  \qquad
+  \forall x\in\mathcal X,
+\]
+and
+\begin{align}
+  \E\!\left[
+    \|F_\alpha^m-\bar F^m\|_{L^2(\mathsf P_X)}^2
+    \,\middle|\, q,r
+  \right]
+  &\le
+  \frac{v_a\|\sigma\|_\infty^2}{m},
+  \label{eq:readout-only-var}
+  \\
+  \E\!\left[
+    \|F_\alpha^m-F_\beta^m\|_{L^2(\mathsf P_X)}^2
+    \,\middle|\, q,r
+  \right]
+  &\le
+  \frac{2v_a\|\sigma\|_\infty^2}{m}
+  \qquad
+  (\alpha\neq\beta).
+  \label{eq:readout-only-pair}
+\end{align}
+\end{proposition}
+
+\begin{proof}
+The conditional mean identity is immediate from
+\[
+  \E[a_{\alpha,j}\mid q,r]=\bar a_j.
+\]
+For the variance bound,
+\[
+  F_\alpha^m(x)-\bar F^m(x)
+  =
+  \frac1m\sum_{j=1}^m \xi_{\alpha,j}\phi_j^r(x).
+\]
+Conditional on $(q,r)$, the summands are centered and independent in $j$, so
+\[
+  \E\!\left[
+    |F_\alpha^m(x)-\bar F^m(x)|^2
+    \,\middle|\, q,r
+  \right]
+  =
+  \frac1{m^2}\sum_{j=1}^m
+  \E[\xi_{\alpha,j}^2\mid q,r]\,
+  |\phi_j^r(x)|^2
+  \le
+  \frac{v_a\|\sigma\|_\infty^2}{m}.
+\]
+Integrating over $\mathsf P_X$ gives \eqref{eq:readout-only-var}. For
+\eqref{eq:readout-only-pair}, note that
+\[
+  F_\alpha^m-F_\beta^m
+  =
+  (F_\alpha^m-\bar F^m)-(F_\beta^m-\bar F^m),
+\]
+and the two centered terms are conditionally independent with the same second
+moment bound, so the variances add.
+\end{proof}
+
+\begin{corollary}[No Jensen bias from readout dispersion alone]
+\label{cor:readout-affine}
+Fix $(q,r)$ and define
+\[
+  H_{q,r}^m(a)(x)
+  :=
+  \frac1m\sum_{j=1}^m a_j\phi_j^r(x).
+\]
+Then $a\mapsto H_{q,r}^m(a)$ is affine as a map from $\R^m$ to
+$L^2(\mathsf P_X)$. Hence for every probability law $\mu$ on $\R^m$ with finite
+first moment,
+\[
+  \int_{\R^m} H_{q,r}^m(a)\,\mu(\dd a)
+  =
+  H_{q,r}^m\!\left(
+    \int_{\R^m} a\,\mu(\dd a)
+  \right).
+\]
+In particular, dispersion in the output-head coefficients alone cannot create
+ensemble bias.
+\end{corollary}
+
+\begin{proof}
+For fixed $(q,r)$, the map $a\mapsto H_{q,r}^m(a)$ is linear in $a$, so the
+claim follows immediately from linearity of Bochner integration.
+\end{proof}
+
+These two facts suggest a practitioner-relevant infinite-width heuristic.
+Centered head-specific perturbations in the output coefficients $a_{\alpha,j}$
+are averaged over the width and therefore tend to generate at most
+$O(m^{-1/2})$ predictor differences. By contrast, the modulation vectors
+$r_\alpha$ enter \emph{inside} the nonlinear feature map before the averaging
+over neurons. If the width-$m$ shared state admits a law-of-large-numbers limit
+and the resulting map
+\[
+  r\mapsto
+  \int a\,\sigma\bigl(w^\top(r\odot x)+b\bigr)\,\rho(\dd a,\dd w,\dd b)
+\]
+is nonconstant on the support of the head law, then one should expect
+order-one functional diversity to persist even as $m\to\infty$. Likewise,
+nonlinearity of this map in $r$ is the natural source of width-persistent
+ensemble bias.
+
+\paragraph{Connection to NTK operating regimes.}
+This width heuristic should be read in contrast with the lazy or NTK picture
+\citep{embedded-ensembles,chizat2019lazy}. In the NTK regime, parameters remain
+close to initialization and the key question is whether the cross-head GP
+covariance and off-diagonal NTK vanish. For BatchEnsemble-like architectures,
+\citet{embedded-ensembles} identify a special role of the \emph{last-layer
+post-activation modulations}: a zero-mean last-layer modulation is sufficient
+for model-diagonal GP covariance and NTK, hence for the independent regime in
+the infinite-width lazy limit. In that sense, NTK diversity is primarily
+\emph{preserved initialization diversity}: the training dynamics propagates the
+independence already present in the kernel at $t=0$.
+
+The feature-learning large-$K$ picture is different. By
+\cref{prop:mono}, if the initial head law is exactly monomorphic,
+\[
+  \nu_0=\delta_{z_0},
+\]
+then the law remains monomorphic for all finite times. Thus deterministic
+training does not spontaneously create diversity from a perfectly symmetric
+initial condition. What training can do, however, is to \emph{amplify} an
+existing state-level spread by changing the predictor map
+$H_t:z\mapsto f(\cdot;q_t,z)$. This is precisely why the head-specific
+modulation $r$ plays a different role from the output coefficients $a$ in the
+present note: centered perturbations in $a$ self-average and remain affine at
+the predictor level, whereas perturbations in $r$ enter before the nonlinearity
+and can therefore generate width-persistent functional diversity and bias.
+
+This comparison suggests a useful practical distinction between two ways of
+obtaining ensemble diversity:
+\begin{enumerate}[leftmargin=2em]
+  \item \emph{preserved diversity}, where the training dynamics stays close to a
+  linearized model and mainly carries forward whatever independence was built
+  into the initialization kernel;
+  \item \emph{amplified diversity}, where a nontrivial initial head spread is
+  transformed by feature learning into stronger function-space separation.
+\end{enumerate}
+The NTK independent regime is the clean prototype of the first mechanism. The
+head-law regime studied here suggests that BatchEnsemble-like models can also
+benefit from the second mechanism, but only if the head-specific parameters act
+inside feature formation and not merely in the final linear readout.
 
 The most natural next steps are:
 \begin{enumerate}[leftmargin=2em]
