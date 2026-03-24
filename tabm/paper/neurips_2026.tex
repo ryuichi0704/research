@@ -1,0 +1,880 @@
+\documentclass{article}
+
+% if you need to pass options to natbib, use, e.g.:
+%     \PassOptionsToPackage{numbers, compress}{natbib}
+% before loading neurips_2026
+
+\usepackage{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{bm}
+\usepackage{enumitem}
+\usepackage[nameinlink,noabbrev]{cleveref}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{lemma}[theorem]{Lemma}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{assumption}[theorem]{Assumption}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\PP}{\mathcal{P}}
+\newcommand{\W}{W_1}
+\newcommand{\dd}{\,\mathrm{d}}
+\newcommand{\riskhead}{\mathcal{R}_{\mathrm{head}}}
+\newcommand{\riskmean}{\mathcal{R}_{\mathrm{mean}}}
+\newcommand{\diag}{\operatorname{diag}}
+\newcommand{\Sym}{\operatorname{Sym}}
+
+\title{Deterministic Mean-Field Collapse in Efficient Ensembles}
+
+\author{Anonymous Authors}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We study deterministic mean-field dynamics for efficient ensembles built on BatchEnsemble-style parameter sharing, with tabular architectures such as TabM as a main motivating example. We analyze a two-layer model with a shared hidden structure and head-specific global variables, whose mean-field limit is a coupled PDE-ODE system for a neuron distribution together with head-specific global variables. Our first result is structural: under symmetry across ensemble members, symmetric initialization is preserved and the ensemble collapses to a common predictor, even though the collapsed scalar dynamics still retains an architecture-dependent effective kernel. We further establish global characteristic well-posedness, stability, and deterministic finite-width convergence in a bounded setup. In addition, we derive an exact output-dynamics decomposition into a neuron kernel and a head kernel, and use it to compare independent and shared output heads. The resulting picture is practitioner-relevant: independent heads weaken the most direct common-mode route to collectivity, but they do not by themselves guarantee deterministic mean-field diversity. This leads to concrete predictions about width, head design, and when an efficient ensemble should behave more like a single shared model than like an ensemble with truly distinct predictors.
+\end{abstract}
+
+\section{Introduction}
+
+Efficient ensembles based on BatchEnsemble-style parameter sharing, including TabM, aim to capture some of the benefits of deep ensembles while sharing a substantial fraction of the underlying parameters \citep{batchensemble,tabm}. Their empirical appeal is clear: if parameter sharing preserves useful diversity, one can obtain uncertainty and robustness benefits at a fraction of the memory and training cost of fully independent ensembles. The theoretical question is more subtle. When several predictors are trained jointly through a largely shared backbone, what remains of ensemble diversity in the large-width limit?
+
+This question is especially delicate because different infinite-width limits preserve different kinds of structure. In lazy and NTK-type regimes, initialization randomness can survive at order one, and efficient ensembles can retain meaningful diversity even as width grows \citep{embedded-ensembles,chizat2019lazy}. In the deterministic mean-field regime studied in this paper, by contrast, the leading-order evolution is deterministic, but it is not a priori clear whether headwise functional diversity should survive or collapse. Establishing that symmetric initialization leads to collapse, and clarifying what architecture-dependent structure survives it, is one of the main contributions of this work.
+
+This paper studies that question in a concrete deterministic mean-field model. The central message is simple: under symmetry across heads, symmetric initialization is preserved and leading-order headwise diversity collapses to a common predictor. However, collapse does \emph{not} mean that the model becomes identical to an ordinary single network. The resulting scalar predictor still evolves through an effective kernel that remembers the shared/private parameterization. In the two-layer setup studied here, this effective dynamics also contains an additional head-kernel contribution coming from head-specific global variables.
+
+This viewpoint is complementary to prior NTK analyses of BatchEnsemble-style embedded ensembles. In that literature, independent and collective regimes are characterized by whether the off-diagonal GP/NTK blocks vanish in the wide lazy limit \citep{embedded-ensembles}. Here we study a different leading-order description, namely deterministic feature-learning mean-field dynamics, whose limit no longer retains order-one headwise randomness in the same way.
+
+These viewpoints are not contradictory. In the broader mean-field literature, kernel behavior appears as a special short-time limit of distributional dynamics \citep{mei2019}. This suggests a possible finite-width crossover: early training may look closer to an NTK-style independent regime, while later feature learning drives the model toward the collapsed mean-field picture. We treat this only as an interpretation, not as a theorem, but it gives a useful lens for width- and time-dependent disagreement measurements.
+
+\paragraph{Scope and contributions.}
+We study a concrete two-layer mean-field setup with shared hidden features and head-specific global variables. The paper makes four contributions.
+\begin{enumerate}[leftmargin=2em]
+  \item We establish global characteristic well-posedness, stability, and deterministic particle-to-limit convergence for the coupled PDE-ODE dynamics of the two-layer model.
+  \item We prove that symmetry across heads is preserved and that symmetric initialization forces exact headwise collapse to a common predictor, together with quantitative control of small asymmetry.
+  \item We derive exact kernel formulas for the output dynamics, identifying separate neuron and head contributions and the resulting effective kernel on the collapsed symmetric manifold.
+  \item We compare independent and shared output heads, showing how head design redistributes coupling across common and disagreement modes rather than simply creating deterministic mean-field diversity.
+\end{enumerate}
+
+These results lead directly to practitioner-facing predictions. If an efficient ensemble displays large persistent disagreement at substantial width, then that disagreement is unlikely to be a leading-order deterministic mean-field effect. Instead, one should look to finite-width fluctuations, explicit symmetry breaking, stochastic optimization effects, or a regime closer to lazy kernel dynamics. Conversely, if disagreement decays with width and the ensemble behaves robustly under head pruning, the model is likely operating much more like a shared structured predictor than like an ensemble with truly distinct predictors.
+
+\section{Preliminary}
+\label{sec:prelim}
+
+\subsection{Problem Setup and Notation}
+
+Let $(\mathcal{X} \times \mathcal{Y}, \mathsf{P})$ be the data space with population law $\mathsf{P}$, and fix an ensemble size $K \in \{1,2,\dots\}$. We write $\mathsf{P}_X$ for the marginal of $\mathsf{P}$ on $\mathcal{X}$.
+
+For a predictor with $K$ heads, indexed by $\alpha \in \{1,\dots,K\}$, we write the head outputs as
+\[
+  f_\alpha(x), \qquad \alpha=1,\dots,K.
+\]
+The population risk averaged across heads is
+\begin{equation}
+  \riskhead
+  =
+  \E_{(x,y)\sim\mathsf{P}}
+  \Bigl[
+    \frac1K \sum_{\alpha=1}^K \ell(f_\alpha(x),y)
+  \Bigr],
+  \label{eq:head-risk}
+\end{equation}
+where $\ell:\R\times\mathcal{Y}\to\R$ is the loss. We also use the risk of the mean prediction,
+\begin{equation}
+  \riskmean
+  =
+  \E_{(x,y)\sim\mathsf{P}}
+  \Bigl[
+    \ell\Bigl(\frac1K\sum_{\alpha=1}^K f_\alpha(x),y\Bigr)
+  \Bigr].
+  \label{eq:mean-risk}
+\end{equation}
+Throughout the paper, $\partial_1 \ell(z,y)$ denotes the derivative of the loss with respect to its first argument $z$, i.e., the prediction variable.
+
+When discussing ensemble disagreement, we use the mean predictor
+\[
+  \bar f(x) = \frac1K \sum_{\alpha=1}^K f_\alpha(x)
+\]
+and the headwise deviations
+\[
+  \delta_\alpha(x)=f_\alpha(x)-\bar f(x).
+\]
+
+\subsection{A Two-Layer Setup}
+\label{subsec:tabm-setup}
+
+We now introduce the concrete two-layer setup used throughout the paper, corresponding to a BatchEnsemble-style hidden structure together with independent output heads. In this subsection, $K$ denotes the number of heads and $m$ denotes the hidden width. The finite-width model is
+\begin{equation}
+  f_\alpha^m(x)
+  =
+  \frac1m\sum_{j=1}^m
+  a_{\alpha,j}\,
+  \sigma\bigl(w_j^\top (r_\alpha\odot x)+b_j\bigr),
+  \qquad
+  \alpha=1,\dots,K,
+  \label{eq:finite-tabm}
+\end{equation}
+where $w_j\in\R^d$, $b_j\in\R$, $a_{\alpha,j}\in\R$, and each head has a global modulation vector $r_\alpha\in\R^d$.
+
+Let $S_K$ be the permutation group on $\{1,\dots,K\}$. For each $\pi\in S_K$, define the relabeling maps
+\[
+  \Pi_\pi^\Theta(w,b,(a_\alpha)_{\alpha=1}^K)
+  =
+  (w,b,(a_{\pi^{-1}(\alpha)})_{\alpha=1}^K),
+\]
+\[
+  \Pi_\pi^{\mathcal R}((r_\alpha)_{\alpha=1}^K)
+  =
+  (r_{\pi^{-1}(\alpha)})_{\alpha=1}^K.
+\]
+Throughout the paper, ``symmetry across heads'' means invariance under this relabeling.
+
+To keep the coupled mean-field dynamics globally well posed in a fully rigorous form, we work with smooth clipping maps. Let
+\[
+  \Theta=\R^d\times\R\times\R^K,
+  \qquad
+  \mathcal{R}=(\R^d)^K,
+\]
+and choose smooth maps
+\[
+  T_\Theta:\Theta\to\Theta,
+  \qquad
+  T_{\mathcal R}:\mathcal R\to\mathcal R
+\]
+with bounded images, globally bounded and globally Lipschitz first derivatives, and commuting with relabeling of the head indices. Write
+\[
+  T_\Theta(\vartheta)=\bigl(\widetilde w,\widetilde b,(\widetilde a_\alpha)_{\alpha=1}^K\bigr),
+  \qquad
+  T_{\mathcal R}(r)=\bigl(\widetilde r_\alpha\bigr)_{\alpha=1}^K.
+\]
+In particular,
+\[
+  T_\Theta(\Pi_\pi^\Theta \vartheta)=\Pi_\pi^\Theta T_\Theta(\vartheta),
+  \qquad
+  T_{\mathcal R}(\Pi_\pi^{\mathcal R} r)=\Pi_\pi^{\mathcal R} T_{\mathcal R}(r)
+  \qquad
+  \forall \pi\in S_K.
+\]
+
+For a neuron state $\vartheta=(w,b,(a_\alpha)_\alpha)\in\Theta$ and a head-variable vector $r\in\mathcal R$, define
+\begin{equation}
+  \Psi_\alpha(x;\vartheta,r)
+  :=
+  \widetilde a_\alpha
+  \sigma\bigl(\widetilde w^\top(\widetilde r_\alpha\odot x)+\widetilde b\bigr).
+  \label{eq:tabm-feature}
+\end{equation}
+For a law $\rho\in\PP_1(\Theta)$, the mean-field outputs are
+\begin{equation}
+  f_\alpha(x;\rho,r)
+  =
+  \int_\Theta \Psi_\alpha(x;\vartheta,r)\,\rho(\dd\vartheta).
+  \label{eq:tabm-output}
+\end{equation}
+The corresponding population risk is
+\begin{equation}
+  \mathcal R(\rho,r)
+  =
+  \E_{(x,y)\sim\mathsf{P}}
+  \Bigl[
+    \frac1K \sum_{\alpha=1}^K \ell(f_\alpha(x;\rho,r),y)
+  \Bigr].
+  \label{eq:tabm-risk}
+\end{equation}
+
+The neuron drift and head drift are defined by
+\begin{equation}
+  B(\vartheta;\rho,r)
+  :=
+  -\nabla_\vartheta
+  \E_{(x,y)\sim\mathsf{P}}
+  \Bigl[
+    \frac1K \sum_{\alpha=1}^K
+    \partial_1\ell(f_\alpha(x;\rho,r),y)\,
+    \Psi_\alpha(x;\vartheta,r)
+  \Bigr],
+  \label{eq:tabm-neuron-drift}
+\end{equation}
+\begin{equation}
+  G_\alpha(\rho,r)
+  :=
+  -\E_{(x,y)\sim\mathsf{P}}
+  \Bigl[
+    \frac1K
+    \partial_1\ell(f_\alpha(x;\rho,r),y)\,
+    \nabla_{r_\alpha} f_\alpha(x;\rho,r)
+  \Bigr].
+  \label{eq:tabm-head-drift}
+\end{equation}
+The coupled mean-field system is
+\begin{equation}
+  \partial_t \rho_t + \nabla_\vartheta \cdot \bigl(\rho_t B(\cdot;\rho_t,r_t)\bigr)=0,
+  \label{eq:tabm-pde}
+\end{equation}
+\begin{equation}
+  \dot r_{\alpha,t}=G_\alpha(\rho_t,r_t),
+  \qquad
+  \alpha=1,\dots,K.
+  \label{eq:tabm-ode}
+\end{equation}
+
+The corresponding finite-width particle/head system is
+\begin{equation}
+  \dot\vartheta_j^m(t)=B(\vartheta_j^m(t);\rho_t^m,r_t^m),
+  \qquad
+  \rho_t^m=\frac1m\sum_{j=1}^m \delta_{\vartheta_j^m(t)},
+  \label{eq:tabm-particle}
+\end{equation}
+\begin{equation}
+  \dot r_t^m = G(\rho_t^m,r_t^m),
+  \qquad
+  G=(G_\alpha)_{\alpha=1}^K.
+  \label{eq:tabm-head-system}
+\end{equation}
+
+\begin{definition}[Characteristic solution]
+Fix $T>0$ and an initial state $(\rho_0,r_0)\in\PP_1(\Theta)\times\mathcal R$. A curve
+\[
+  (\rho_t,r_t)_{t\in[0,T]}\in C([0,T],\PP_1(\Theta)\times\mathcal R)
+\]
+is a characteristic solution of \cref{eq:tabm-pde,eq:tabm-ode} if there exists a flow $\Phi:[0,T]\times\Theta\to\Theta$ such that, for $\rho_0$-almost every $\vartheta$,
+\[
+  \dot\Phi_t(\vartheta)=B(\Phi_t(\vartheta);\rho_t,r_t),
+  \qquad
+  \Phi_0(\vartheta)=\vartheta,
+  \qquad
+  \rho_t=(\Phi_t)_\#\rho_0,
+\]
+while $r_t$ solves \cref{eq:tabm-ode}.
+\end{definition}
+
+\subsection{Symmetry and Disagreement Notation}
+
+We call a state $(\rho,r)\in\PP_1(\Theta)\times\mathcal R$ symmetric across heads if
+\[
+  (\Pi_\pi^\Theta)_\# \rho=\rho,
+  \qquad
+  \Pi_\pi^{\mathcal R} r=r
+  \qquad
+  \forall \pi\in S_K.
+\]
+For symmetric trajectories we write
+\[
+  f_1(x;\rho_t,r_t)=\cdots=f_K(x;\rho_t,r_t)=:f(x,t).
+\]
+More generally, we use the mean predictor
+\[
+  \bar f(x;\rho,r)=\frac1K\sum_{\alpha=1}^K f_\alpha(x;\rho,r)
+\]
+and the disagreement variables
+\[
+  \delta_\alpha(x;\rho,r)=f_\alpha(x;\rho,r)-\bar f(x;\rho,r).
+\]
+
+\section{Theoretical Results}
+\label{sec:theory}
+
+\subsection{Well-Posedness, Stability, and Deterministic Convergence}
+
+We begin by putting the concrete two-layer model from \cref{subsec:tabm-setup} on a rigorous deterministic footing. Because the state contains both neuron particles and head-specific global variables, the limit is a coupled PDE-ODE rather than a single continuity equation.
+
+\begin{theorem}[Global well-posedness, stability, and deterministic convergence]
+\label{thm:tabm-main}
+Assume that the input domain is bounded, $\|x\|\le X_\ast$ for all $x\in\mathcal X$, that $\sigma\in C_b^2(\R)$, and that $\partial_1\ell(\cdot,y)$ is globally Lipschitz and uniformly bounded in $y$. Then:
+\begin{enumerate}[label=(\roman*),leftmargin=2em]
+  \item for every initial condition $(\rho_0,r_0)\in\PP_1(\Theta)\times\mathcal R$, the coupled system \cref{eq:tabm-pde,eq:tabm-ode} admits a unique global characteristic solution
+  \[
+    (\rho_t,r_t)_{t\ge 0}\in C\bigl([0,\infty),\PP_1(\Theta)\times\mathcal R\bigr);
+  \]
+  \item there exists $\Lambda_{\mathrm{2L}}<\infty$ such that for any two solutions $(\rho_t,r_t)$ and $(\mu_t,s_t)$,
+  \begin{equation}
+    \W(\rho_t,\mu_t)+\|r_t-s_t\|
+    \le
+    e^{\Lambda_{\mathrm{2L}} t}
+    \bigl(\W(\rho_0,\mu_0)+\|r_0-s_0\|\bigr);
+    \label{eq:tabm-stability}
+  \end{equation}
+  \item if $(\rho_t^m,r_t^m)$ is the finite-width particle/head system \cref{eq:tabm-particle,eq:tabm-head-system}, then for every $T>0$,
+  \begin{equation}
+    \sup_{t\in[0,T]}
+    \bigl(
+      \W(\rho_t^m,\rho_t)+\|r_t^m-r_t\|
+    \bigr)
+    \le
+    e^{\Lambda_{\mathrm{2L}} T}
+    \bigl(
+      \W(\rho_0^m,\rho_0)+\|r_0^m-r_0\|
+    \bigr).
+    \label{eq:tabm-particle-limit}
+  \end{equation}
+\end{enumerate}
+\end{theorem}
+
+\noindent
+\textbf{Proof idea.}
+The smooth clipping maps make the features and their first derivatives globally bounded and globally Lipschitz. This turns the coupled drift $(B,G)$ into a bounded-Lipschitz map on $(\vartheta,\rho,r)$, so a standard characteristic-flow fixed-point argument yields existence, uniqueness, and Gronwall stability on finite horizons.
+
+\noindent
+\textbf{Interpretation.}
+This theorem puts the concrete model on a rigorous deterministic footing. In particular, finite-width behavior is controlled directly by the coupled mean-field limit.
+
+\subsection{Symmetry Preservation and Deterministic Collapse}
+
+The next theorem identifies the central structural phenomenon in the concrete model: symmetry across heads is preserved, and in that regime the ensemble collapses to a common predictor.
+
+\begin{theorem}[Symmetry across heads and deterministic collapse]
+\label{thm:collapse}
+Assume the hypotheses of \cref{thm:tabm-main}. Let $(\rho_t,r_t)$ be the characteristic solution of \cref{eq:tabm-pde,eq:tabm-ode}, and suppose the initial state is symmetric across heads:
+\[
+  (\Pi_\pi^\Theta)_\# \rho_0=\rho_0,
+  \qquad
+  \Pi_\pi^{\mathcal R} r_0=r_0
+  \qquad
+  \forall \pi\in S_K.
+\]
+Then $(\rho_t,r_t)$ remains symmetric across heads for all $t\ge 0$. In particular,
+\begin{equation}
+  f_1(x;\rho_t,r_t)=\cdots=f_K(x;\rho_t,r_t)=:f(x,t)
+  \qquad
+  \forall x\in\mathcal X,\ \forall t\ge 0.
+  \label{eq:tabm-collapse}
+\end{equation}
+Along the same trajectory, the averaged head risk agrees with the risk of the common predictor:
+\begin{equation}
+  \mathcal R(\rho_t,r_t)
+  =
+  \E_{(x,y)\sim\mathsf{P}}
+  \bigl[\ell(f(x,t),y)\bigr].
+  \label{eq:loss-equality}
+\end{equation}
+\end{theorem}
+
+\noindent
+\textbf{Interpretation.}
+\Cref{thm:collapse} is the main conceptual result of the paper. At deterministic leading order, a symmetric efficient ensemble does not preserve distinct headwise predictors.
+
+\begin{remark}[What symmetry means for the head variables]
+\label{rem:deterministic-head-symmetry}
+Because $r_0=((r_{\alpha,0})_{\alpha=1}^K)\in\mathcal R$ is part of the deterministic state rather than a probability law,
+the condition
+\[
+  \Pi_\pi^{\mathcal R} r_0=r_0
+  \qquad
+  \forall \pi\in S_K
+\]
+is equivalent to
+\[
+  r_{1,0}=\cdots=r_{K,0}.
+\]
+Thus \cref{thm:collapse} is an exact \emph{pathwise} collapse theorem for identically initialized head variables.
+Member-specific random initialization is treated separately in \cref{prop:random-init},
+where the deterministic conclusion is replaced by exchangeability in law and probabilistic near-collapse bounds.
+\end{remark}
+
+\begin{corollary}[Quantitative control of asymmetry]
+\label{thm:symmetric-stability}
+Assume the hypotheses of \cref{thm:tabm-main}. Define the symmetrized initial state
+\[
+  \rho_0^{\mathrm{sym}}
+  =
+  \frac1{K!}\sum_{\pi\in S_K} (\Pi_\pi^\Theta)_\#\rho_0,
+\]
+\[
+  r_0^{\mathrm{sym}}
+  =
+  \frac1{K!}\sum_{\pi\in S_K} \Pi_\pi^{\mathcal R} r_0,
+\]
+and let $(\rho_t^{\mathrm{sym}},r_t^{\mathrm{sym}})$ be the corresponding solution. Then for all $t\ge 0$,
+\begin{equation}
+  \W(\rho_t,\rho_t^{\mathrm{sym}})
+  +
+  \|r_t-r_t^{\mathrm{sym}}\|
+  \le
+  e^{\Lambda_{\mathrm{2L}} t}
+  \Bigl(
+    \W(\rho_0,\rho_0^{\mathrm{sym}})
+    +
+    \|r_0-r_0^{\mathrm{sym}}\|
+  \Bigr).
+  \label{eq:symmetric-stability}
+\end{equation}
+Moreover, there exists a finite constant $C_{\mathrm{out}}$ depending only on the bounded model class such that, with
+\[
+  f^{\mathrm{sym}}(x,t)=f_1(x;\rho_t^{\mathrm{sym}},r_t^{\mathrm{sym}}),
+\]
+one has for every $\alpha,\beta$,
+\begin{equation}
+  |f_\alpha(x;\rho_t,r_t)-f^{\mathrm{sym}}(x,t)|
+  \le
+  C_{\mathrm{out}} e^{\Lambda_{\mathrm{2L}} t}
+  \Bigl(
+    \W(\rho_0,\rho_0^{\mathrm{sym}})
+    +
+    \|r_0-r_0^{\mathrm{sym}}\|
+  \Bigr),
+  \label{eq:symmetric-output-bound}
+\end{equation}
+\begin{equation}
+  |f_\alpha(x;\rho_t,r_t)-f_\beta(x;\rho_t,r_t)|
+  \le
+  2 C_{\mathrm{out}} e^{\Lambda_{\mathrm{2L}} t}
+  \Bigl(
+    \W(\rho_0,\rho_0^{\mathrm{sym}})
+    +
+    \|r_0-r_0^{\mathrm{sym}}\|
+  \Bigr).
+  \label{eq:disagreement-bound}
+\end{equation}
+\end{corollary}
+
+\noindent
+\textbf{Interpretation.}
+Symmetry is not only invariant; it is quantitatively stable. Order-one deterministic disagreement cannot emerge from a small asymmetric perturbation in the initial state.
+
+\begin{proposition}[Randomized initial conditions: exchangeability in law and probabilistic near-collapse]
+\label{prop:random-init}
+Assume the hypotheses of \cref{thm:tabm-main}.
+Let $(\rho_0,r_0)$ be a random variable in $\PP_1(\Theta)\times\mathcal R$,
+and for each realization let $(\rho_t,r_t)$ be the corresponding characteristic solution of
+\cref{eq:tabm-pde,eq:tabm-ode}.
+Suppose that for every permutation $\pi\in S_K$ the relabeled initial state has the same distribution as the original one:
+\[
+  \bigl((\Pi_\pi^\Theta)_\#\rho_0,\Pi_\pi^{\mathcal R} r_0\bigr)
+  \stackrel{d}{=}
+  (\rho_0,r_0).
+\]
+Then, for every $t\ge 0$,
+\[
+  \bigl((\Pi_\pi^\Theta)_\#\rho_t,\Pi_\pi^{\mathcal R} r_t\bigr)
+  \stackrel{d}{=}
+  (\rho_t,r_t)
+  \qquad
+  \forall \pi\in S_K.
+\]
+In particular, for every $x\in\mathcal X$, every $t\ge 0$, and every $\alpha,\beta$,
+\[
+  f_\alpha(x;\rho_t,r_t)
+  \stackrel{d}{=}
+  f_\beta(x;\rho_t,r_t).
+\]
+
+Define the random symmetrized initial state by
+\[
+  \rho_0^{\mathrm{sym}}
+  =
+  \frac1{K!}\sum_{\pi\in S_K} (\Pi_\pi^\Theta)_\#\rho_0,
+\]
+\[
+  r_0^{\mathrm{sym}}
+  =
+  \frac1{K!}\sum_{\pi\in S_K} \Pi_\pi^{\mathcal R} r_0,
+\]
+and the random asymmetry size
+\[
+  D_0
+  :=
+  \W(\rho_0,\rho_0^{\mathrm{sym}})
+  +
+  \|r_0-r_0^{\mathrm{sym}}\|.
+\]
+Then, almost surely, for every $x\in\mathcal X$, every $t\ge 0$, and every $\alpha,\beta$,
+\[
+  |f_\alpha(x;\rho_t,r_t)-f_\beta(x;\rho_t,r_t)|
+  \le
+  2 C_{\mathrm{out}} e^{\Lambda_{\mathrm{2L}} t} D_0.
+\]
+Consequently, for every fixed $x\in\mathcal X$, every $T>0$, and every $\varepsilon>0$,
+\[
+  \mathbb P\Bigl[
+    \max_{\alpha,\beta}
+    \sup_{t\in[0,T]}
+    |f_\alpha(x;\rho_t,r_t)-f_\beta(x;\rho_t,r_t)|
+    >
+    2 C_{\mathrm{out}} e^{\Lambda_{\mathrm{2L}} T}\varepsilon
+  \Bigr]
+  \le
+  \mathbb P[D_0>\varepsilon].
+\]
+\end{proposition}
+
+\noindent
+\textbf{Interpretation.}
+Order-one random head initialization does not yield exact pathwise collapse in general.
+What survives without further assumptions is weaker but still useful:
+exchangeability in law is preserved exactly,
+and if the random draw is close to the symmetric manifold then the resulting disagreement remains quantitatively small on finite horizons.
+To obtain a genuine collapse theorem for order-one random initialization,
+one would need an additional global attraction mechanism for the symmetric manifold,
+for example a nonlinear transverse coercivity statement upgrading the frozen-kernel criterion.
+
+\subsection{Effective Kernels in the Collapsed Dynamics}
+
+The next proposition identifies the exact kernel structure of the output dynamics in the two-layer model.
+
+\begin{proposition}[Exact output dynamics with neuron and head kernels]
+\label{prop:tabm-kernels}
+Under the assumptions of \cref{thm:tabm-main}, define
+\[
+  z_\alpha(x;\vartheta,r)
+  :=
+  \widetilde w^\top(\widetilde r_\alpha\odot x)+\widetilde b,
+\]
+\[
+  g_\alpha(x;\rho,r)
+  :=
+  \int_\Theta
+  \widetilde a_\alpha
+  \sigma'(z_\alpha(x;\vartheta,r))
+  (\widetilde w\odot x)
+  \,\rho(\dd\vartheta).
+\]
+Then the outputs satisfy
+\begin{align}
+  \partial_t f_\alpha(x;\rho_t,r_t)
+  &=
+  -\E_{(x',y)\sim\mathsf{P}}
+  \Bigl[
+    \frac1K\sum_{\beta=1}^K
+    K^{\mathrm{neu}}_{\alpha\beta}(x,x';\rho_t,r_t)\,
+    \partial_1\ell(f_\beta(x';\rho_t,r_t),y)
+  \Bigr]
+  \nonumber\\
+  &\quad
+  -
+  \E_{(x',y)\sim\mathsf{P}}
+  \Bigl[
+    \frac1K
+    K^{\mathrm{head}}_{\alpha\alpha}(x,x';\rho_t,r_t)\,
+    \partial_1\ell(f_\alpha(x';\rho_t,r_t),y)
+  \Bigr],
+  \label{eq:tabm-output-dynamics}
+\end{align}
+where
+\begin{align}
+  K^{\mathrm{neu}}_{\alpha\beta}(x,x';\rho,r)
+  &=
+  \int_\Theta
+  \widetilde a_\alpha \widetilde a_\beta
+  \sigma'(z_\alpha(x;\vartheta,r))
+  \sigma'(z_\beta(x';\vartheta,r))
+  \Bigl[
+    1+(\widetilde r_\alpha\odot x)^\top(\widetilde r_\beta\odot x')
+  \Bigr]
+  \rho(\dd\vartheta)
+  \nonumber\\
+  &\quad
+  +
+  \delta_{\alpha\beta}
+  \int_\Theta
+  \sigma(z_\alpha(x;\vartheta,r))
+  \sigma(z_\alpha(x';\vartheta,r))
+  \rho(\dd\vartheta),
+  \label{eq:tabm-neuron-kernel}
+\end{align}
+and
+\begin{equation}
+  K^{\mathrm{head}}_{\alpha\alpha}(x,x';\rho,r)
+  =
+  \langle g_\alpha(x;\rho,r),g_\alpha(x';\rho,r)\rangle_{\R^d}.
+  \label{eq:tabm-head-kernel}
+\end{equation}
+\end{proposition}
+
+\noindent
+\textbf{Interpretation.}
+The two-layer model carries two distinct kernel contributions. The neuron kernel captures the usual particle transport effect, while the head kernel arises because the mean-field state also contains head-specific global variables. This is the main architectural feature that survives collapse in the concrete model.
+
+\begin{corollary}[Collapsed effective kernel in the two-layer model]
+\label{cor:tabm-effective}
+Under the symmetric assumptions of \cref{thm:collapse}, let
+\[
+  f_1(x;\rho_t,r_t)=\cdots=f_K(x;\rho_t,r_t)=:f(x,t).
+\]
+Then
+\begin{equation}
+  \partial_t f(x,t)
+  =
+  -\E_{(x',y)\sim\mathsf{P}}
+  \Bigl[
+    K_{\mathrm{eff}}^{\mathrm{2L}}(x,x';t)\,
+    \partial_1\ell(f(x',t),y)
+  \Bigr],
+  \label{eq:tabm-effective-dynamics}
+\end{equation}
+with
+\begin{equation}
+  K_{\mathrm{eff}}^{\mathrm{2L}}
+  =
+  \frac{
+    K_{\mathrm d}^{\mathrm{neu}}
+    +(K-1)K_{\mathrm o}^{\mathrm{neu}}
+    +K^{\mathrm{head}}
+  }{K},
+  \label{eq:tabm-effective-kernel}
+\end{equation}
+where $K_{\mathrm d}^{\mathrm{neu}}$ and $K_{\mathrm o}^{\mathrm{neu}}$ are the diagonal and off-diagonal entries of the neuron kernel, and $K^{\mathrm{head}}$ is the common diagonal head kernel.
+\end{corollary}
+
+\noindent
+\textbf{Interpretation.}
+Even after exact headwise collapse, the two-layer model is not reduced to an ordinary single network. The effective scalar dynamics still contains an architecture-dependent decomposition, and in particular retains the additional head-kernel term.
+
+\subsection{Output Heads, Common Mode, and Disagreement Mode}
+
+To isolate the effect of the output-head design, we compare the independent-head model above with the shared-output proxy
+\begin{equation}
+  f_\alpha^{\mathrm{sh},m}(x)
+  =
+  \frac1m\sum_{j=1}^m
+  c_j\,
+  \sigma\bigl(w_j^\top(r_\alpha\odot x)+b_j\bigr).
+  \label{eq:shared-output-model}
+\end{equation}
+Its bounded mean-field version is defined exactly as in \cref{subsec:tabm-setup}, except that the neuron state becomes $\vartheta=(w,b,c)$ and the output coefficient is shared across heads.
+
+To keep the comparison readable, we use descriptive names for the kernel pieces that appear below: a hidden-feature transport term, a head-kernel term coming from the global head variables, and a direct output-only feature-product term.
+
+The first comparison concerns the common predictor on the symmetric manifold.
+
+\begin{proposition}[Shared output strengthens direct common-mode collectivity]
+\label{prop:shared-common}
+Assume the hypotheses of \cref{thm:tabm-main} for both the independent-head model and the shared-output proxy, and consider symmetric trajectories with
+\[
+  r_{1,t}=\cdots=r_{K,t}=:r_t^\star.
+\]
+Then the shared-output model collapses to a common predictor
+\[
+  f_1^{\mathrm{sh}}(x,t)=\cdots=f_K^{\mathrm{sh}}(x,t)=:f^{\mathrm{sh}}(x,t),
+\]
+whose dynamics is
+\begin{equation}
+  \partial_t f^{\mathrm{sh}}(x,t)
+  =
+  -\E_{(x',y)\sim\mathsf{P}}
+  \Bigl[
+    K_{\mathrm{eff}}^{\mathrm{sh}}(x,x';t)\,
+    \partial_1\ell(f^{\mathrm{sh}}(x',t),y)
+  \Bigr],
+  \label{eq:shared-common-dynamics}
+\end{equation}
+with
+\begin{equation}
+  K_{\mathrm{eff}}^{\mathrm{sh}}
+  =
+  K_{\mathrm{hid}}^{\mathrm{sh}}
+  +
+  \frac{K_{\mathrm{head}}^{\mathrm{sh}}}{K}
+  +
+  K_{\mathrm{out}}^{\mathrm{sh}},
+  \label{eq:shared-effective-kernel}
+\end{equation}
+where $K_{\mathrm{hid}}^{\mathrm{sh}}$ is the hidden-feature transport term, $K_{\mathrm{head}}^{\mathrm{sh}}$ is the diagonal head-kernel contribution induced by the head-side variables, and $K_{\mathrm{out}}^{\mathrm{sh}}$ is the direct output-only feature-product term. In contrast, in the independent-head model the analogous output-only contribution enters \cref{eq:tabm-effective-kernel} only through a diagonal term and is therefore averaged down by the factor $1/K$.
+\end{proposition}
+
+\noindent
+\textbf{Practitioner reading.}
+Shared output preserves a stronger direct route to collective common-mode behavior. Independent heads weaken that route, but they do not automatically preserve leading-order diversity.
+
+The second comparison concerns disagreement directions. Here the picture is more subtle.
+
+\begin{proposition}[Independent heads add self-coupling in the frozen disagreement dynamics]
+\label{prop:frozen-disagreement}
+Assume squared loss and linearize the output dynamics around a symmetric reference trajectory while freezing the kernels along that trajectory. Then the disagreement modes of the independent-head model satisfy
+\begin{equation}
+  \partial_t \Delta_\alpha(x,t)
+  =
+  -
+  \frac1K
+  \int_{\mathcal X}
+  T_t^{\mathrm{ind}}(x,x')\,
+  \Delta_\alpha(x',t)\,
+  \mathsf{P}_X(\dd x'),
+  \label{eq:frozen-ind}
+\end{equation}
+with
+\begin{equation}
+  T_t^{\mathrm{ind}}
+  =
+  K_{t,\mathrm{out}}
+  +
+  K_{t,\mathrm{gap}}
+  +
+  K_{t,\mathrm{head}}^{\mathrm{ind}},
+  \label{eq:frozen-ind-kernel}
+\end{equation}
+where $K_{t,\mathrm{out}}$ is the output-only feature-product term, $K_{t,\mathrm{gap}}$ is the diagonal-minus-off-diagonal neuron-kernel gap, and $K_{t,\mathrm{head}}^{\mathrm{ind}}$ is the head-kernel contribution. Each of these kernels is positive semidefinite.
+
+For the shared-output proxy, the same frozen disagreement analysis yields
+\begin{equation}
+  \partial_t \Delta_\alpha^{\mathrm{sh}}(x,t)
+  =
+  -
+  \frac1K
+  \int_{\mathcal X}
+  T_t^{\mathrm{sh}}(x,x')\,
+  \Delta_\alpha^{\mathrm{sh}}(x',t)\,
+  \mathsf{P}_X(\dd x'),
+  \label{eq:frozen-sh}
+\end{equation}
+with
+\begin{equation}
+  T_t^{\mathrm{sh}}=K_{t,\mathrm{head}}^{\mathrm{sh}}.
+  \label{eq:frozen-sh-kernel}
+\end{equation}
+where $K_{t,\mathrm{head}}^{\mathrm{sh}}$ is the shared-output analogue of the head-kernel term.
+\end{proposition}
+
+\noindent
+\textbf{Interpretation.}
+Independent heads weaken direct collectivity in the common predictor, but in the local frozen disagreement dynamics they add positive-semidefinite self-coupling terms. This is why ``independent heads preserve diversity'' is too crude a slogan for deterministic mean-field analysis.
+
+\begin{corollary}[Head design reallocates coupling across modes]
+\label{cor:mode-allocation}
+The same output-only feature-product term is allocated differently depending on head design:
+\begin{enumerate}[leftmargin=2em]
+  \item in the independent-head model, $K_{t,\mathrm{out}}$ contributes to the common predictor with coefficient $1/K$ and also enters the frozen disagreement operator;
+  \item in the shared-output model, the analogous term $K_{\mathrm{out}}^{\mathrm{sh}}$ contributes to the common predictor with coefficient $1$ and cancels from the frozen disagreement operator.
+\end{enumerate}
+\end{corollary}
+
+Together, \cref{prop:shared-common,prop:frozen-disagreement,cor:mode-allocation} provide the main design lesson of the theory. Independent output heads are not a free source of deterministic diversity. Rather, they redistribute coupling away from the most direct common-mode route and toward the local disagreement operator. This predicts that width and head design should be the most informative empirical axes when diagnosing whether an efficient ensemble is acting like a genuine ensemble or like a single shared predictor with structured regularization.
+
+\section{Experiments}
+\label{sec:experiments}
+
+We outline the empirical study suggested by the theory above. The most informative experimental program is centered on two axes: output-head design and width.
+
+\subsection{Core Comparisons}
+
+The primary architectural comparison should match:
+\begin{enumerate}[leftmargin=2em]
+  \item the two-layer model from \cref{subsec:tabm-setup}, with independent output heads;
+  \item the corresponding shared-output proxy with the same hidden backbone and the same head-side modulation variables.
+\end{enumerate}
+The primary scaling comparison should sweep width while keeping the ensemble size $K$, optimization setup, and data pipeline fixed.
+
+\subsection{Metrics and Diagnostics}
+
+The most informative metrics are:
+\begin{enumerate}[leftmargin=2em]
+  \item pairwise head disagreement,
+  \[
+    \frac{1}{K(K-1)}\sum_{\alpha\neq\beta}
+    \E_x[(f_\alpha(x)-f_\beta(x))^2];
+  \]
+  \item pairwise prediction correlation across heads;
+  \item ensemble gain over a matched single-head or shared-output baseline;
+  \item predictive metrics such as accuracy, RMSE, NLL, or calibration error, depending on the task.
+\end{enumerate}
+
+The theory also motivates four targeted diagnostics:
+\begin{enumerate}[leftmargin=2em]
+  \item a near-symmetric common-mode diagnostic, which tracks the early evolution of the mean predictor under symmetric initialization;
+  \item a small transverse-perturbation diagnostic, which injects a zero-sum perturbation across heads and measures the decay of disagreement;
+  \item a time-resolved kernel diagnostic, which tracks empirical cross-head tangent-kernel blocks together with head disagreement during training in order to distinguish an early NTK-like phase from later feature-learning collapse;
+  \item a head-pruning diagnostic, which removes heads after training and measures the effect on the averaged predictor and downstream ensemble utility.
+\end{enumerate}
+
+\subsection{Main Hypotheses}
+
+The theoretical results in \cref{sec:theory} translate into the following empirical hypotheses.
+\begin{enumerate}[leftmargin=2em]
+  \item If disagreement is primarily a finite-width effect, then it should decay as width increases.
+  \item Shared output should exhibit stronger direct common-mode collectivity than independent heads.
+  \item Independent heads may display weaker common-mode collectivity without displaying stronger deterministic disagreement.
+  \item A finite-width crossover is possible: disagreement may remain visible early in training in an NTK-like phase and then decay once feature learning becomes appreciable.
+  \item If the model is close to the collapsed picture, then moderate head pruning should have limited effect on the averaged predictor or ensemble utility.
+  \item If useful diversity persists at large width throughout training, then the explanation should likely involve finite-width fluctuations, explicit symmetry breaking, stochastic forcing, or a regime closer to lazy kernel dynamics.
+\end{enumerate}
+
+In other words, the experiments should not merely ask whether independent heads ``work better,'' but rather \emph{why} they differ: through common-mode dynamics, disagreement-mode dynamics, or finite-width effects beyond the deterministic mean-field limit.
+
+\section{Discussion}
+\label{sec:discussion}
+
+The main conclusion of this paper is deliberately sharp. In the deterministic mean-field regime studied here, symmetrically initialized efficient ensembles collapse in the concrete two-layer model of this paper. The collapse is exact under symmetry, quantitatively stable under small asymmetry, and inherited by deterministic finite-width approximations through the particle-to-limit estimates.
+
+At the same time, collapse should not be misread as a claim that efficient ensembles are useless. What survives collapse is an architecture-dependent effective scalar dynamics. In the two-layer model this appears through the combination of neuron and head kernels in \cref{eq:tabm-effective-kernel}. From a design perspective, this means that efficient ensembles may still help as structured reparameterizations, shared regularizers, or feature-learning mechanisms, even when they do not maintain headwise diversity at leading order.
+
+These conclusions do not contradict prior NTK analyses of BatchEnsemble-style embedded ensembles. In the NTK/lazy picture, independent and collective regimes are defined by whether off-diagonal GP/NTK blocks vanish in the wide-network limit \citep{embedded-ensembles}. Our theory concerns a different leading-order description, namely deterministic feature-learning mean-field dynamics. This distinction matches the broader mean-field picture in which kernel behavior can be recovered as a special short-time limit of the distributional dynamics \citep{mei2019}, while lazy training corresponds to staying close to the linearization around initialization \citep{chizat2019lazy}. A plausible interpretation for practical finite networks is therefore a crossover: training may look closer to an NTK-style independent regime early on and move toward the collapsed mean-field picture once feature learning becomes appreciable. We present this only as an interpretation suggested by the two theories, not as a theorem proved in the present paper.
+
+The comparison between independent and shared output heads is especially relevant for practitioners. Independent heads weaken the strongest direct output-level route to common-mode collectivity, which helps explain why they can matter in practice. But our theory also shows that they add positive-semidefinite self-coupling terms to the local disagreement operator. The right lesson is therefore not that independent heads preserve deterministic diversity, but that they reshape how coupling is distributed across modes. This makes width sweeps, pruning tests, and head-design ablations especially informative diagnostics.
+
+These points suggest a practical reading of BatchEnsemble-style efficient ensembles, including TabM. If increasing width reduces disagreement and head pruning has little effect on ensemble performance, the model is likely behaving more like a shared structured predictor than like an ensemble with truly distinct predictors. If disagreement remains large at substantial width, then one should search for a mechanism outside deterministic leading-order mean-field behavior. Either outcome is informative, and both are directly testable.
+
+\begin{thebibliography}{99}
+
+\bibitem[Blorstad et~al.(2026)Blorstad, Mostein, Blaser, and Parviainen]{blorstad2026}
+M.~Blorstad, H.~J.~Mostein, N.~Blaser, and P.~Parviainen.
+\newblock Evaluating prediction uncertainty estimates from BatchEnsemble.
+\newblock arXiv:2601.21581, 2026.
+
+\bibitem[Chizat and Bach(2018)]{chizat2018}
+L.~Chizat and F.~Bach.
+\newblock On the global convergence of gradient descent for over-parameterized models using optimal transport.
+\newblock In \emph{Advances in Neural Information Processing Systems}, 2018.
+
+\bibitem[Chizat et~al.(2019)Chizat, Oyallon, and Bach]{chizat2019lazy}
+L.~Chizat, E.~Oyallon, and F.~Bach.
+\newblock On lazy training in differentiable programming.
+\newblock In \emph{Advances in Neural Information Processing Systems}, 2019.
+
+\bibitem[Erny(2022)]{erny2022}
+X.~Erny.
+\newblock Well-posedness and propagation of chaos for McKean--Vlasov equations with jumps and locally Lipschitz coefficients.
+\newblock \emph{Stochastic Processes and their Applications}, 150:192--214, 2022.
+
+\bibitem[Gorishniy et~al.(2024)Gorishniy, Kotelnikov, and Babenko]{tabm}
+Y.~Gorishniy, A.~Kotelnikov, and A.~Babenko.
+\newblock TabM: Advancing tabular deep learning with parameter-efficient ensembling.
+\newblock arXiv:2410.24210, 2024.
+
+\bibitem[Gorishniy et~al.(2026)Gorishniy, Kotelnikov, and Babenko]{tabm-repo}
+Y.~Gorishniy, A.~Kotelnikov, and A.~Babenko.
+\newblock Official TabM repository.
+\newblock \url{https://github.com/yandex-research/tabm}, accessed 2026-03-23.
+
+\bibitem[Mei et~al.(2018)Mei, Montanari, and Nguyen]{mei2018}
+S.~Mei, A.~Montanari, and P.-M.~Nguyen.
+\newblock A mean field view of the landscape of two-layer neural networks.
+\newblock \emph{Proceedings of the National Academy of Sciences}, 115(33):E7665--E7671, 2018.
+
+\bibitem[Mei et~al.(2019)Mei, Misiakiewicz, and Montanari]{mei2019}
+S.~Mei, T.~Misiakiewicz, and A.~Montanari.
+\newblock Mean-field theory of two-layers neural networks: Dimension-free bounds and kernel limit.
+\newblock In \emph{Proceedings of the Conference on Learning Theory}, 2019.
+
+\bibitem[Velikanov et~al.(2022)Velikanov, Kail, Anokhin, Vashurin, Panov, Zaytsev, and Yarotsky]{embedded-ensembles}
+M.~Velikanov, R.~Kail, I.~Anokhin, R.~Vashurin, M.~Panov, A.~Zaytsev, and D.~Yarotsky.
+\newblock Embedded ensembles: Infinite width limit and operating regimes.
+\newblock In \emph{Proceedings of the International Conference on Artificial Intelligence and Statistics}, 2022.
+
+\bibitem[Wen et~al.(2020)Wen, Tran, and Ba]{batchensemble}
+Y.~Wen, D.~Tran, and J.~Ba.
+\newblock BatchEnsemble: An alternative approach to efficient ensemble and lifelong learning.
+\newblock In \emph{International Conference on Learning Representations}, 2020.
+
+\bibitem[Zamyatin et~al.(2026)Zamyatin, Indri, Malhotra, and Gartner]{zamyatin2026}
+A.~Zamyatin, P.~Indri, S.~Malhotra, and T.~Gartner.
+\newblock Is BatchEnsemble a single model? On calibration and diversity of efficient ensembles.
+\newblock arXiv:2601.16936, 2026.
+
+\end{thebibliography}
+
+\end{document}

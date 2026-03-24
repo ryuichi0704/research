@@ -1,0 +1,443 @@
+\documentclass{article}
+
+\usepackage{../paper/neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{bm}
+\usepackage{enumitem}
+\usepackage[nameinlink,noabbrev]{cleveref}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{lemma}[theorem]{Lemma}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}[theorem]{Remark}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\PP}{\mathcal{P}}
+\newcommand{\W}{W_1}
+\newcommand{\dd}{\,\mathrm{d}}
+
+\title{A Three-Layer BatchEnsemble-Like Proxy for the Large-$K$ Regime}
+
+\author{Anonymous Authors}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This note records a semifaithful three-layer BatchEnsemble-like proxy for the large-$K$ regime and explains why it is both more faithful to practical parameter-efficient ensembling and substantially harder than the two-layer case. The key structural point survives: at fixed width, parameter sharing still leaves the pair consisting of the shared state and the empirical head law as an exact closed state variable. The new ingredient is a shared hidden-to-hidden matrix of size $m\times m$, which is precisely where BatchEnsemble-style parameter efficiency becomes substantial. For the concrete three-layer proxy we derive explicit gradient and aggregate-norm bounds. These bounds reveal the main obstruction: unlike in two layers, the natural majorant system is already Riccati-type at the upper hidden layer and becomes higher-order at the first layer. Thus the same bounded-support localization argument used in the rigorous two-layer theorem no longer closes automatically.
+\end{abstract}
+
+\section{Motivation}
+
+The two-layer proxy from the companion note is a useful first rigorous target, but it does not yet contain a shared hidden-to-hidden matrix of size $m\times m$. In a practical efficient ensemble, this is exactly where parameter sharing is most valuable: replacing $K$ independent $m\times m$ matrices by one shared matrix together with $O(Km)$ head-specific modulation vectors is the main source of parameter savings. A three-layer reduced proxy is therefore the first setting in which the parameter-efficiency mechanism of BatchEnsemble becomes genuinely visible.
+
+\section{A Semifaithful Three-Layer Proxy}
+
+Fix an input dimension $d$ and a hidden width $m$. We consider
+\begin{align}
+  h_{1,\alpha}(x)
+  &:=
+  s_{1,\alpha}\odot
+  \sigma\bigl(W_1(r_{1,\alpha}\odot x)+b_1\bigr)
+  \in\R^m,
+  \label{eq:h1}
+  \\
+  h_{2,\alpha}(x)
+  &:=
+  s_{2,\alpha}\odot
+  \sigma\bigl(W_2(r_{2,\alpha}\odot h_{1,\alpha}(x))+b_2\bigr)
+  \in\R^m,
+  \label{eq:h2}
+  \\
+  f_\alpha(x)
+  &:=
+  \frac1m a^\top h_{2,\alpha}(x),
+  \qquad
+  \alpha=1,\dots,K.
+  \label{eq:f3}
+\end{align}
+Here
+\[
+  a\in\R^m,\quad
+  W_1\in\R^{m\times d},\quad
+  b_1\in\R^m,\quad
+  W_2\in\R^{m\times m},\quad
+  b_2\in\R^m
+\]
+are shared, while each head carries
+\[
+  s_{1,\alpha}\in\R^m,\quad
+  r_{1,\alpha}\in\R^d,\quad
+  s_{2,\alpha}\in\R^m,\quad
+  r_{2,\alpha}\in\R^m.
+\]
+Thus the shared parameter count is $O(md+m^2)$, while the per-head parameter count is only $O(d+3m)$.
+
+We collect the shared and head states as
+\[
+  q:=(a,W_1,b_1,W_2,b_2)\in\mathcal Q
+  :=
+  \R^m\times\R^{m\times d}\times\R^m\times\R^{m\times m}\times\R^m,
+\]
+\[
+  z:=(s_1,r_1,s_2,r_2)\in\mathcal Z
+  :=
+  \R^m\times\R^d\times\R^m\times\R^m.
+\]
+Writing $f(x;q,z)$ for the output \eqref{eq:f3} of a generic head state against a shared state, the head-wise population risk is
+\[
+  \mathcal R_K
+  =
+  \E_{(x,y)}
+  \Bigl[
+    \frac1K\sum_{\alpha=1}^K \ell(f(x;q,z_\alpha),y)
+  \Bigr].
+\]
+As in the two-layer note, the induced shared and head drifts are
+\[
+  \mathcal F(q,z)
+  :=
+  -\E
+  \bigl[
+    \partial_1\ell(f(x;q,z),y)\,\nabla_q f(x;q,z)
+  \bigr],
+\]
+\[
+  \mathcal G(q,z)
+  :=
+  -\E
+  \bigl[
+    \partial_1\ell(f(x;q,z),y)\,\nabla_z f(x;q,z)
+  \bigr].
+\]
+
+\begin{proposition}[Exact empirical closure]
+\label{prop:3layer-closure}
+For every fixed $K$ and every head-learning scale $\lambda_K\ge 0$, the finite-$K$ system
+\[
+  \dot q_t^K
+  =
+  \frac1K\sum_{\alpha=1}^K \mathcal F(q_t^K,z_{\alpha,t}^K),
+  \qquad
+  \dot z_{\alpha,t}^K
+  =
+  \lambda_K\mathcal G(q_t^K,z_{\alpha,t}^K)
+\]
+is exactly closed at the level of $(q_t^K,\nu_t^K)$ with
+\[
+  \nu_t^K:=\frac1K\sum_{\alpha=1}^K \delta_{z_{\alpha,t}^K}.
+\]
+In particular,
+\[
+  \dot q_t^K
+  =
+  \int_{\mathcal Z}\mathcal F(q_t^K,z)\,\nu_t^K(\dd z),
+\]
+and
+\[
+  \partial_t\nu_t^K
+  +
+  \lambda_K\nabla_z\cdot\bigl(\nu_t^K \mathcal G(q_t^K,z)\bigr)
+  =
+  0
+\]
+in the distributional sense.
+\end{proposition}
+
+\begin{proof}
+The proof is identical to the two-layer case. It uses only the factorization
+\[
+  f_\alpha(x)=f(x;q,z_\alpha)
+\]
+and permutation invariance in the head labels.
+\end{proof}
+
+\section{Concrete Gradient Bounds}
+
+Assume throughout this section that
+\[
+  \|x\|\le B_X
+  \qquad
+  \mathsf P\text{-almost surely},
+\]
+\[
+  \|\sigma\|_\infty\le M_0,
+  \qquad
+  \|\sigma'\|_\infty\le M_1,
+  \qquad
+  |\partial_1\ell(u,y)|\le L_\ell.
+\]
+
+\begin{proposition}[Three-layer gradient bounds]
+\label{prop:3layer-grads}
+For the model \eqref{eq:h1}--\eqref{eq:f3}, the following bounds hold for every $(x,q,z)$:
+\begin{align}
+  \|\nabla_a f\|
+  &\le
+  \frac{M_0}{m}\|s_2\|,
+  \label{eq:3g-a}
+  \\
+  \|\nabla_{s_2} f\|
+  &\le
+  \frac{M_0}{m}\|a\|,
+  \label{eq:3g-s2}
+  \\
+  \|\nabla_{b_2} f\|
+  &\le
+  \frac{M_1}{m}\|a\|\,\|s_2\|,
+  \label{eq:3g-b2}
+  \\
+  \|\nabla_{W_2} f\|_F
+  &\le
+  \frac{M_0M_1}{m}
+  \|a\|\,\|s_2\|\,\|r_2\|\,\|s_1\|,
+  \label{eq:3g-W2}
+  \\
+  \|\nabla_{r_2} f\|
+  &\le
+  \frac{M_0M_1}{m}
+  \|a\|\,\|s_2\|\,\|W_2\|_F\,\|s_1\|,
+  \label{eq:3g-r2}
+  \\
+  \|\nabla_{s_1} f\|
+  &\le
+  \frac{M_0M_1}{m}
+  \|a\|\,\|s_2\|\,\|r_2\|\,\|W_2\|_F,
+  \label{eq:3g-s1}
+  \\
+  \|\nabla_{b_1} f\|
+  &\le
+  \frac{M_0M_1^2}{m}
+  \|a\|\,\|s_2\|\,\|r_2\|\,\|W_2\|_F\,\|s_1\|,
+  \label{eq:3g-b1}
+  \\
+  \|\nabla_{W_1} f\|_F
+  &\le
+  \frac{M_0M_1^2B_X}{m}
+  \|a\|\,\|s_2\|\,\|r_2\|\,\|W_2\|_F\,\|s_1\|\,\|r_1\|,
+  \label{eq:3g-W1}
+  \\
+  \|\nabla_{r_1} f\|
+  &\le
+  \frac{M_0M_1^2B_X}{m}
+  \|a\|\,\|s_2\|\,\|r_2\|\,\|W_2\|_F\,\|s_1\|\,\|W_1\|_F.
+  \label{eq:3g-r1}
+\end{align}
+\end{proposition}
+
+\begin{proof}
+The first three bounds are immediate from the explicit formulas
+\[
+  \nabla_a f
+  =
+  \frac1m h_2,
+  \qquad
+  \nabla_{s_2} f
+  =
+  \frac1m a\odot \sigma(u_2),
+  \qquad
+  \nabla_{b_2} f
+  =
+  \frac1m a\odot s_2\odot \sigma'(u_2).
+\]
+For \eqref{eq:3g-W2}, the $j$th row of $\nabla_{W_2}f$ is
+\[
+  \frac{a_j s_{2,j}}{m}
+  \sigma'(u_{2,j})
+  (r_2\odot h_1)^\top,
+\]
+so
+\[
+  \|\nabla_{W_2}f\|_F
+  \le
+  \frac{M_1}{m}\|a\odot s_2\|\,\|r_2\odot h_1\|
+  \le
+  \frac{M_0M_1}{m}
+  \|a\|\,\|s_2\|\,\|r_2\|\,\|s_1\|.
+\]
+For \eqref{eq:3g-r2}, write
+\[
+  v_2
+  :=
+  \frac1m W_2^\top(a\odot s_2\odot \sigma'(u_2)).
+\]
+Then
+\[
+  \nabla_{r_2}f
+  =
+  h_1\odot v_2,
+\]
+so
+\[
+  \|\nabla_{r_2}f\|
+  \le
+  \|h_1\|_\infty \|v_2\|
+  \le
+  M_0\|s_1\|
+  \frac{M_1}{m}\|W_2\|_F \|a\odot s_2\|,
+\]
+which gives \eqref{eq:3g-r2}. Likewise,
+\[
+  \nabla_{s_1}f
+  =
+  \sigma(u_1)\odot (r_2\odot v_2),
+\]
+which yields \eqref{eq:3g-s1}. Finally,
+\[
+  \nabla_{b_1}f
+  =
+  s_1\odot \sigma'(u_1)\odot (r_2\odot v_2),
+\]
+and the bounds for $\nabla_{W_1}f$ and $\nabla_{r_1}f$ follow by one more chain-rule step, using $\|r_1\odot x\|\le B_X\|r_1\|$ and $\|W_1^\top u\|\le \|W_1\|_F\|u\|$.
+\end{proof}
+
+\section{What Breaks Relative to Two Layers}
+
+For the finite-$K$ dynamics, define the shared and empirical head norms
+\[
+  A_t:=\|a_t\|,
+  \qquad
+  W_{1,t}:=\|W_{1,t}\|_F,
+  \qquad
+  W_{2,t}:=\|W_{2,t}\|_F,
+\]
+\[
+  S_{1,t}
+  :=
+  \Bigl(
+    \frac1K\sum_{\alpha=1}^K \|s_{1,\alpha,t}\|^2
+  \Bigr)^{1/2},
+  \quad
+  R_{1,t}
+  :=
+  \Bigl(
+    \frac1K\sum_{\alpha=1}^K \|r_{1,\alpha,t}\|^2
+  \Bigr)^{1/2},
+\]
+\[
+  S_{2,t}
+  :=
+  \Bigl(
+    \frac1K\sum_{\alpha=1}^K \|s_{2,\alpha,t}\|^2
+  \Bigr)^{1/2},
+  \quad
+  R_{2,t}
+  :=
+  \Bigl(
+    \frac1K\sum_{\alpha=1}^K \|r_{2,\alpha,t}\|^2
+  \Bigr)^{1/2}.
+\]
+Applying \cref{prop:3layer-grads} exactly as in the two-layer proof gives a closed system of differential inequalities of the form
+\begin{align}
+  \dot A_t
+  &\lesssim
+  S_{2,t},
+  \label{eq:3d-A}
+  \\
+  \dot S_{2,t}
+  &\lesssim
+  A_t,
+  \label{eq:3d-S2}
+  \\
+  \dot W_{2,t}
+  &\lesssim
+  A_t S_{2,t} S_{1,t} R_{2,t},
+  \label{eq:3d-W2}
+  \\
+  \dot R_{2,t}
+  &\lesssim
+  A_t S_{2,t} S_{1,t} W_{2,t},
+  \label{eq:3d-R2}
+  \\
+  \dot S_{1,t}
+  &\lesssim
+  A_t S_{2,t} R_{2,t} W_{2,t},
+  \label{eq:3d-S1}
+  \\
+  \dot W_{1,t}
+  &\lesssim
+  A_t S_{2,t} R_{2,t} W_{2,t} S_{1,t} R_{1,t},
+  \label{eq:3d-W1}
+  \\
+  \dot R_{1,t}
+  &\lesssim
+  A_t S_{2,t} R_{2,t} W_{2,t} S_{1,t} W_{1,t}.
+  \label{eq:3d-R1}
+\end{align}
+
+\begin{remark}[Upper and lower layers behave differently]
+\label{rem:3layer-hierarchy}
+The top layer still closes benignly:
+\[
+  V_t:=A_t+S_{2,t}
+  \quad\Longrightarrow\quad
+  \dot V_t \lesssim V_t,
+\]
+so $V_t$ grows at most exponentially. The first nontrivial obstruction appears at the hidden-to-hidden layer. If
+\[
+  U_t:=1+S_{1,t}+R_{2,t}+W_{2,t},
+\]
+then \eqref{eq:3d-W2}--\eqref{eq:3d-S1} imply only
+\[
+  \dot U_t \lesssim C_T U_t^2,
+\]
+because the bounded top-layer variable $V_t$ enters only through a finite-horizon constant $C_T$. This is already Riccati-type. The first layer is worse still: with
+\[
+  L_t:=1+W_{1,t}+R_{1,t},
+\]
+\eqref{eq:3d-W1}--\eqref{eq:3d-R1} give only
+\[
+  \dot L_t \lesssim C_T U_t^3 L_t.
+\]
+Thus the simple linear Gronwall/localization argument from the two-layer note does not carry over automatically.
+\end{remark}
+
+\section{Implications}
+
+The three-layer proxy is the first setting in which a shared $m\times m$ matrix appears, so it is the first reduced model that genuinely reflects the core parameter-efficiency mechanism of BatchEnsemble. At the same time, the concrete theorem becomes harder for a very specific reason:
+\begin{enumerate}[leftmargin=2em]
+  \item exact empirical closure still holds;
+  \item the abstract bounded-Lipschitz large-$K$ theorem still applies if its hypotheses can be verified;
+  \item what fails is the clean finite-horizon compact-region localization, because the natural majorant system is already quadratic at the middle layer and higher-order at the first layer.
+\end{enumerate}
+So the correct conclusion is not that the large-$K$ theory breaks in depth. Rather, the semidirect head mean-field structure remains plausible, but the two-layer proof strategy is no longer strong enough. A three-layer rigorous theorem would likely require one of the following:
+\begin{enumerate}[leftmargin=2em]
+  \item a sharper energy functional than the naive sum of layerwise norms;
+  \item a one-sided Lipschitz or dissipativity structure for the deep shared dynamics;
+  \item clipping or truncation at the concrete level;
+  \item a short-time theorem plus continuation criterion.
+\end{enumerate}
+
+\paragraph{Bottom line.}
+Three layers are indeed more faithful and more practitioner-relevant than two, precisely because the shared hidden-to-hidden matrix makes efficient ensembling nontrivial. But this same feature is also the first place where the concrete proof stops being a straightforward extension of the two-layer argument.
+
+\begin{thebibliography}{99}
+
+\bibitem[Chen et~al.(2020)Chen, D'Amour, Kuleshov, and Shlens]{batchensemble}
+Y.~Chen, A.~D'Amour, V.~Kuleshov, and J.~Shlens.
+\newblock BatchEnsemble: An alternative approach to efficient ensemble and lifelong learning.
+\newblock In \emph{International Conference on Learning Representations}, 2020.
+
+\bibitem[Gorishniy et~al.(2024)Gorishniy, Kotelnikov, and Babenko]{tabm}
+Y.~Gorishniy, A.~Kotelnikov, and A.~Babenko.
+\newblock TabM: Advancing tabular deep learning with parameter-efficient ensembling.
+\newblock arXiv:2410.24210, 2024.
+
+\end{thebibliography}
+
+\end{document}

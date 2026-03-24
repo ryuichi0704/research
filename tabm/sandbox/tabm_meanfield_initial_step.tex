@@ -1027,6 +1027,121 @@ Therefore, in deterministic fixed-$M$ mean-field,
 order-one headwise diversity cannot appear unless the initial law is itself order-one far from its symmetrization.
 \end{remark}
 
+\subsection{Randomized initial laws}
+
+The deterministic collapse theorem requires a deterministic initial condition on the symmetric manifold.
+For random initialization across heads, the correct first statement is weaker:
+one should expect exchangeability \emph{in law}, and quantitative near-collapse only when the random draw is itself close to the symmetric manifold.
+
+\begin{theorem}[Randomized initial laws: exchangeability in law and probabilistic near-collapse]
+\label{thm:random-init}
+Assume \cref{ass:regularity}.
+Let $\rho_0$ be a random variable taking values in $\PP_1(\Omega)$,
+defined on some auxiliary probability space,
+and let $\rho_t$ denote the corresponding random characteristic solution of \eqref{eq:pde}.
+Assume that for every permutation $\pi\in S_M$,
+\[
+  \Pi_{\pi\#}\rho_0
+  \stackrel{d}{=}
+  \rho_0.
+\]
+Then, for every $t\ge 0$ and every $\pi\in S_M$,
+\[
+  \Pi_{\pi\#}\rho_t
+  \stackrel{d}{=}
+  \rho_t.
+\]
+In particular, for every $x\in\mathcal X$, every $t\ge 0$, and every $\alpha,\beta$,
+\[
+  f_\alpha(x;\rho_t)
+  \stackrel{d}{=}
+  f_\beta(x;\rho_t).
+\]
+
+Define the random asymmetry size
+\[
+  D_0
+  :=
+  \W(\rho_0,\Sym\rho_0).
+\]
+Then, almost surely, for every $x\in\mathcal X$, every $t\ge 0$, and every $\alpha,\beta$,
+\[
+  |f_\alpha(x;\rho_t)-f_\beta(x;\rho_t)|
+  \le
+  2L_0 e^{\Lambda t} D_0.
+\]
+Consequently, for every $T>0$ and every $\varepsilon>0$,
+\[
+  \mathbb P\Bigl[
+    \max_{\alpha,\beta}
+    \sup_{t\in[0,T]}
+    |f_\alpha(x;\rho_t)-f_\beta(x;\rho_t)|
+    >
+    2L_0 e^{\Lambda T}\varepsilon
+  \Bigr]
+  \le
+  \mathbb P[D_0>\varepsilon].
+\]
+\end{theorem}
+
+\begin{proof}
+Let $S_t:\PP_1(\Omega)\to\PP_1(\Omega)$ denote the deterministic solution map
+that sends the initial law $\mu$ to the unique characteristic solution at time $t$.
+Fix $\pi\in S_M$ and a deterministic initial law $\mu$.
+By the same argument as in the proof of \cref{thm:symmetry},
+\[
+  \Pi_{\pi\#} S_t(\mu)
+\]
+solves the same PDE with initial condition $\Pi_{\pi\#}\mu$.
+By uniqueness from \cref{thm:wellposed},
+\[
+  S_t(\Pi_{\pi\#}\mu)=\Pi_{\pi\#}S_t(\mu).
+\]
+Now apply this identity with $\mu=\rho_0$.
+Because $\Pi_{\pi\#}\rho_0\stackrel{d}{=}\rho_0$,
+\[
+  \Pi_{\pi\#}\rho_t
+  =
+  \Pi_{\pi\#}S_t(\rho_0)
+  =
+  S_t(\Pi_{\pi\#}\rho_0)
+  \stackrel{d}{=}
+  S_t(\rho_0)
+  =
+  \rho_t.
+\]
+This proves exchangeability in law at time $t$.
+
+Fix $x,t,\alpha,\beta$.
+Apply \cref{thm:nonlinear-stability} pathwise to the realized initial law $\rho_0$:
+\[
+  |f_\alpha(x;\rho_t)-f_\beta(x;\rho_t)|
+  \le
+  2L_0 e^{\Lambda t}\W(\rho_0,\Sym\rho_0)
+  =
+  2L_0 e^{\Lambda t} D_0,
+\]
+almost surely.
+Taking the supremum over $t\in[0,T]$ yields
+\[
+  \max_{\alpha,\beta}
+  \sup_{t\in[0,T]}
+  |f_\alpha(x;\rho_t)-f_\beta(x;\rho_t)|
+  \le
+  2L_0 e^{\Lambda T} D_0.
+\]
+The probability bound follows immediately.
+\end{proof}
+
+\begin{remark}[What this theorem does and does not say]
+\Cref{thm:random-init} does \emph{not} upgrade exchangeable random initialization to exact pathwise collapse.
+If the random draw is order one away from the symmetric manifold, then the theorem only preserves exchangeability in law.
+To prove collapse from order-one random initialization, one would need a genuine global attraction result for the symmetric manifold,
+not just invariance plus Gronwall stability.
+The frozen-kernel criterion from \cref{cor:frozen-contraction} points toward the right transverse operator,
+but it is still only a local linearized statement.
+\end{remark}
+
 \section{Architecture-Faithful Description and the Level-B Target}
 
 \subsection{What BatchEnsemble and TabM actually implement}
