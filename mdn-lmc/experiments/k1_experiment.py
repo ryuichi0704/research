@@ -413,6 +413,50 @@ def train_model(
     return model, history
 
 
+def dataset_metadata(dataset_bundle: DatasetBundle) -> dict[str, float | str]:
+    return {
+        "dataset_pattern": dataset_bundle.dataset_pattern,
+        "x_mean": dataset_bundle.x_mean,
+        "x_std": dataset_bundle.x_std,
+        "y_mean": dataset_bundle.y_mean,
+        "y_std": dataset_bundle.y_std,
+        "y_star": dataset_bundle.y_star,
+    }
+
+
+def cpu_state_dict(model: nn.Module) -> dict[str, torch.Tensor]:
+    return {
+        key: value.detach().cpu().clone()
+        for key, value in model.state_dict().items()
+    }
+
+
+def save_model_checkpoint(
+    model: TwoLayerK1Net,
+    output_path: Path,
+    config: ExperimentConfig,
+    dataset_bundle: DatasetBundle,
+    role: str,
+    seed: int | None = None,
+    training_history: dict[str, list[float]] | None = None,
+    extra_metadata: dict[str, object] | None = None,
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint: dict[str, object] = {
+        "format_version": 1,
+        "model_role": role,
+        "seed": seed,
+        "config": asdict(config),
+        "dataset": dataset_metadata(dataset_bundle),
+        "state_dict": cpu_state_dict(model),
+    }
+    if training_history is not None:
+        checkpoint["training_history"] = training_history
+    if extra_metadata is not None:
+        checkpoint["metadata"] = extra_metadata
+    torch.save(checkpoint, output_path)
+
+
 def extract_neuron_table(model: TwoLayerK1Net) -> np.ndarray:
     first_weight = model.fc1.weight.detach().cpu().numpy()[:, 0]
     first_bias = model.fc1.bias.detach().cpu().numpy()
@@ -1430,6 +1474,45 @@ def run_single_experiment(
     )
 
     np.save(output_dir / "matching_permutation.npy", permutation)
+    save_model_checkpoint(
+        model=model_a,
+        output_path=output_dir / "model_a.pt",
+        config=config,
+        dataset_bundle=dataset_bundle,
+        role="model_a",
+        seed=config.seed_a,
+        training_history=history_a,
+    )
+    save_model_checkpoint(
+        model=model_b,
+        output_path=output_dir / "model_b.pt",
+        config=config,
+        dataset_bundle=dataset_bundle,
+        role="model_b",
+        seed=config.seed_b,
+        training_history=history_b,
+    )
+    save_model_checkpoint(
+        model=matched_b,
+        output_path=output_dir / "model_b_matched.pt",
+        config=config,
+        dataset_bundle=dataset_bundle,
+        role="model_b_matched",
+        seed=config.seed_b,
+        training_history=history_b,
+        extra_metadata={"matching_permutation": permutation.tolist()},
+    )
+    save_model_checkpoint(
+        model=merged_model,
+        output_path=output_dir / "merged_model.pt",
+        config=config,
+        dataset_bundle=dataset_bundle,
+        role="merged_model",
+        extra_metadata={
+            "interpolation_t": 0.5,
+            "sources": ["model_a", "model_b_matched"],
+        },
+    )
 
     summary = {
         "config": asdict(config),
@@ -1457,7 +1540,11 @@ def run_single_experiment(
         "matched_certificates": matched_certificates,
         "artifacts": {
             "model_a_parameters": "model_a_parameters.png",
+            "model_a_checkpoint": "model_a.pt",
+            "model_b_checkpoint": "model_b.pt",
+            "model_b_matched_checkpoint": "model_b_matched.pt",
             "model_b_matched_parameters": "model_b_matched_parameters.png",
+            "merged_model_checkpoint": "merged_model.pt",
             "lmc_barrier": "lmc_barrier.png",
             "predictive_fit": "predictive_fit.png",
             "training_history": "training_history.png",
