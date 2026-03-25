@@ -33,7 +33,7 @@
 \newcommand{\W}{W_1}
 \newcommand{\dd}{\,\mathrm{d}}
 
-\title{Fixed-\texorpdfstring{$K$}{K} Width Mean-Field Theory for Bias-Free Two-Layer BatchEnsemble}
+\title{Mean Field Theory for BatchEnsembles}
 \author{}
 \date{\today}
 
@@ -41,131 +41,630 @@
 \maketitle
 
 \begin{abstract}
-We formulate a fixed-$K$, width-to-infinity theory for a bias-free two-layer BatchEnsemble-style model with neuron-wise hidden modulations and optional head-global input-side fast weights. The general large-width object is a deterministic PDE-ODE system for the neuron law and the head-global state. This formulation makes it possible to compare, within a single note, two qualitatively different regimes: the no-input-modulation case $s\equiv\mathbf 1$, where the limit reduces to a single deterministic transport PDE and permutation-symmetric initialization forces exact head collapse; and the input-modulated case $s\neq \mathbf 1$, where the large-width limit remains conditionally deterministic but can retain order-one randomness through the finite-dimensional head-global initialization. We prove global characteristic well-posedness, stability, and finite-width convergence in an abstract bounded-Lipschitz setting and derive the corresponding comparisons for the two concrete regimes.
+BatchEnsemble introduces diversity through multiplicative fast weights, but not all such modulations play the same role when width grows. This note studies a fixed-$K$, width-to-infinity mean-field limit for a vector-valued bias-free two-layer BatchEnsemble-style model with neuron-wise fast weights and optional boundary fast weights. The main conclusion is structural. Neuron-wise modulations are averaged out by width, whereas boundary fast weights are not. As a result, in the regime without boundary fast weights, the infinite-width dynamics reduce to a single deterministic transport PDE and permutation-symmetric initialization forces exact head collapse. In contrast, when at least one boundary fast weight is retained, the correct large-width object is a deterministic PDE-ODE system for the neuron law and the boundary state, and order-one head dependence can survive through the finite-dimensional initialization of that state. We prove the supporting well-posedness, stability, and finite-width convergence results in an abstract bounded-Lipschitz setting and then specialize them to these two practitioner-relevant regimes.
 \end{abstract}
 
 \section{Introduction}
 
-Fix the ensemble size $K$ and send the width $m$ to infinity. For BatchEnsemble-style models, this separates two distinct kinds of head-specific structure.
+BatchEnsemble is a parameter-sharing ensemble architecture: instead of training
+$K$ fully independent networks, one keeps a shared backbone and gives each head
+a small set of multiplicative fast weights. The practical promise is clear. One
+would like to obtain ensemble-like diversity without paying the full cost of $K$
+separate models. The theoretical question is less clear: \emph{which
+head-specific parameters still matter once width becomes very large?}
 
+This note studies that question in a fixed-$K$, width-$M\to\infty$ mean-field
+regime. The key point is that BatchEnsemble mixes two different kinds of
+head-specific structure:
 \begin{enumerate}[leftmargin=2em]
-  \item \emph{Neuron-wise head structure}: variables such as $r_{\alpha,j}$ that are attached to individual neurons and therefore self-average with width.
-  \item \emph{Head-global structure}: variables such as $s_\alpha$ that stay finite-dimensional when $m\to\infty$ and therefore do not self-average.
+  \item \emph{Neuron-wise fast weights}: variables such as
+  $s_{\alpha,m}^{(2)}$ and $r_{\alpha,m}^{(1)}$ that are attached to individual
+  neurons and therefore
+  self-average as $M\to\infty$.
+  \item \emph{Boundary fast weights}: variables such as $s_\alpha^{(1)}$ and
+  $r_\alpha^{(2)}$ that sit at the input or output boundary, stay
+  finite-dimensional when $M\to\infty$, and therefore do not self-average.
 \end{enumerate}
+The distinction is operational. Width averaging acts directly on neuron-wise
+modulations, but it does not remove asymmetry carried by boundary fast weights. In the concrete
+two-layer model introduced in \Cref{sec:prelim}, this leads to a sharp split
+between two regimes. If all boundary fast weights are fixed to the all-ones
+vectors, then every head-specific quantity lives inside the neuron state and the
+width limit reduces to a single transport PDE. If at least one boundary fast
+factor is retained, then the correct large-width limit is a coupled PDE-ODE
+system and order-one head dependence can survive through the finite-dimensional
+boundary-state initialization.
 
-The purpose of this note is to keep both possibilities in a single formulation and compare what the width limit does in each case. The concrete two-layer family is
-\begin{equation}
-  f_\alpha^m(x)
-  :=
-  \frac1m\sum_{j=1}^m
-  a_j\,
-  \sigma\!\bigl(
-    r_{\alpha,j}\,w_j^\top(s_\alpha\odot x)
-  \bigr),
-  \qquad
-  \alpha\in\{1,\dots,K\},
-  \label{eq:model}
-\end{equation}
-where $a_j\in\R$ and $w_j\in\R^{d_x}$ are shared, $r_{\alpha,j}\in\R$ is a head-$\alpha$ hidden modulation attached to neuron $j$, and $s_\alpha\in\R^{d_x}$ is a head-global input-side fast weight.
+The main message is practitioner-facing. If head diversity is implemented only
+through neuron-wise modulations, then width averaging removes it at leading
+order: under standard permutation-symmetric initialization, all heads collapse
+to the same infinite-width predictor. If one wants order-one head asymmetry to
+survive width averaging, then a boundary fast weight must be kept in the state.
+In the full model, the directly input- and output-connected factors
+$s_\alpha^{(1)}$ and $r_\alpha^{(2)}$ play that role. Once such a factor is
+retained, the correct limit is no longer a single PDE but a coupled PDE-ODE
+system. This
+point is especially notable when compared with NTK-based analyses of embedded
+ensembles, where one can obtain an \emph{independent regime} under centered
+last-layer post-activation modulation \cite{velikanov2022}. Our claim is
+different: in the present feature-learning mean-field regime, neuron-wise
+modulations alone do not generically produce leading-order functional
+independence.
 
-Two special cases will matter throughout:
-\begin{enumerate}[leftmargin=2em]
-  \item \emph{No input modulation}: $s_\alpha\equiv \mathbf 1$ for all heads. Then all head-specific quantities already live inside the neuron state, so the width limit reduces to a single transport PDE.
-  \item \emph{Input modulation present}: the vectors $s_\alpha$ are kept as genuine variables. Then the width limit is a coupled PDE-ODE system, and order-one randomness can survive through the initial law of $s$.
-\end{enumerate}
+The rest of the note is organized as follows. \Cref{sec:prelim} introduces the
+concrete two-layer model and the neuron-wise versus boundary-fast-weight split.
+\Cref{sec:related} positions the paper relative to BatchEnsemble, NTK-based
+embedded-ensemble theory, feature-learning mean-field theory, and the tabular
+model TabM. \Cref{sec:results} then states the two main implications for
+BatchEnsemble design, compares them with the NTK-based regime picture, and
+records the technical fixed-$K$ width limit that supports both
+specializations. The abstract mean-field setup, standing assumptions, and all
+proofs are deferred to the appendix.
 
-This split is the key reason to keep the general formulation. It lets us compare, theorem by theorem, what width does in the purely neuron-level regime and what changes once a finite-dimensional head-global environment is present.
+\section{Related Work}
+\label{sec:related}
 
-\section{Concrete Model}
+\paragraph{BatchEnsemble and parameter-efficient ensembling.}
+BatchEnsemble was introduced by Wen et al.\ \cite{wen2020} as a
+parameter-sharing alternative to deep ensembles, in which each ensemble member
+is represented by rank-one multiplicative fast weights applied to shared weight
+matrices. Our concrete two-layer model is a mean-field idealization of this
+construction. The present note is not about improving the architecture itself,
+but about understanding which parts of this parameter-efficient ensemble remain
+visible in the wide feature-learning limit.
 
-\subsection{Finite-width BatchEnsemble-style network}
+\paragraph{NTK-based operating regimes for embedded ensembles.}
+The closest theoretical comparison is the NTK-based analysis of Embedded
+Ensembles by Velikanov et al.\ \cite{velikanov2022}. In their lazy-training
+setting, infinite-width dynamics are described by a deterministic ensemble NTK,
+and centered last-layer post-activation modulation can produce an
+\emph{independent regime} in which off-diagonal GP covariances and NTK entries
+vanish. Our main message differs precisely at this point: in the
+feature-learning mean-field regime studied here, neuron-wise modulation alone
+does not generically create leading-order functional independence. Instead, the
+law-of-large-numbers limit collapses unless some boundary fast weight survives
+width averaging.
 
-Fix an input dimension $d_x$, a hidden width $m$, and an ensemble size
-$K\in\{1,2,\dots\}$. For each neuron $j\in\{1,\dots,m\}$, let
+\paragraph{Feature-learning mean-field theory.}
+On the mean-field side, two-layer networks admit a deterministic
+distributional description in terms of transport PDEs or Wasserstein gradient
+flows; see, for example, Mei et al.\ \cite{mei2019} and the lazy-training
+perspective of Chizat et al.\ \cite{chizat2019}. Our contribution is not a new
+generic mean-field theorem for ordinary networks, but rather an application of
+the feature-learning mean-field viewpoint to parameter-efficient ensembles with
+shared weights. The outcome is a structural distinction between neuron-wise
+fast weights, which self-average with width, and boundary fast weights, which
+remain as finite-dimensional state variables.
+
+\paragraph{TabM and the tabular case for efficient ensembling.}
+This distinction matters in practice because BatchEnsemble-style ensembling has
+already become influential in tabular deep learning. TabM, introduced by
+Gorishniy et al.\ \cite{gorishniy2025}, is an MLP-based tabular model built
+around parameter-efficient ensembling and reports a strong
+performance-efficiency trade-off on public benchmarks. Our results do not
+analyze TabM directly, but they help articulate why boundary-connected
+modulation mechanisms can be qualitatively different from purely neuron-wise
+ones in the feature-learning regime. In that sense, the present theory is
+meant as a step toward understanding why parameter-efficient ensembling can be
+so effective in domains such as tabular learning.
+
+\section{Preliminary}
+\label{sec:prelim}
+
+\subsection{Concrete two-layer BatchEnsemble model}
+
+Fix an input dimension $d_x$, an output dimension $d_y$, a hidden width $M$, and an ensemble size
+$K\in\{1,2,\dots\}$. For each neuron $m\in\{1,\dots,M\}$, let
 \[
-  a_j\in\R,\qquad
-  w_j\in\R^{d_x},\qquad
-  r_{\alpha,j}\in\R\quad (\alpha=1,\dots,K),
+  a_m\in\R^{d_y},\qquad
+  w_m\in\R^{d_x},\qquad
+  s_{\alpha,m}^{(2)}\in\R\quad (\alpha=1,\dots,K),\qquad
+  r_{\alpha,m}^{(1)}\in\R\quad (\alpha=1,\dots,K),
 \]
 and let
 \[
-  s=(s_1,\dots,s_K)\in(\R^{d_x})^K,
+  s^{(1)}=(s_1^{(1)},\dots,s_K^{(1)})\in(\R^{d_x})^K,
   \qquad
-  s_\alpha\in\R^{d_x}.
+  r^{(2)}=(r_1^{(2)},\dots,r_K^{(2)})\in(\R^{d_y})^K.
 \]
-The finite-width model is \eqref{eq:model}.
-
-The width-$m$ neuron empirical measure is
-\begin{equation}
-  \rho^m
-  :=
-  \frac1m\sum_{j=1}^m \delta_{\theta_j},
+The two layers take the standard BatchEnsemble form
+\[
+  W_\alpha = W\circ \bigl(s_\alpha^{(1)}(r_\alpha^{(1)})^\top\bigr),
   \qquad
-  \theta_j=(a_j,w_j,r_{1,j},\dots,r_{K,j}).
+  A_\alpha = A\circ \bigl(s_\alpha^{(2)}(r_\alpha^{(2)})^\top\bigr),
+\]
+and the corresponding bias-free two-layer predictor is
+\begin{equation}
+  f_{\alpha,\mathrm{full}}^M(x)
+  :=
+  \frac1M A_\alpha^\top \sigma(W_\alpha^\top x).
+  \label{eq:model-full-matrix}
+\end{equation}
+Equivalently, expanding row by row,
+\begin{equation}
+  f_{\alpha,\mathrm{full}}^M(x)
+  :=
+  \frac1M\sum_{m=1}^M
+  (a_m\odot r_\alpha^{(2)})\,s_{\alpha,m}^{(2)}\,
+  \sigma\!\bigl(
+    r_{\alpha,m}^{(1)}\,w_m^\top(s_\alpha^{(1)}\odot x)
+  \bigr).
+  \label{eq:model-full}
+\end{equation}
+The scalar output case is recovered by taking $d_y=1$.
+
+The width-$M$ empirical measure is taken only over the neuron-indexed
+coordinates. That is,
+\begin{equation}
+  \rho^M
+  :=
+  \frac1M\sum_{m=1}^M \delta_{\theta_m},
+  \qquad
+  \theta_m=
+  (a_m,w_m,s_{1,m}^{(2)},\dots,s_{K,m}^{(2)},r_{1,m}^{(1)},\dots,r_{K,m}^{(1)}).
   \label{eq:empirical}
 \end{equation}
-Thus the head-specific variables split naturally into
-\begin{enumerate}[leftmargin=2em]
-  \item neuron-level coordinates $(r_{1,j},\dots,r_{K,j})$ inside $\theta_j$,
-  \item the head-global vector $s=(s_1,\dots,s_K)$.
-\end{enumerate}
-
-\subsection{The two regimes}
-
-The same concrete model contains the two regimes we want to compare.
-
-\paragraph{$s=\mathbf 1$.}
-If every $s_\alpha$ is fixed to the all-ones vector, then
+The boundary fast weights are kept outside this empirical measure:
 \begin{equation}
-  f_{\alpha,\mathrm{noin}}^m(x)
-  :=
-  \frac1m\sum_{j=1}^m
-  a_j\,
-  \sigma\!\bigl(
-    r_{\alpha,j}\,w_j^\top x
-  \bigr).
-  \label{eq:model-noin}
+  \bar h^M := (s^{(1)},r^{(2)}) \in (\R^{d_x})^K\times(\R^{d_y})^K.
+  \label{eq:boundary-concrete}
 \end{equation}
-There is no remaining head-global variable, so width self-averaging acts on the entire head-specific state.
+Thus the full finite-width state is the pair $(\rho^M,\bar h^M)$, and the
+head-specific variables split naturally into
+\begin{enumerate}[leftmargin=2em]
+  \item neuron-level coordinates
+  $(s_{1,m}^{(2)},\dots,s_{K,m}^{(2)},r_{1,m}^{(1)},\dots,r_{K,m}^{(1)})$
+  inside $\theta_m$,
+  \item the boundary fast weights collected in $\bar h^M=(s^{(1)},r^{(2)})$.
+\end{enumerate}
+This concrete split already identifies the objects that appear in the
+large-width limit: a neuron law $\rho_t$ and, when boundary fast weights are
+present, a finite-dimensional boundary state $h_t$. The rigorous abstract
+mean-field formulation and the standing regularity assumptions are recorded in
+Appendix~\ref{sec:appendix-setup}; the main text uses only the resulting
+interpretation.
 
-\paragraph{$s\neq \mathbf 1$.}
-If $s$ is retained as a trainable or random head-global variable, then width only averages the neuron-level coordinates. The large-width limit will therefore still depend on $s$ through a finite-dimensional ODE or through the initial random environment.
+\section{Theoretical Results}
+\label{sec:results}
 
-\section{Abstract Framework}
+\paragraph{Mean-field setup in one sentence.}
+The technical results below are stated in terms of the abstract mean-field
+objects introduced in Appendix~\ref{sec:appendix-setup}. In that notation, the
+large-width limit is described by a neuron law $\rho_t$ and, when boundary fast
+weights are present, a finite-dimensional boundary state $h_t$; the full
+feature-learning limit is a coupled PDE-ODE system \eqref{eq:pde}--\eqref{eq:ode},
+while the no-boundary regime removes the ODE and leaves a single transport PDE.
 
-\subsection{State variables and outputs}
+\paragraph{Guiding question.}
+The central design question is which head-specific parameters survive width
+averaging. The results below show a sharp split. Neuron-wise modulations
+$(s_{\alpha,m}^{(2)},r_{\alpha,m}^{(1)})$ are averaged into the neuron law, while
+boundary fast weights remain finite-dimensional state variables. In the full
+two-layer model these are $s_\alpha^{(1)}$ and $r_\alpha^{(2)}$. This
+structural split is what drives the different practical interpretations of the
+two regimes.
 
-Let $\Theta=\R^D$ denote the single-neuron state space and let
+\subsection{Without boundary fast weights, wide BatchEnsemble collapses}
+\label{sec:regime-a}
+
+In the concrete full model \eqref{eq:model-full-matrix}--\eqref{eq:model-full},
+the regime without boundary fast weights is obtained by fixing
 \[
-  \mathcal S=\R^{K d_s}
-\]
-denote the space of head-global variables. Write
-\[
-  s=(s_1,\dots,s_K)\in\mathcal S,
+  s_\alpha^{(1)}\equiv \mathbf 1,
   \qquad
-  s_\alpha\in\R^{d_s}.
+  r_\alpha^{(2)}\equiv \mathbf 1
+  \qquad
+  \text{for all }\alpha.
+\]
+Then the predictor reduces to
+\begin{equation}
+  f_{\alpha,\mathrm{free}}^M(x)
+  :=
+  \frac1M\sum_{m=1}^M
+  a_m\,s_{\alpha,m}^{(2)}\,
+  \sigma\!\bigl(
+    r_{\alpha,m}^{(1)}\,w_m^\top x
+  \bigr).
+  \label{eq:model-free}
+\end{equation}
+At the abstract level, this is exactly the specialization in which the feature
+maps are independent of the boundary state. Formally, this means
+\[
+  \Psi_\alpha(x;\theta,h)\equiv \Psi_\alpha^{\mathrm{free}}(x;\theta),
+\]
+which includes \eqref{eq:model-free}. Then \eqref{eq:drift-G} vanishes and the
+ODE for $h_t$ disappears.
+
+\begin{corollary}[No boundary fast weights reduce the limit to a single PDE]
+\label{cor:boundaryfree}
+Assume \cref{ass:main} and suppose the feature maps are independent of $h$. Then
+the fixed-$K$ mean-field system reduces to the transport PDE
+\begin{equation}
+  \partial_t \rho_t
+  +
+  \nabla_\theta\cdot\bigl(\rho_t B(\theta;\rho_t)\bigr)
+  =
+  0,
+  \label{eq:pde-free}
+\end{equation}
+where
+  \[
+  B(\theta;\rho)
+  :=
+  -\E_{(x,y)\sim\mathsf P}
+  \Bigl[
+    \frac1K\sum_{\alpha=1}^K
+    \nabla_\theta\Psi_\alpha^{\mathrm{free}}(x;\theta)^\top
+    \nabla_1\ell(f_\alpha(x;\rho),y)
+  \Bigr].
+\]
+All conclusions of \cref{thm:deterministic,cor:random} remain valid with the
+boundary state deleted.
+\end{corollary}
+
+In the regime without boundary fast weights, standard i.i.d.\ initialization from a
+deterministic law produces a deterministic infinite-width limit because there is
+no residual boundary-state random environment.
+
+\begin{corollary}[Without boundary fast weights there is no order-one width-limit randomness]
+\label{cor:boundaryfree-det}
+In the setting of \cref{cor:boundaryfree}, assume that the empirical initial laws
+$\rho_0^M$ converge to a deterministic law $\rho_0$ in probability, almost
+surely, or in $L^1$. Then the infinite-width predictor vector
+\[
+  \bigl(f_1(\cdot;\rho_t),\dots,f_K(\cdot;\rho_t)\bigr)
+\]
+is deterministic.
+\end{corollary}
+
+The decisive simplification is that, once the boundary state is removed, all
+head dependence lives inside the same neuron law.
+
+\begin{proposition}[Permutation-symmetric initialization forces head collapse]
+\label{prop:collapse}
+Assume the no-boundary setting of \cref{cor:boundaryfree}. If the initial law
+$\rho_0$ is invariant under every $\Pi_\pi^\Theta$, i.e.
+\[
+  (\Pi_\pi^\Theta)_\#\rho_0=\rho_0
+  \qquad
+  \forall \pi\in S_K,
+\]
+then the unique characteristic solution of \eqref{eq:pde-free} satisfies
+\[
+  (\Pi_\pi^\Theta)_\#\rho_t=\rho_t
+  \qquad
+  \forall t\ge 0,\ \forall \pi\in S_K.
+\]
+Consequently,
+\begin{equation}
+  f_1(x;\rho_t)=\cdots=f_K(x;\rho_t)
+  \qquad
+  \forall x\in\mathcal X,\ \forall t\ge 0.
+  \label{eq:collapse}
+\end{equation}
+\end{proposition}
+
+\begin{corollary}[Standard symmetric initialization collapses at leading order]
+\label{cor:boundaryfree-collapse}
+In the setting of \cref{cor:boundaryfree-det}, if the deterministic limit law
+$\rho_0$ is permutation-symmetric in the head coordinates, then the infinite-width
+limit satisfies \eqref{eq:collapse}.
+\end{corollary}
+
+\begin{remark}[Contrast with NTK-based operating regimes]
+\label{rem:ntk-contrast}
+This is the sharpest point of contrast with NTK-based analyses of embedded
+ensembles. In the lazy-training picture of \cite{velikanov2022}, centered
+neuron-wise post-activation modulation can produce an \emph{independent regime}
+in which off-diagonal GP covariances and NTK entries vanish. By contrast, the
+present feature-learning mean-field limit shows that, once all boundary fast
+weights are removed, permutation-symmetric initialization yields exact head
+collapse at leading order. Thus NTK-style independence does not arise here as a
+law-of-large-numbers effect of neuron-wise modulation alone; if it appears at
+all, it belongs to a lazy or fluctuation-level description rather than to the
+leading-order feature-learning limit.
+\end{remark}
+
+Taken together, \cref{cor:boundaryfree,cor:boundaryfree-det,prop:collapse,cor:boundaryfree-collapse}
+say that neuron-wise fast weights alone do not create leading-order functional
+diversity in the fixed-$K$, wide-limit regime. For a practitioner, this means
+that removing all boundary fast weights pushes BatchEnsemble toward a
+single-model mean-field limit, even though finite-width heads may still differ through
+subleading fluctuations.
+
+\subsection{With boundary fast weights, asymmetry survives width averaging}
+\label{sec:regime-b}
+
+In the concrete full model \eqref{eq:model-full-matrix}--\eqref{eq:model-full},
+this means retaining at least one of the directly input- and output-connected
+factors $s_\alpha^{(1)}$ or $r_\alpha^{(2)}$. Once a boundary fast weight is
+kept, the width limit remains deterministic
+conditional on $(\rho_0,h_0)$, but need not be deterministic unconditionally.
+
+\begin{corollary}[Surviving order-one randomness comes from boundary fast weights]
+\label{cor:randomness}
+Assume \cref{ass:main}. If $(\rho_0,h_0)$ is deterministic, then the infinite-width
+predictor vector is deterministic. If $\rho_0$ is deterministic but $h_0$ is
+random, then any order-one randomness that survives at infinite width is induced
+entirely by the law of $h_0$.
+\end{corollary}
+
+In this regime, permutation symmetry of the neuron law alone no longer forces
+collapse, because the predictors also depend on boundary coordinates. To
+obtain collapse one would need a stronger symmetric manifold that couples both
+the neuron law and the boundary state. Without such a condition, the PDE-ODE
+limit can remain head-dependent even at infinite width.
+
+\begin{remark}[Comparison with the no-boundary regime]
+The contrast with \cref{prop:collapse} is structural. Without boundary fast
+modulation, all head dependence lives inside the neuron law, so permutation
+symmetry of that law is enough to identify all head predictors. Once boundary
+fast weights are present, the predictor map depends on an additional
+finite-dimensional variable that width does not average out. This is why the
+boundary regime naturally leads to a conditional deterministic theory rather
+than to automatic leading-order collapse.
+\end{remark}
+
+\subsection{Implications for BatchEnsemble design}
+
+The single formulation above makes the two regimes easy to compare.
+
+\paragraph{State variable.}
+Without boundary fast weights, the correct large-width state is just the neuron
+law $\rho_t$. With boundary fast weights, it is the pair $(\rho_t,h_t)$.
+
+\paragraph{Limit equation.}
+Without boundary fast weights, one gets a single transport PDE. With
+boundary fast weights, one gets a coupled PDE-ODE system.
+
+\paragraph{Randomness at infinite width.}
+Without boundary fast weights, standard deterministic-law initialization
+produces a deterministic limit. With boundary fast weights, order-one
+randomness can survive through the initial law of the finite-dimensional
+boundary state.
+
+\paragraph{Symmetry and collapse.}
+Without boundary fast weights, permutation-symmetric initialization forces
+exact head collapse in the infinite-width limit. With boundary fast weights,
+symmetry of the neuron law alone is no longer enough; one must also control the
+boundary state.
+
+\paragraph{Interpretation.}
+The no-boundary regime is the cleanest width mean-field limit for fixed $K$:
+width averages everything that is head-specific. The boundary regime is the
+next level of complexity: width still averages neuron-level fluctuations, but it
+does not remove asymmetry carried by boundary fast weights.
+
+\paragraph{Operational takeaway.}
+If the goal is to preserve order-one head diversity at very large width, then
+a boundary fast weight is structurally different from neuron-wise fast
+weights and should not be viewed as an inessential implementation detail. In the
+full model, that role is played by the directly input- and output-connected
+factors $s^{(1)}$ and $r^{(2)}$. Conversely, if one removes all boundary fast
+modulation, then the wide-limit theory predicts that standard symmetric
+initialization produces a collapsed ensemble at leading order.
+
+\subsection{Comparison with NTK-based operating regimes}
+\label{sec:ntk-comparison}
+
+The most relevant comparison is with the NTK-based analysis of Embedded
+Ensembles by Velikanov et al.\ \cite{velikanov2022}. In that lazy-training
+picture, the wide-network limit is described by the initialization GP and by a
+deterministic ensemble NTK. Their main structural conclusion is that centered
+post-activation modulation in the last hidden layer, namely
+$U_1^L=\E[u_{\alpha,j}^L]=0$, yields an \emph{independent regime}: the
+off-diagonal GP covariances and off-diagonal NTK entries vanish, so the
+embedded ensemble behaves like an ensemble of independent reference networks.
+When $U_1^L\neq 0$, they obtain a \emph{collective regime}, where these
+off-diagonal quantities are nonzero.
+
+Our fixed-$K$ mean-field theory makes a different statement because it studies a
+different leading-order object. We are not linearizing around initialization.
+Instead, we follow the feature-learning transport of the neuron law. In this
+regime, neuron-wise modulations such as
+$\bigl(s_{\alpha,m}^{(2)},r_{\alpha,m}^{(1)}\bigr)$ are absorbed into the common
+law $\rho_t$ as $M\to\infty$. Consequently, in the no-boundary regime,
+standard permutation-symmetric initialization leads to
+\[
+  f_1(\cdot;\rho_t)=\cdots=f_K(\cdot;\rho_t),
+\]
+so there is no analogue of a leading-order \emph{independent regime} generated
+solely by centered neuron-wise modulations. In the full model, the only
+head-specific mechanisms that survive width averaging at order one are the
+boundary fast weights $s^{(1)}$ and $r^{(2)}$.
+
+This difference is not a contradiction with the NTK theory. It indicates that
+the two asymptotic descriptions live at different levels. The NTK independent
+regime is a lazy, kernel-level notion of decoupling. Our result says that in a
+feature-learning mean-field scaling, the law-of-large-numbers limit collapses
+unless a non-self-averaging boundary variable is present. From this
+perspective, NTK-style independence should be interpreted here as a property of
+the lazy/fluctuation picture rather than as the generic leading-order behavior
+of wide feature-learning BatchEnsembles.
+
+For practitioners, this comparison suggests a concrete design lesson. If the
+goal is to retain diversity in a regime where feature learning remains active,
+then centered neuron-wise modulations are not enough by themselves. One needs a
+mechanism that survives width averaging, namely some boundary fast weight, or
+else the leading-order wide-limit theory predicts collapse.
+
+\subsection{Technical backbone: general fixed-\texorpdfstring{$K$}{K} width limit}
+\label{sec:technical-backbone}
+
+The previous subsections isolate the practitioner-facing implications. Their
+common technical input is the following fixed-$K$ width-limit theorem, which
+turns the finite-width BatchEnsemble dynamics into a deterministic mean-field
+system on finite horizons.
+
+\begin{theorem}[Deterministic well-posedness, stability, and particle convergence]
+\label{thm:deterministic}
+Assume \cref{ass:main}, fix $T>0$, and let $(\rho_0,h_0)\in\PP_1(\Theta)\times\mathcal H$.
+
+\begin{enumerate}[label=(\roman*),leftmargin=2em]
+  \item There exists a unique characteristic solution
+  \[
+    (\rho_t,h_t)_{t\in[0,T]}
+    \in
+    C\bigl([0,T],\PP_1(\Theta)\times\mathcal H\bigr)
+  \]
+  of \cref{eq:pde,eq:ode}.
+  \item There exists a constant $C_T<\infty$ such that for any two initial data
+  $(\rho_0,h_0)$ and $(\mu_0,\bar h_0)$ with corresponding solutions
+  $(\rho_t,h_t)$ and $(\mu_t,\bar h_t)$,
+  \begin{equation}
+    \sup_{t\in[0,T]}
+    \bigl(
+      \W(\rho_t,\mu_t)+\|h_t-\bar h_t\|
+    \bigr)
+    \le
+    C_T
+    \bigl(
+      \W(\rho_0,\mu_0)+\|h_0-\bar h_0\|
+    \bigr).
+    \label{eq:det-stability}
+  \end{equation}
+  \item Let deterministic particles and boundary states satisfy
+  \begin{align*}
+    \dot\theta_{m,t}^M &= B(\theta_{m,t}^M;\rho_t^M,h_t^M),
+    \qquad
+    \rho_t^M=\frac1M\sum_{m=1}^M\delta_{\theta_{m,t}^M},\\
+    \dot h_t^M &= G(\rho_t^M,h_t^M).
+  \end{align*}
+  If
+  \[
+    \W(\rho_0^M,\rho_0)+\|h_0^M-h_0\|\xrightarrow[M\to\infty]{}0,
+  \]
+  then
+  \begin{equation}
+    \sup_{t\in[0,T]}
+    \bigl(
+      \W(\rho_t^M,\rho_t)+\|h_t^M-h_t\|
+    \bigr)
+    \le
+    C_T\bigl(\W(\rho_0^M,\rho_0)+\|h_0^M-h_0\|\bigr)
+    \xrightarrow[M\to\infty]{}0.
+    \label{eq:particle-conv}
+  \end{equation}
+  In particular,
+  \[
+    \sup_{t\in[0,T]}
+    \|f_\alpha(x;\rho_t^M,h_t^M)-f_\alpha(x;\rho_t,h_t)\|
+    \to 0
+  \]
+  for every fixed $\alpha$ and $x$.
+\end{enumerate}
+\end{theorem}
+
+\begin{corollary}[Random initialization]
+\label{cor:random}
+Assume \cref{ass:main}, fix $T>0$, and let $(\rho_0,h_0)$ be a possibly random
+initial environment. Suppose the random initial data $(\rho_0^M,h_0^M)$ satisfy
+\[
+  \W(\rho_0^M,\rho_0)+\|h_0^M-h_0\|\xrightarrow[M\to\infty]{}0
+\]
+in probability, almost surely, or in $L^1$. Let $(\rho_t^M,h_t^M)$ be the
+finite-width particle/boundary system and let $(\rho_t,h_t)$ be the characteristic
+solution of \cref{eq:pde,eq:ode} started from $(\rho_0,h_0)$. Then the same mode
+of convergence holds uniformly on $[0,T]$:
+\[
+  \sup_{t\in[0,T]}
+  \bigl(
+    \W(\rho_t^M,\rho_t)+\|h_t^M-h_t\|
+  \bigr)
+  \to 0.
+\]
+Consequently, the infinite-width predictor vector is a measurable function of the
+initial environment $(\rho_0,h_0)$.
+\end{corollary}
+
+\begin{thebibliography}{9}
+
+\bibitem{wen2020}
+Yeming Wen, Dustin Tran, and Jimmy Ba.
+\newblock BatchEnsemble: An alternative approach to efficient ensemble and
+lifelong learning.
+\newblock In \emph{International Conference on Learning Representations}, 2020.
+
+\bibitem{jacot2018}
+Arthur Jacot, Franck Gabriel, and Cl\'ement Hongler.
+\newblock Neural tangent kernel: Convergence and generalization in neural
+networks.
+\newblock In \emph{Advances in Neural Information Processing Systems}, 2018.
+
+\bibitem{lee2019}
+Jaehoon Lee, Lechao Xiao, Samuel S. Schoenholz, Yasaman Bahri, Jascha
+Sohl-Dickstein, and Jeffrey Pennington.
+\newblock Wide neural networks of any depth evolve as linear models under
+gradient descent.
+\newblock In \emph{Advances in Neural Information Processing Systems}, 2019.
+
+\bibitem{chizat2019}
+Lena\"ic Chizat, Edouard Oyallon, and Francis Bach.
+\newblock On lazy training in differentiable programming.
+\newblock In \emph{Advances in Neural Information Processing Systems}, 2019.
+
+\bibitem{mei2019}
+Song Mei, Andrea Montanari, and Phan-Minh Nguyen.
+\newblock A mean field view of the landscape of two-layer neural networks.
+\newblock \emph{Proceedings of the National Academy of Sciences}, 115(33), 2018.
+
+\bibitem{velikanov2022}
+Maksim Velikanov, Roman V. Kail, Ivan Anokhin, Roman Vashurin, Maxim Panov,
+Alexey Zaytsev, and Dmitry Yarotsky.
+\newblock Embedded Ensembles: Infinite width limit and operating regimes.
+\newblock In \emph{Proceedings of The 25th International Conference on
+Artificial Intelligence and Statistics}, 2022.
+
+\bibitem{gorishniy2025}
+Yury Gorishniy, Akim Kotelnikov, and Artem Babenko.
+\newblock TabM: Advancing tabular deep learning with parameter-efficient
+ensembling.
+\newblock In \emph{International Conference on Learning Representations}, 2025.
+
+\end{thebibliography}
+
+\appendix
+
+\section{Abstract Mean-Field Setup and Assumptions}
+\label{sec:appendix-setup}
+
+\subsection{Abstract mean-field formulation}
+
+At the abstract level we compress all boundary fast weights into a single symbol
+$h$. Concretely, for the BatchEnsemble family above this symbol will stand for
+the pair $\bar h^M=(s^{(1)},r^{(2)})$. Let $\Theta=\R^D$ denote the
+single-neuron state space and let
+\[
+  \mathcal H=\R^{K d_h}
+\]
+denote the space of boundary states. Write
+\[
+  h=(h_1,\dots,h_K)\in\mathcal H,
+  \qquad
+  h_\alpha\in\R^{d_h}.
 \]
 Let $(\mathcal X\times\mathcal Y,\mathsf P)$ be the data space.
+Fix an output dimension $d_y\in\{1,2,\dots\}$.
 
 For each head $\alpha\in\{1,\dots,K\}$, let
 \[
-  \Psi_\alpha:\mathcal X\times\Theta\times\mathcal S\to\R
+  \Psi_\alpha:\mathcal X\times\Theta\times\mathcal H\to\R^{d_y}
 \]
-be a feature map. Given a neuron law $\rho\in\PP_1(\Theta)$ and a head-global state
-$s\in\mathcal S$, define
+be a feature map. Given a neuron law $\rho\in\PP_1(\Theta)$ and a boundary state
+$h\in\mathcal H$, define
 \begin{equation}
-  f_\alpha(x;\rho,s)
+  f_\alpha(x;\rho,h)
   :=
-  \int_\Theta \Psi_\alpha(x;\theta,s)\,\rho(\dd\theta).
+  \int_\Theta \Psi_\alpha(x;\theta,h)\,\rho(\dd\theta).
   \label{eq:output}
 \end{equation}
 The head-averaged population risk is
 \begin{equation}
-  \mathcal R(\rho,s)
+  \mathcal R(\rho,h)
   :=
   \E_{(x,y)\sim\mathsf P}
   \Bigl[
-    \frac1K\sum_{\alpha=1}^K \ell(f_\alpha(x;\rho,s),y)
+    \frac1K\sum_{\alpha=1}^K \ell(f_\alpha(x;\rho,h),y)
   \Bigr].
   \label{eq:risk}
 \end{equation}
@@ -173,51 +672,52 @@ The head-averaged population risk is
 \begin{definition}[Mean-field drifts]
 Assume $\ell$ is differentiable in its first argument. Define
 \begin{equation}
-  B(\theta;\rho,s)
+  B(\theta;\rho,h)
   :=
   -\E_{(x,y)\sim\mathsf P}
   \Bigl[
     \frac1K\sum_{\alpha=1}^K
-    \partial_1\ell(f_\alpha(x;\rho,s),y)\,
-    \nabla_\theta \Psi_\alpha(x;\theta,s)
+    \nabla_\theta \Psi_\alpha(x;\theta,h)^\top
+    \nabla_1\ell(f_\alpha(x;\rho,h),y)
   \Bigr]
   \label{eq:drift-B}
 \end{equation}
 and
 \begin{equation}
-  G_\alpha(\rho,s)
+  G_\alpha(\rho,h)
   :=
   -\E_{(x,y)\sim\mathsf P}
   \Bigl[
     \frac1K
-    \partial_1\ell(f_\alpha(x;\rho,s),y)\,
-    \int_\Theta \nabla_{s_\alpha}\Psi_\alpha(x;\theta,s)\,\rho(\dd\theta)
+    \int_\Theta
+    \nabla_{h_\alpha}\Psi_\alpha(x;\theta,h)^\top
+    \nabla_1\ell(f_\alpha(x;\rho,h),y)\,\rho(\dd\theta)
   \Bigr].
   \label{eq:drift-G}
 \end{equation}
 Write
 \[
-  G(\rho,s):=(G_\alpha(\rho,s))_{\alpha=1}^K\in\mathcal S.
+  G(\rho,h):=(G_\alpha(\rho,h))_{\alpha=1}^K\in\mathcal H.
 \]
 The fixed-$K$ mean-field system is
 \begin{align}
   \partial_t \rho_t
   +
-  \nabla_\theta\cdot\bigl(\rho_t B(\theta;\rho_t,s_t)\bigr)
+  \nabla_\theta\cdot\bigl(\rho_t B(\theta;\rho_t,h_t)\bigr)
   &=0,
   \label{eq:pde}\\
-  \dot s_t &= G(\rho_t,s_t).
+  \dot h_t &= G(\rho_t,h_t).
   \label{eq:ode}
 \end{align}
 \end{definition}
 
 \begin{definition}[Characteristic solutions]
-Fix $T>0$ and an initial condition $(\rho_0,s_0)\in\PP_1(\Theta)\times\mathcal S$.
+Fix $T>0$ and an initial condition $(\rho_0,h_0)\in\PP_1(\Theta)\times\mathcal H$.
 A pair
 \[
-  (\rho_t,s_t)_{t\in[0,T]}
+  (\rho_t,h_t)_{t\in[0,T]}
   \in
-  C\bigl([0,T],\PP_1(\Theta)\times\mathcal S\bigr)
+  C\bigl([0,T],\PP_1(\Theta)\times\mathcal H\bigr)
 \]
 is a characteristic solution of \cref{eq:pde,eq:ode} if there exists a flow
 \[
@@ -225,22 +725,22 @@ is a characteristic solution of \cref{eq:pde,eq:ode} if there exists a flow
 \]
 such that, for $\rho_0$-almost every $\theta$,
 \[
-  \dot\Phi_t(\theta)=B(\Phi_t(\theta);\rho_t,s_t),
+  \dot\Phi_t(\theta)=B(\Phi_t(\theta);\rho_t,h_t),
   \qquad
   \Phi_0(\theta)=\theta,
   \qquad
   \rho_t=(\Phi_t)_\#\rho_0,
 \]
-while $s_t$ solves \cref{eq:ode}.
+while $h_t$ solves \cref{eq:ode}.
 \end{definition}
 
 \subsection{Structural assumptions}
 
 Let $S_K$ be the permutation group on $\{1,\dots,K\}$. For $\pi\in S_K$, let
 \[
-  \Pi_\pi^\mathcal S(s_1,\dots,s_K)
+  \Pi_\pi^\mathcal H(h_1,\dots,h_K)
   =
-  (s_{\pi^{-1}(1)},\dots,s_{\pi^{-1}(K)}).
+  (h_{\pi^{-1}(1)},\dots,h_{\pi^{-1}(K)}).
 \]
 Assume also that for each $\pi$ there is a linear isometry
 $\Pi_\pi^\Theta:\Theta\to\Theta$ representing the corresponding permutation of
@@ -256,16 +756,17 @@ such that the following hold uniformly over all $\alpha\in\{1,\dots,K\}$ and
 $x\in\mathcal X$.
 \begin{enumerate}[label=(\roman*),leftmargin=2em]
   \item The maps $\Psi_\alpha(x;\cdot,\cdot)$, $\nabla_\theta\Psi_\alpha(x;\cdot,\cdot)$,
-  and $\nabla_{s_\alpha}\Psi_\alpha(x;\cdot,\cdot)$ are globally bounded by
-  $B_\Psi$ and $B_{\nabla\Psi}$ and globally Lipschitz in $(\theta,s)$ with
-  constants $L_\Psi$ and $L_{\nabla\Psi}$.
-  \item $\partial_1\ell(\cdot,y)$ is globally Lipschitz with constant $L_\ell$
+  and $\nabla_{h_\alpha}\Psi_\alpha(x;\cdot,\cdot)$ are globally bounded in
+  Euclidean/operator norm by $B_\Psi$ and $B_{\nabla\Psi}$. They are also
+  globally Lipschitz in $(\theta,h)$ with constants $L_\Psi$ and
+  $L_{\nabla\Psi}$.
+  \item $\nabla_1\ell(\cdot,y)$ is globally Lipschitz with constant $L_\ell$
   and uniformly bounded by $C_\ell$ for all $y\in\mathcal Y$.
   \item The feature maps are permutation-equivariant:
   \begin{equation}
-    \Psi_\alpha(x;\Pi_\pi^\Theta\theta,\Pi_\pi^\mathcal S s)
+    \Psi_\alpha(x;\Pi_\pi^\Theta\theta,\Pi_\pi^\mathcal H h)
     =
-    \Psi_{\pi^{-1}(\alpha)}(x;\theta,s)
+    \Psi_{\pi^{-1}(\alpha)}(x;\theta,h)
     \qquad
     \forall \pi\in S_K.
     \label{eq:equiv}
@@ -275,54 +776,70 @@ $x\in\mathcal X$.
 
 \begin{remark}[Concrete BatchEnsemble family]
 \label{rem:concrete}
-For the model \eqref{eq:model}, take
+For the full model \eqref{eq:model-full-matrix}--\eqref{eq:model-full}, take
 \[
   \Theta_{\mathrm{BE}}
   =
-  \R\times\R^{d_x}\times\R^K,
+  \R^{d_y}\times\R^{d_x}\times\R^K\times\R^K,
   \qquad
-  \theta=(a,w,r_1,\dots,r_K),
+  \theta=(a,w,s_1^{(2)},\dots,s_K^{(2)},r_1^{(1)},\dots,r_K^{(1)}),
   \qquad
-  \mathcal S_{\mathrm{BE}}=(\R^{d_x})^K.
+  \mathcal H_{\mathrm{BE}}=(\R^{d_x})^K\times(\R^{d_y})^K.
 \]
-Then \eqref{eq:model} is of the abstract form \eqref{eq:output} with
+Write a generic boundary state as
+\[
+  h=(u,v)\in\mathcal H_{\mathrm{BE}},
+  \qquad
+  u=(u_1,\dots,u_K)\in(\R^{d_x})^K,
+  \qquad
+  v=(v_1,\dots,v_K)\in(\R^{d_y})^K.
+\]
+Then \eqref{eq:model-full} is of the abstract form \eqref{eq:output} with
 \begin{equation}
-  \Psi_\alpha^{\mathrm{BE}}(x;\theta,s)
+  \Psi_\alpha^{\mathrm{BE}}(x;\theta,h)
   :=
-  a\,\sigma\!\bigl(r_\alpha\,w^\top(s_\alpha\odot x)\bigr).
+  (a\odot v_\alpha)\,s_\alpha^{(2)}\,
+  \sigma\!\bigl(r_\alpha^{(1)}\,w^\top(u_\alpha\odot x)\bigr).
   \label{eq:psi-concrete}
 \end{equation}
-The no-input model \eqref{eq:model-noin} is recovered by fixing
-$s_\alpha\equiv\mathbf 1$ for all heads, equivalently by taking the feature maps
-to be independent of the dummy variable $s$. After composing the raw coordinates
-with smooth clipping maps whose images and first derivatives are globally bounded
-and permutation-equivariant, the family \eqref{eq:psi-concrete} fits
+Fixing $(u_\alpha,v_\alpha)\equiv(\mathbf 1,\mathbf 1)$ for all heads removes
+the boundary-state dependence, equivalently making the feature maps independent of
+the dummy variable $h$. After composing the raw coordinates with smooth
+clipping maps whose images and first derivatives are globally bounded and
+permutation-equivariant, the family \eqref{eq:psi-concrete} fits
 \cref{ass:main}.
+\par
+Accordingly, the abstract results in the main text should be read as statements
+about the presence or absence of \emph{boundary fast weights}. In the full
+model \eqref{eq:model-full-matrix}--\eqref{eq:model-full}, the boundary state is
+the pair $(s^{(1)},r^{(2)})$; in the regime without boundary fast weights there
+is no boundary state.
 \end{remark}
 
-\section{General Width Limit}
+\section{Proofs}
+\label{sec:appendix-proofs}
 
 \begin{proposition}[Output and drift Lipschitz bounds]
 \label{prop:lipschitz}
 Assume \cref{ass:main}. Then for every $x\in\mathcal X$ and every $\alpha$,
 \begin{equation}
-  |f_\alpha(x;\rho,s)-f_\alpha(x;\mu,\bar s)|
+  \|f_\alpha(x;\rho,h)-f_\alpha(x;\mu,\bar h)\|
   \le
-  L_\Psi\bigl(\W(\rho,\mu)+\|s-\bar s\|\bigr).
+  L_\Psi\bigl(\W(\rho,\mu)+\|h-\bar h\|\bigr).
   \label{eq:out-lip}
 \end{equation}
 Moreover, there exist finite constants $L_B,L_G$ depending only on the constants
 in \cref{ass:main} such that
 \begin{align}
-  \|B(\theta;\rho,s)-B(\eta;\mu,\bar s)\|
+  \|B(\theta;\rho,h)-B(\eta;\mu,\bar h)\|
   &\le
   L_B\bigl(
-    \|\theta-\eta\|+\W(\rho,\mu)+\|s-\bar s\|
+    \|\theta-\eta\|+\W(\rho,\mu)+\|h-\bar h\|
   \bigr),
   \label{eq:B-lip}\\
-  \|G(\rho,s)-G(\mu,\bar s)\|
+  \|G(\rho,h)-G(\mu,\bar h)\|
   &\le
-  L_G\bigl(\W(\rho,\mu)+\|s-\bar s\|\bigr).
+  L_G\bigl(\W(\rho,\mu)+\|h-\bar h\|\bigr).
   \label{eq:G-lip}
 \end{align}
 \end{proposition}
@@ -332,7 +849,7 @@ The output bound \eqref{eq:out-lip} follows from the dual formulation of $\W$ an
 the $L_\Psi$-Lipschitz property of $\Psi_\alpha(x;\cdot,\cdot)$. For the drift
 in $\theta$, decompose
 \[
-  B(\theta;\rho,s)-B(\eta;\mu,\bar s)=I_1+I_2,
+  B(\theta;\rho,h)-B(\eta;\mu,\bar h)=I_1+I_2,
 \]
 where
 \begin{align*}
@@ -340,95 +857,36 @@ where
   &:=
   -\E\Bigl[
     \frac1K\sum_{\alpha=1}^K
+    \nabla_\theta\Psi_\alpha(x;\theta,h)^\top
     \bigl(
-      \partial_1\ell(f_\alpha(x;\rho,s),y)
+      \nabla_1\ell(f_\alpha(x;\rho,h),y)
       -
-      \partial_1\ell(f_\alpha(x;\mu,\bar s),y)
+      \nabla_1\ell(f_\alpha(x;\mu,\bar h),y)
     \bigr)
-    \nabla_\theta\Psi_\alpha(x;\theta,s)
   \Bigr],\\
   I_2
   &:=
   -\E\Bigl[
     \frac1K\sum_{\alpha=1}^K
-    \partial_1\ell(f_\alpha(x;\mu,\bar s),y)
     \bigl(
-      \nabla_\theta\Psi_\alpha(x;\theta,s)
+      \nabla_\theta\Psi_\alpha(x;\theta,h)
       -
-      \nabla_\theta\Psi_\alpha(x;\eta,\bar s)
-    \bigr)
+      \nabla_\theta\Psi_\alpha(x;\eta,\bar h)
+    \bigr)^\top
+    \nabla_1\ell(f_\alpha(x;\mu,\bar h),y)
   \Bigr].
 \end{align*}
-Using \eqref{eq:out-lip}, the Lipschitz property of $\partial_1\ell$, and the
+Using \eqref{eq:out-lip}, the Lipschitz property of $\nabla_1\ell$, and the
 bounds in \cref{ass:main} yields \eqref{eq:B-lip}. The proof of \eqref{eq:G-lip}
 is identical, replacing $\nabla_\theta\Psi_\alpha$ with
-$\nabla_{s_\alpha}\Psi_\alpha$.
+$\nabla_{h_\alpha}\Psi_\alpha$.
 \end{proof}
 
-\begin{theorem}[Deterministic well-posedness, stability, and particle convergence]
-\label{thm:deterministic}
-Assume \cref{ass:main}, fix $T>0$, and let $(\rho_0,s_0)\in\PP_1(\Theta)\times\mathcal S$.
-
-\begin{enumerate}[label=(\roman*),leftmargin=2em]
-  \item There exists a unique characteristic solution
-  \[
-    (\rho_t,s_t)_{t\in[0,T]}
-    \in
-    C\bigl([0,T],\PP_1(\Theta)\times\mathcal S\bigr)
-  \]
-  of \cref{eq:pde,eq:ode}.
-  \item There exists a constant $C_T<\infty$ such that for any two initial data
-  $(\rho_0,s_0)$ and $(\mu_0,\bar s_0)$ with corresponding solutions
-  $(\rho_t,s_t)$ and $(\mu_t,\bar s_t)$,
-  \begin{equation}
-    \sup_{t\in[0,T]}
-    \bigl(
-      \W(\rho_t,\mu_t)+\|s_t-\bar s_t\|
-    \bigr)
-    \le
-    C_T
-    \bigl(
-      \W(\rho_0,\mu_0)+\|s_0-\bar s_0\|
-    \bigr).
-    \label{eq:det-stability}
-  \end{equation}
-  \item Let deterministic particles and head-global states satisfy
-  \begin{align*}
-    \dot\theta_{j,t}^m &= B(\theta_{j,t}^m;\rho_t^m,s_t^m),
-    \qquad
-    \rho_t^m=\frac1m\sum_{j=1}^m\delta_{\theta_{j,t}^m},\\
-    \dot s_t^m &= G(\rho_t^m,s_t^m).
-  \end{align*}
-  If
-  \[
-    \W(\rho_0^m,\rho_0)+\|s_0^m-s_0\|\xrightarrow[m\to\infty]{}0,
-  \]
-  then
-  \begin{equation}
-    \sup_{t\in[0,T]}
-    \bigl(
-      \W(\rho_t^m,\rho_t)+\|s_t^m-s_t\|
-    \bigr)
-    \le
-    C_T\bigl(\W(\rho_0^m,\rho_0)+\|s_0^m-s_0\|\bigr)
-    \xrightarrow[m\to\infty]{}0.
-    \label{eq:particle-conv}
-  \end{equation}
-  In particular,
-  \[
-    \sup_{t\in[0,T]}
-    |f_\alpha(x;\rho_t^m,s_t^m)-f_\alpha(x;\rho_t,s_t)|
-    \to 0
-  \]
-  for every fixed $\alpha$ and $x$.
-\end{enumerate}
-\end{theorem}
-
-\begin{proof}
+\begin{proof}[Proof of \cref{thm:deterministic}]
 By \cref{prop:lipschitz}, the coupled vector field in
-\cref{eq:pde,eq:ode} is
-globally Lipschitz in $(\theta,\rho,s)$ on finite-horizon balls, so standard
-Picard iteration yields existence and uniqueness of a characteristic solution.
+\cref{eq:pde,eq:ode} is globally Lipschitz in $(\theta,\rho,h)$ on
+finite-horizon balls, so standard Picard iteration yields existence and
+uniqueness of a characteristic solution.
 
 For stability, let $\Phi_t$ and $\bar\Phi_t$ be the characteristic flows of the
 two solutions. Start from an optimal coupling of $\rho_0$ and $\mu_0$, transport
@@ -436,147 +894,43 @@ it by $(\Phi_t,\bar\Phi_t)$, and combine the resulting estimate with
 \eqref{eq:B-lip} and \eqref{eq:G-lip}. Gronwall then yields
 \eqref{eq:det-stability}.
 
-For particle convergence, note that $(\rho_t^m,s_t^m)$ is itself a characteristic
-solution of \cref{eq:pde,eq:ode} with initial data $(\rho_0^m,s_0^m)$. Applying
-\eqref{eq:det-stability} with $(\mu_t,\bar s_t)=(\rho_t^m,s_t^m)$ gives
+For particle convergence, note that $(\rho_t^M,h_t^M)$ is itself a characteristic
+solution of \cref{eq:pde,eq:ode} with initial data $(\rho_0^M,h_0^M)$. Applying
+\eqref{eq:det-stability} with $(\mu_t,\bar h_t)=(\rho_t^M,h_t^M)$ gives
 \eqref{eq:particle-conv}, and the predictor convergence follows from
 \eqref{eq:out-lip}.
 \end{proof}
 
-\begin{corollary}[Random initialization]
-\label{cor:random}
-Assume \cref{ass:main}, fix $T>0$, and let $(\rho_0,s_0)$ be a possibly random
-initial environment. Suppose the random initial data $(\rho_0^m,s_0^m)$ satisfy
-\[
-  \W(\rho_0^m,\rho_0)+\|s_0^m-s_0\|\xrightarrow[m\to\infty]{}0
-\]
-in probability, almost surely, or in $L^1$. Let $(\rho_t^m,s_t^m)$ be the
-finite-width particle/head system and let $(\rho_t,s_t)$ be the characteristic
-solution of \cref{eq:pde,eq:ode} started from $(\rho_0,s_0)$. Then the same mode
-of convergence holds uniformly on $[0,T]$:
-\[
-  \sup_{t\in[0,T]}
-  \bigl(
-    \W(\rho_t^m,\rho_t)+\|s_t^m-s_t\|
-  \bigr)
-  \to 0.
-\]
-Consequently, the infinite-width predictor vector is a measurable function of the
-initial environment $(\rho_0,s_0)$.
-\end{corollary}
-
-\begin{proof}
+\begin{proof}[Proof of \cref{cor:random}]
 This is an immediate consequence of \eqref{eq:particle-conv}.
 \end{proof}
 
-\section{Regime A: \texorpdfstring{$s=\mathbf 1$}{s=1}}
-
-\subsection{Reduction to a single PDE}
-
-If the feature maps are independent of the head-global variable, then the general
-framework reduces to the no-input case. Formally, this is the specialization
-\[
-  \Psi_\alpha(x;\theta,s)\equiv \Psi_\alpha^{\mathrm{noin}}(x;\theta),
-\]
-which includes \eqref{eq:model-noin}. Then \eqref{eq:drift-G} vanishes and the
-ODE for $s_t$ disappears.
-
-\begin{corollary}[No-input reduction]
-\label{cor:noinput}
-Assume \cref{ass:main} and suppose the feature maps are independent of $s$. Then
-the fixed-$K$ mean-field system reduces to the transport PDE
-\begin{equation}
-  \partial_t \rho_t
-  +
-  \nabla_\theta\cdot\bigl(\rho_t B(\theta;\rho_t)\bigr)
-  =
-  0,
-  \label{eq:pde-noinput}
-\end{equation}
-where
-\[
-  B(\theta;\rho)
-  :=
-  -\E_{(x,y)\sim\mathsf P}
-  \Bigl[
-    \frac1K\sum_{\alpha=1}^K
-    \partial_1\ell(f_\alpha(x;\rho),y)\,
-    \nabla_\theta\Psi_\alpha^{\mathrm{noin}}(x;\theta)
-  \Bigr].
-\]
-All conclusions of \cref{thm:deterministic,cor:random} remain valid with the
-head-global state deleted.
-\end{corollary}
-
-\begin{proof}
-If $\Psi_\alpha$ does not depend on $s$, then $\nabla_{s_\alpha}\Psi_\alpha=0$
+\begin{proof}[Proof of \cref{cor:boundaryfree}]
+If $\Psi_\alpha$ does not depend on $h$, then $\nabla_{h_\alpha}\Psi_\alpha=0$
 and hence $G\equiv 0$. The ODE component decouples and can be discarded.
 \end{proof}
 
-\subsection{Deterministic limit and symmetric collapse}
-
-In the no-input regime, standard i.i.d.\ initialization from a deterministic law
-produces a deterministic infinite-width limit because there is no residual
-head-global random environment.
-
-\begin{corollary}[Deterministic infinite-width limit when \texorpdfstring{$s=\mathbf 1$}{s=1}]
-\label{cor:noinput-det}
-In the setting of \cref{cor:noinput}, assume that the empirical initial laws
-$\rho_0^m$ converge to a deterministic law $\rho_0$ in probability, almost
-surely, or in $L^1$. Then the infinite-width predictor vector
-\[
-  \bigl(f_1(\cdot;\rho_t),\dots,f_K(\cdot;\rho_t)\bigr)
-\]
-is deterministic.
-\end{corollary}
-
-\begin{proof}
-This is \cref{cor:random} with no head-global variable present.
+\begin{proof}[Proof of \cref{cor:boundaryfree-det}]
+This is \cref{cor:random} with no boundary fast weights present.
 \end{proof}
 
-The symmetry structure becomes especially strong in this regime.
-
-\begin{proposition}[Permutation symmetry is preserved when \texorpdfstring{$s=\mathbf 1$}{s=1}]
-\label{prop:collapse}
-Assume the no-input setting of \cref{cor:noinput}. If the initial law $\rho_0$
-is invariant under every $\Pi_\pi^\Theta$, i.e.
-\[
-  (\Pi_\pi^\Theta)_\#\rho_0=\rho_0
-  \qquad
-  \forall \pi\in S_K,
-\]
-then the unique characteristic solution of \eqref{eq:pde-noinput} satisfies
-\[
-  (\Pi_\pi^\Theta)_\#\rho_t=\rho_t
-  \qquad
-  \forall t\ge 0,\ \forall \pi\in S_K.
-\]
-Consequently,
-\begin{equation}
-  f_1(x;\rho_t)=\cdots=f_K(x;\rho_t)
-  \qquad
-  \forall x\in\mathcal X,\ \forall t\ge 0.
-  \label{eq:collapse}
-\end{equation}
-\end{proposition}
-
-\begin{proof}
+\begin{proof}[Proof of \cref{prop:collapse}]
 Define $\tilde\rho_t:=(\Pi_\pi^\Theta)_\#\rho_t$. Because the feature maps do not
-depend on $s$, \eqref{eq:equiv} reduces to
+depend on $h$, \eqref{eq:equiv} reduces to
 \[
-  \Psi_\alpha^{\mathrm{noin}}(x;\Pi_\pi^\Theta\theta)
+  \Psi_\alpha^{\mathrm{free}}(x;\Pi_\pi^\Theta\theta)
   =
-  \Psi_{\pi^{-1}(\alpha)}^{\mathrm{noin}}(x;\theta).
+  \Psi_{\pi^{-1}(\alpha)}^{\mathrm{free}}(x;\theta).
 \]
 Hence
 \begin{align*}
   f_\alpha(x;\tilde\rho_t)
   &=
-  \int \Psi_\alpha^{\mathrm{noin}}(x;\theta)\,\tilde\rho_t(\dd\theta)\\
+  \int \Psi_\alpha^{\mathrm{free}}(x;\theta)\,\tilde\rho_t(\dd\theta)\\
   &=
-  \int \Psi_\alpha^{\mathrm{noin}}(x;\Pi_\pi^\Theta\eta)\,\rho_t(\dd\eta)\\
+  \int \Psi_\alpha^{\mathrm{free}}(x;\Pi_\pi^\Theta\eta)\,\rho_t(\dd\eta)\\
   &=
-  \int \Psi_{\pi^{-1}(\alpha)}^{\mathrm{noin}}(x;\eta)\,\rho_t(\dd\eta)\\
+  \int \Psi_{\pi^{-1}(\alpha)}^{\mathrm{free}}(x;\eta)\,\rho_t(\dd\eta)\\
   &=
   f_{\pi^{-1}(\alpha)}(x;\rho_t).
 \end{align*}
@@ -592,77 +946,9 @@ law. Uniqueness gives $\tilde\rho_t=\rho_t$. The collapse identity
 index to any other one.
 \end{proof}
 
-\begin{corollary}[Standard symmetric initialization collapses when \texorpdfstring{$s=\mathbf 1$}{s=1}]
-\label{cor:noinput-collapse}
-In the setting of \cref{cor:noinput-det}, if the deterministic limit law
-$\rho_0$ is permutation-symmetric in the head coordinates, then the infinite-width
-limit satisfies \eqref{eq:collapse}.
-\end{corollary}
-
-\section{Regime B: \texorpdfstring{$s\neq \mathbf 1$}{s≠1}}
-
-\subsection{Conditional determinism}
-
-Once the head-global variable $s$ is kept, the width limit remains deterministic
-conditional on $(\rho_0,s_0)$, but need not be deterministic unconditionally.
-
-\begin{corollary}[Surviving randomness comes from the head-global environment]
-\label{cor:randomness}
-Assume \cref{ass:main}. If $(\rho_0,s_0)$ is deterministic, then the infinite-width
-predictor vector is deterministic. If $\rho_0$ is deterministic but $s_0$ is
-random, then any order-one randomness that survives at infinite width is induced
-entirely by the law of $s_0$.
-\end{corollary}
-
-\begin{proof}
+\begin{proof}[Proof of \cref{cor:randomness}]
 This is immediate from \cref{cor:random}, because the limit trajectory is a
-measurable function of $(\rho_0,s_0)$.
+measurable function of $(\rho_0,h_0)$.
 \end{proof}
-
-\subsection{What no longer follows automatically}
-
-In this regime, permutation symmetry of the neuron law alone no longer forces
-collapse, because the predictors also depend on the head-global coordinates
-$s_\alpha$. To obtain collapse one would need a stronger symmetric manifold that
-couples both the neuron law and the head-global state. Without such a condition,
-the PDE-ODE limit can remain head-dependent even at infinite width.
-
-\begin{remark}[Comparison with the no-input regime]
-The contrast with \cref{prop:collapse} is structural. When $s=\mathbf 1$, all
-head dependence lives inside the neuron law, so permutation symmetry of that law
-is enough to identify all head predictors. When $s\neq\mathbf 1$, the predictor
-map depends on an additional finite-dimensional variable that width does not
-average out. This is why the $s\neq\mathbf 1$ regime naturally leads to a
-conditional deterministic theory rather than to automatic leading-order collapse.
-\end{remark}
-
-\section{Comparison}
-
-The single formulation above makes the two regimes easy to compare.
-
-\paragraph{State variable.}
-With $s=\mathbf 1$, the correct large-width state is just the neuron law $\rho_t$.
-With $s\neq\mathbf 1$, it is the pair $(\rho_t,s_t)$.
-
-\paragraph{Limit equation.}
-With $s=\mathbf 1$, one gets a single transport PDE. With $s\neq\mathbf 1$, one
-gets a coupled PDE-ODE system.
-
-\paragraph{Randomness at infinite width.}
-With $s=\mathbf 1$, standard deterministic-law initialization produces a
-deterministic limit. With $s\neq\mathbf 1$, order-one randomness can survive
-through the initial law of the finite-dimensional head-global environment.
-
-\paragraph{Symmetry and collapse.}
-With $s=\mathbf 1$, permutation-symmetric initialization forces exact head
-collapse in the infinite-width limit. With $s\neq\mathbf 1$, symmetry of the
-neuron law alone is no longer enough; one must also control the head-global
-state.
-
-\paragraph{Interpretation.}
-The no-input regime is the cleanest width mean-field limit for fixed $K$: width
-averages everything that is head-specific. The input-modulated regime is the
-next level of complexity: width still averages neuron-level fluctuations, but it
-does not remove head-global asymmetry.
 
 \end{document}
