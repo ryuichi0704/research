@@ -96,10 +96,9 @@ concrete two-layer model and the neuron-wise versus boundary-fast-weight split.
 \Cref{sec:related} positions the paper relative to BatchEnsemble, NTK-based
 embedded-ensemble theory, feature-learning mean-field theory, and the tabular
 model TabM. \Cref{sec:results} then states the two main implications for
-BatchEnsemble design, compares them with the NTK-based regime picture, and
-records the technical fixed-$K$ width limit that supports both
-specializations. The abstract mean-field setup, standing assumptions, and all
-proofs are deferred to the appendix.
+BatchEnsemble design and records the technical fixed-$K$ width limit that
+supports both specializations. The abstract mean-field setup, standing
+assumptions, and all proofs are deferred to the appendix.
 
 \section{Related Work}
 \label{sec:related}
@@ -151,8 +150,6 @@ so effective in domains such as tabular learning.
 \section{Preliminary}
 \label{sec:prelim}
 
-\subsection{Concrete two-layer BatchEnsemble model}
-
 Fix an input dimension $d_x$, an output dimension $d_y$, a hidden width $M$, and an ensemble size
 $K\in\{1,2,\dots\}$. For each neuron $m\in\{1,\dots,M\}$, let
 \[
@@ -192,37 +189,9 @@ Equivalently, expanding row by row,
   \label{eq:model-full}
 \end{equation}
 The scalar output case is recovered by taking $d_y=1$.
-
-The width-$M$ empirical measure is taken only over the neuron-indexed
-coordinates. That is,
-\begin{equation}
-  \rho^M
-  :=
-  \frac1M\sum_{m=1}^M \delta_{\theta_m},
-  \qquad
-  \theta_m=
-  (a_m,w_m,s_{1,m}^{(2)},\dots,s_{K,m}^{(2)},r_{1,m}^{(1)},\dots,r_{K,m}^{(1)}).
-  \label{eq:empirical}
-\end{equation}
-The boundary fast weights are kept outside this empirical measure:
-\begin{equation}
-  \bar h^M := (s^{(1)},r^{(2)}) \in (\R^{d_x})^K\times(\R^{d_y})^K.
-  \label{eq:boundary-concrete}
-\end{equation}
-Thus the full finite-width state is the pair $(\rho^M,\bar h^M)$, and the
-head-specific variables split naturally into
-\begin{enumerate}[leftmargin=2em]
-  \item neuron-level coordinates
-  $(s_{1,m}^{(2)},\dots,s_{K,m}^{(2)},r_{1,m}^{(1)},\dots,r_{K,m}^{(1)})$
-  inside $\theta_m$,
-  \item the boundary fast weights collected in $\bar h^M=(s^{(1)},r^{(2)})$.
-\end{enumerate}
-This concrete split already identifies the objects that appear in the
-large-width limit: a neuron law $\rho_t$ and, when boundary fast weights are
-present, a finite-dimensional boundary state $h_t$. The rigorous abstract
-mean-field formulation and the standing regularity assumptions are recorded in
-Appendix~\ref{sec:appendix-setup}; the main text uses only the resulting
-interpretation.
+The empirical-state representation used in the mean-field analysis is deferred
+to Appendix~\ref{sec:appendix-setup}, so that the main text can focus on the
+model itself and the resulting design implications.
 
 \section{Theoretical Results}
 \label{sec:results}
@@ -275,10 +244,10 @@ maps are independent of the boundary state. Formally, this means
 which includes \eqref{eq:model-free}. Then \eqref{eq:drift-G} vanishes and the
 ODE for $h_t$ disappears.
 
-\begin{corollary}[No boundary fast weights reduce the limit to a single PDE]
-\label{cor:boundaryfree}
-Assume \cref{ass:main} and suppose the feature maps are independent of $h$. Then
-the fixed-$K$ mean-field system reduces to the transport PDE
+\begin{theorem}[Boundary-free wide-limit collapse]
+\label{thm:boundaryfree-collapse}
+Assume \cref{ass:main} and suppose the feature maps are independent of $h$.
+Then the fixed-$K$ mean-field system reduces to the transport PDE
 \begin{equation}
   \partial_t \rho_t
   +
@@ -298,58 +267,23 @@ where
     \nabla_1\ell(f_\alpha(x;\rho),y)
   \Bigr].
 \]
-All conclusions of \cref{thm:deterministic,cor:random} remain valid with the
-boundary state deleted.
-\end{corollary}
-
-In the regime without boundary fast weights, standard i.i.d.\ initialization from a
-deterministic law produces a deterministic infinite-width limit because there is
-no residual boundary-state random environment.
-
-\begin{corollary}[Without boundary fast weights there is no order-one width-limit randomness]
-\label{cor:boundaryfree-det}
-In the setting of \cref{cor:boundaryfree}, assume that the empirical initial laws
-$\rho_0^M$ converge to a deterministic law $\rho_0$ in probability, almost
-surely, or in $L^1$. Then the infinite-width predictor vector
-\[
-  \bigl(f_1(\cdot;\rho_t),\dots,f_K(\cdot;\rho_t)\bigr)
-\]
-is deterministic.
-\end{corollary}
-
-The decisive simplification is that, once the boundary state is removed, all
-head dependence lives inside the same neuron law.
-
-\begin{proposition}[Permutation-symmetric initialization forces head collapse]
-\label{prop:collapse}
-Assume the no-boundary setting of \cref{cor:boundaryfree}. If the initial law
+\smallskip
+If, in addition, the empirical initial laws $\rho_0^M$ converge to a
+deterministic law $\rho_0$ in probability, almost surely, or in $L^1$, and if
 $\rho_0$ is invariant under every $\Pi_\pi^\Theta$, i.e.
 \[
   (\Pi_\pi^\Theta)_\#\rho_0=\rho_0
   \qquad
   \forall \pi\in S_K,
 \]
-then the unique characteristic solution of \eqref{eq:pde-free} satisfies
+then the infinite-width predictor vector is deterministic and the unique
+characteristic solution of \eqref{eq:pde-free} satisfies
 \[
-  (\Pi_\pi^\Theta)_\#\rho_t=\rho_t
-  \qquad
-  \forall t\ge 0,\ \forall \pi\in S_K.
-\]
-Consequently,
-\begin{equation}
   f_1(x;\rho_t)=\cdots=f_K(x;\rho_t)
   \qquad
   \forall x\in\mathcal X,\ \forall t\ge 0.
-  \label{eq:collapse}
-\end{equation}
-\end{proposition}
-
-\begin{corollary}[Standard symmetric initialization collapses at leading order]
-\label{cor:boundaryfree-collapse}
-In the setting of \cref{cor:boundaryfree-det}, if the deterministic limit law
-$\rho_0$ is permutation-symmetric in the head coordinates, then the infinite-width
-limit satisfies \eqref{eq:collapse}.
-\end{corollary}
+\]
+\end{theorem}
 
 \begin{remark}[Contrast with NTK-based operating regimes]
 \label{rem:ntk-contrast}
@@ -365,12 +299,11 @@ all, it belongs to a lazy or fluctuation-level description rather than to the
 leading-order feature-learning limit.
 \end{remark}
 
-Taken together, \cref{cor:boundaryfree,cor:boundaryfree-det,prop:collapse,cor:boundaryfree-collapse}
-say that neuron-wise fast weights alone do not create leading-order functional
-diversity in the fixed-$K$, wide-limit regime. For a practitioner, this means
-that removing all boundary fast weights pushes BatchEnsemble toward a
-single-model mean-field limit, even though finite-width heads may still differ through
-subleading fluctuations.
+For a practitioner, the message is simple: once all boundary fast weights are
+removed, the wide-limit theory predicts a single-model leading-order behavior.
+Any head-to-head diversity that remains at finite width is therefore a
+subleading fluctuation effect rather than an order-one property of the
+feature-learning limit.
 
 \subsection{With boundary fast weights, asymmetry survives width averaging}
 \label{sec:regime-b}
@@ -396,7 +329,7 @@ the neuron law and the boundary state. Without such a condition, the PDE-ODE
 limit can remain head-dependent even at infinite width.
 
 \begin{remark}[Comparison with the no-boundary regime]
-The contrast with \cref{prop:collapse} is structural. Without boundary fast
+The contrast with \cref{thm:boundaryfree-collapse} is structural. Without boundary fast
 modulation, all head dependence lives inside the neuron law, so permutation
 symmetry of that law is enough to identify all head predictors. Once boundary
 fast weights are present, the predictor map depends on an additional
@@ -443,50 +376,6 @@ full model, that role is played by the directly input- and output-connected
 factors $s^{(1)}$ and $r^{(2)}$. Conversely, if one removes all boundary fast
 modulation, then the wide-limit theory predicts that standard symmetric
 initialization produces a collapsed ensemble at leading order.
-
-\subsection{Comparison with NTK-based operating regimes}
-\label{sec:ntk-comparison}
-
-The most relevant comparison is with the NTK-based analysis of Embedded
-Ensembles by Velikanov et al.\ \cite{velikanov2022}. In that lazy-training
-picture, the wide-network limit is described by the initialization GP and by a
-deterministic ensemble NTK. Their main structural conclusion is that centered
-post-activation modulation in the last hidden layer, namely
-$U_1^L=\E[u_{\alpha,j}^L]=0$, yields an \emph{independent regime}: the
-off-diagonal GP covariances and off-diagonal NTK entries vanish, so the
-embedded ensemble behaves like an ensemble of independent reference networks.
-When $U_1^L\neq 0$, they obtain a \emph{collective regime}, where these
-off-diagonal quantities are nonzero.
-
-Our fixed-$K$ mean-field theory makes a different statement because it studies a
-different leading-order object. We are not linearizing around initialization.
-Instead, we follow the feature-learning transport of the neuron law. In this
-regime, neuron-wise modulations such as
-$\bigl(s_{\alpha,m}^{(2)},r_{\alpha,m}^{(1)}\bigr)$ are absorbed into the common
-law $\rho_t$ as $M\to\infty$. Consequently, in the no-boundary regime,
-standard permutation-symmetric initialization leads to
-\[
-  f_1(\cdot;\rho_t)=\cdots=f_K(\cdot;\rho_t),
-\]
-so there is no analogue of a leading-order \emph{independent regime} generated
-solely by centered neuron-wise modulations. In the full model, the only
-head-specific mechanisms that survive width averaging at order one are the
-boundary fast weights $s^{(1)}$ and $r^{(2)}$.
-
-This difference is not a contradiction with the NTK theory. It indicates that
-the two asymptotic descriptions live at different levels. The NTK independent
-regime is a lazy, kernel-level notion of decoupling. Our result says that in a
-feature-learning mean-field scaling, the law-of-large-numbers limit collapses
-unless a non-self-averaging boundary variable is present. From this
-perspective, NTK-style independence should be interpreted here as a property of
-the lazy/fluctuation picture rather than as the generic leading-order behavior
-of wide feature-learning BatchEnsembles.
-
-For practitioners, this comparison suggests a concrete design lesson. If the
-goal is to retain diversity in a regime where feature learning remains active,
-then centered neuron-wise modulations are not enough by themselves. One needs a
-mechanism that survives width averaging, namely some boundary fast weight, or
-else the leading-order wide-limit theory predicts collapse.
 
 \subsection{Technical backbone: general fixed-\texorpdfstring{$K$}{K} width limit}
 \label{sec:technical-backbone}
@@ -627,6 +516,26 @@ ensembling.
 
 \section{Abstract Mean-Field Setup and Assumptions}
 \label{sec:appendix-setup}
+
+\subsection{Concrete empirical state for the BatchEnsemble model}
+
+For the concrete model \eqref{eq:model-full-matrix}--\eqref{eq:model-full}, the
+width-$M$ empirical measure is taken only over the neuron-indexed coordinates:
+\begin{equation}
+  \rho^M
+  :=
+  \frac1M\sum_{m=1}^M \delta_{\theta_m},
+  \qquad
+  \theta_m=
+  (a_m,w_m,s_{1,m}^{(2)},\dots,s_{K,m}^{(2)},r_{1,m}^{(1)},\dots,r_{K,m}^{(1)}).
+  \label{eq:empirical}
+\end{equation}
+The boundary fast weights are kept outside this empirical measure:
+\begin{equation}
+  \bar h^M := (s^{(1)},r^{(2)}) \in (\R^{d_x})^K\times(\R^{d_y})^K.
+  \label{eq:boundary-concrete}
+\end{equation}
+Thus the full finite-width state is the pair $(\rho^M,\bar h^M)$.
 
 \subsection{Abstract mean-field formulation}
 
@@ -905,18 +814,15 @@ solution of \cref{eq:pde,eq:ode} with initial data $(\rho_0^M,h_0^M)$. Applying
 This is an immediate consequence of \eqref{eq:particle-conv}.
 \end{proof}
 
-\begin{proof}[Proof of \cref{cor:boundaryfree}]
+\begin{proof}[Proof of \cref{thm:boundaryfree-collapse}]
 If $\Psi_\alpha$ does not depend on $h$, then $\nabla_{h_\alpha}\Psi_\alpha=0$
-and hence $G\equiv 0$. The ODE component decouples and can be discarded.
-\end{proof}
+and hence $G\equiv 0$, which proves the reduction to \eqref{eq:pde-free}.
+Since there is no boundary state left, \cref{cor:random} specializes to a
+deterministic infinite-width limit whenever $\rho_0^M\to\rho_0$ in one of the
+stated modes.
 
-\begin{proof}[Proof of \cref{cor:boundaryfree-det}]
-This is \cref{cor:random} with no boundary fast weights present.
-\end{proof}
-
-\begin{proof}[Proof of \cref{prop:collapse}]
-Define $\tilde\rho_t:=(\Pi_\pi^\Theta)_\#\rho_t$. Because the feature maps do not
-depend on $h$, \eqref{eq:equiv} reduces to
+To prove collapse, define $\tilde\rho_t:=(\Pi_\pi^\Theta)_\#\rho_t$. Because the
+feature maps do not depend on $h$, \eqref{eq:equiv} reduces to
 \[
   \Psi_\alpha^{\mathrm{free}}(x;\Pi_\pi^\Theta\theta)
   =
@@ -941,9 +847,13 @@ Applying the same identity to the drift shows
   \Pi_\pi^\Theta B(\theta;\rho_t).
 \]
 Therefore $\tilde\rho_t$ solves the same PDE as $\rho_t$ with the same initial
-law. Uniqueness gives $\tilde\rho_t=\rho_t$. The collapse identity
-\eqref{eq:collapse} then follows by choosing a permutation sending any head
-index to any other one.
+law. Uniqueness gives $\tilde\rho_t=\rho_t$, and choosing a permutation sending
+any head index to any other one yields
+\[
+  f_1(x;\rho_t)=\cdots=f_K(x;\rho_t)
+  \qquad
+  \forall x\in\mathcal X,\ \forall t\ge 0.
+\]
 \end{proof}
 
 \begin{proof}[Proof of \cref{cor:randomness}]
