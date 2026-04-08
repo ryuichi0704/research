@@ -1,0 +1,227 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{hyperref}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\tr}{\operatorname{tr}}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\title{Why Initialization Alone Is Not Enough: Stationary-Law Design for Finite-\texorpdfstring{$K$}{K} BatchEnsemble}
+\author{Research note generated in sandbox}
+\date{2026-04-05}
+
+\begin{document}
+\maketitle
+
+\section{Message}
+
+The local contrast-mode theory gives principled initial designs. However, the user's objection is exactly right:
+
+\begin{quote}
+why should an initialization that is locally optimal near the start remain optimal after long nonlinear training?
+\end{quote}
+
+In general, it should not. To justify a finite-$K$ design for the final predictor, one must reason about the \emph{stationary law} or terminal training state, not just the initialization. This note makes that statement precise and gives a two-stage design principle based on the converged collapsed law.
+
+\section{Initialization-Only Design Can Be Washed Out}
+
+Consider nonlinear member dynamics of the head-local form
+\begin{equation}
+\dot q_{\alpha,t} = \mathcal C(\rho_t,q_{\alpha,t}),
+\qquad
+\alpha=1,\dots,K,
+\label{eq:member-dynamics}
+\end{equation}
+where $\rho_t$ denotes the shared state. We make no linearization here.
+
+\begin{theorem}[Nonlinear contraction destroys initialization-only diversity]
+\label{thm:nonlinear-contraction}
+Assume there exists $\gamma>0$ such that for every shared state $\rho$ and every pair $q,q'\in\R^p$,
+\begin{equation}
+\langle q-q',\ \mathcal C(\rho,q)-\mathcal C(\rho,q')\rangle
+\le
+-\gamma \|q-q'\|^2.
+\label{eq:one-sided-lipschitz}
+\end{equation}
+Then for every pair of members $\alpha,\beta$,
+\[
+\|q_{\alpha,t}-q_{\beta,t}\|
+\le
+e^{-\gamma t}\|q_{\alpha,0}-q_{\beta,0}\|,
+\qquad
+t\ge 0.
+\]
+Consequently, every finite-$K$ diversity pattern created purely by initialization decays exponentially under the nonlinear flow.
+\end{theorem}
+
+\begin{proof}
+Fix $\alpha,\beta$ and write $\Delta_t:=q_{\alpha,t}-q_{\beta,t}$. Then
+\[
+\dot\Delta_t
+=
+\mathcal C(\rho_t,q_{\alpha,t})-\mathcal C(\rho_t,q_{\beta,t}).
+\]
+Therefore
+\[
+\frac{d}{dt}\frac12\|\Delta_t\|^2
+=
+\langle \Delta_t,\dot\Delta_t\rangle
+\le
+-\gamma \|\Delta_t\|^2
+\]
+by \eqref{eq:one-sided-lipschitz}. Gronwall's inequality yields the claim.
+\end{proof}
+
+\begin{corollary}[Why the user's objection is mathematically correct]
+\label{cor:user-correct}
+If the long-time member dynamics are contractive in the sense of Theorem~\ref{thm:nonlinear-contraction}, then no one-shot initialization can guarantee persistent asymptotic disagreement. Sustained diversity requires at least one of:
+\begin{itemize}
+\item non-contractive member dynamics,
+\item multiple attracting branches,
+\item persistent centered forcing/noise,
+\item explicit projection or regularization that preserves spread during training.
+\end{itemize}
+\end{corollary}
+
+\section{What Can Be Guaranteed at a Converged Law}
+
+Suppose now that the collapsed system has converged to a stationary point
+\[
+(\rho_\star,q_\star).
+\]
+Let the local predictor map at this stationary law be linearized in the member-specific state. Define the stationary Gramian
+\begin{equation}
+W_\star
+:=
+\int J_\star(x)^\top J_\star(x)\,\mu(\mathrm dx),
+\qquad
+J_\star(x):=\partial_q H(x;\rho_\star,q_\star),
+\label{eq:stationary-gramian}
+\end{equation}
+for a chosen calibration distribution $\mu$.
+
+\begin{remark}
+This is the same Gramian as in the local theory, but now evaluated at the \emph{converged collapsed law}. That is the correct object if the design goal concerns the final predictor rather than the early trajectory.
+\end{remark}
+
+\begin{theorem}[Stationary-law optimal finite-$K$ design]
+\label{thm:stationary-law-opt}
+Fix a target rank $r\le K-1$ and a per-member deviation budget $\tau>0$. At the stationary law $(\rho_\star,q_\star)$, among all local member perturbation codes that
+\begin{itemize}
+\item are centered: $\sum_{\alpha=1}^K c_\alpha=0$,
+\item satisfy the stationary per-member budget:
+\[
+\|W_\star^{1/2}c_\alpha\|^2\le \tau,
+\qquad
+\alpha=1,\dots,K,
+\]
+\end{itemize}
+the best achievable minimum covered uncertainty eigenvalue is
+\[
+\frac{\tau}{r},
+\]
+and when $K=r+1$ it is attained by a simplex code built from the top-$r$ eigenspace of $W_\star$.
+\end{theorem}
+
+\begin{proof}
+This is exactly the finite-$K$ robust-coverage theorem from the local geometry note, applied at the stationary Gramian $W_\star$. The centered condition preserves the ensemble mean at first order, and the simplex construction saturates the per-member bound while equalizing coverage across the protected eigendirections.
+\end{proof}
+
+\begin{corollary}[What is actually justified]
+\label{cor:what-justified}
+The local theory justifies the following statement:
+
+\begin{quote}
+If one wants the \emph{final} finite-$K$ ensemble to have stable mean prediction and balanced uncertainty coverage, then the diversity code should be designed from the stationary collapsed law, not merely from the initialization.
+\end{quote}
+\end{corollary}
+
+\section{Practical Consequence: Two-Stage Training}
+
+Theorem~\ref{thm:stationary-law-opt} suggests a concrete procedure.
+
+\subsection*{Stage A: train a collapsed baseline}
+
+Train with all member-specific parameters tied or identically initialized so that the system follows the collapsed baseline as closely as possible. Let the resulting terminal state be approximately
+\[
+(\hat\rho_\star,\hat q_\star).
+\]
+
+\subsection*{Stage B: estimate the stationary Gramian}
+
+Using a calibration set, estimate
+\[
+\hat W_\star
+=
+\frac1{|B|}\sum_{x\in B}\hat J_\star(x)^\top \hat J_\star(x),
+\qquad
+\hat J_\star(x)
+=
+\partial_q H(x;\hat\rho_\star,\hat q_\star).
+\]
+
+\subsection*{Stage C: initialize a centered simplex code}
+
+Let
+\[
+\hat W_\star e_i = \hat\lambda_i e_i,
+\qquad
+i=1,\dots,r.
+\]
+Choose simplex vertices $v_\alpha\in\R^r$ and set
+\[
+c_\alpha
+=
+\sqrt{\tau}\sum_{i=1}^r \hat\lambda_i^{-1/2}(v_\alpha)_i e_i.
+\]
+Then initialize
+\[
+q_{\alpha,0}^{\mathrm{stage\,C}}
+=
+\hat q_\star + c_\alpha.
+\]
+
+\subsection*{Stage D: constrained fine-tuning}
+
+Fine-tune while enforcing
+\[
+\sum_{\alpha=1}^K c_{\alpha,t}=0,
+\qquad
+\| \hat W_\star^{1/2} c_{\alpha,t}\|^2 \le \tau
+\]
+either by projection or by reparameterization.
+
+\begin{remark}[Why this is better than one-shot initialization]
+This procedure targets the terminal law directly. The initial simplex code is no longer justified by ``it looked good at time zero'', but by ``it is locally optimal around the converged collapsed law we actually care about''.
+\end{remark}
+
+\section{What Remains Unproved}
+
+The following are still not proved by the current notes:
+\begin{itemize}
+\item that a single early-time Gramian remains relevant throughout long nonlinear training;
+\item that unconstrained fine-tuning preserves the stationary-law optimum;
+\item that the estimated $\hat W_\star$ from finite data yields near-optimal performance;
+\item that the final nonlinear fine-tuned solution remains in the local regime where the stationary-law linearization is accurate.
+\end{itemize}
+
+\begin{remark}
+So the strongest defensible claim is not ``our initialization stays optimal forever'', but rather:
+
+\begin{quote}
+initialization-only design is generally transient; if one wants a principled final finite-$K$ ensemble, one should either design diversity from the converged collapsed law or actively maintain the desired geometry throughout training.
+\end{quote}
+\end{remark}
+
+\section{Takeaway}
+
+The user's concern is mathematically correct. Initialization gives only a local entrance condition. Long nonlinear training can erase it. To make a finite-$K$ design claim about the final predictor, the relevant object is the \emph{stationary law} and its Gramian, together with a training scheme that preserves zero-mean and bounded member deviation.
+
+\end{document}

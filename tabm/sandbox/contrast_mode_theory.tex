@@ -1,0 +1,476 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{hyperref}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\tr}{\operatorname{tr}}
+\newcommand{\diag}{\operatorname{Diag}}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\title{Contrast-Mode Theory Around the Collapsed BatchEnsemble Baseline}
+\author{Research note generated in sandbox}
+\date{2026-04-05}
+
+\begin{document}
+\maketitle
+
+\section{Setup}
+
+Consider the collapsed BatchEnsemble baseline from the current draft:
+\begin{equation}
+\dot\rho_t = K\,\mathcal B(\rho_t,q_t),
+\qquad
+\dot q_t = \mathcal C(\rho_t,q_t),
+\label{eq:collapsed-baseline}
+\end{equation}
+where $q_t \in \R^{d_q}$ collects all trainable boundary coordinates of one member. The associated member-state predictor is
+\[
+H(x;\rho,q).
+\]
+For the full $K$-member system we assume the additive/local structure
+\begin{equation}
+\dot\rho_t = \sum_{\alpha=1}^K \mathcal B(\rho_t,q_{\alpha,t}),
+\qquad
+\dot q_{\alpha,t} = \mathcal C(\rho_t,q_{\alpha,t}),
+\qquad
+\alpha=1,\dots,K.
+\label{eq:full-system}
+\end{equation}
+This is exactly the structure proved in the draft under head-summed loss.
+
+Fix a collapsed trajectory $(\rho_t^\star,q_t^\star)$ solving \eqref{eq:collapsed-baseline}. Assume that $\mathcal B$, $\mathcal C$, and $H$ are $C^1$ along this path. Define the time-dependent derivatives
+\begin{align*}
+B_\rho(t) &:= D_\rho \mathcal B(\rho_t^\star,q_t^\star),
+&
+B_q(t) &:= D_q \mathcal B(\rho_t^\star,q_t^\star),\\
+C_\rho(t) &:= D_\rho \mathcal C(\rho_t^\star,q_t^\star),
+&
+C_q(t) &:= D_q \mathcal C(\rho_t^\star,q_t^\star),\\
+J_\rho(t,x) &:= D_\rho H(x;\rho_t^\star,q_t^\star),
+&
+J_q(t,x) &:= D_q H(x;\rho_t^\star,q_t^\star).
+\end{align*}
+
+We perturb the collapsed solution as
+\[
+\rho_t = \rho_t^\star + \varepsilon \eta_t + o(\varepsilon),
+\qquad
+q_{\alpha,t} = q_t^\star + \varepsilon \zeta_{\alpha,t} + o(\varepsilon).
+\]
+Write
+\[
+\bar\zeta_t := \frac1K \sum_{\alpha=1}^K \zeta_{\alpha,t},
+\qquad
+\xi_{\alpha,t} := \zeta_{\alpha,t} - \bar\zeta_t,
+\qquad
+\sum_{\alpha=1}^K \xi_{\alpha,t} = 0.
+\]
+
+\section{Consensus and Contrast Modes}
+
+\begin{theorem}[Exact linear decoupling of consensus and contrast]
+\label{thm:contrast-decoupling}
+The first-order perturbations around the collapsed trajectory satisfy
+\begin{align}
+\dot\eta_t &= K\,B_\rho(t)\eta_t + K\,B_q(t)\bar\zeta_t,
+\label{eq:eta-linear}\\
+\dot{\bar\zeta}_t &= C_\rho(t)\eta_t + C_q(t)\bar\zeta_t,
+\label{eq:mean-linear}\\
+\dot\xi_{\alpha,t} &= C_q(t)\xi_{\alpha,t},
+\qquad
+\alpha=1,\dots,K.
+\label{eq:contrast-linear}
+\end{align}
+Moreover, the member predictors satisfy
+\begin{align}
+f_\alpha(x,t)
+&=
+H(x;\rho_t^\star,q_t^\star)
+ + \varepsilon\bigl[J_\rho(t,x)\eta_t + J_q(t,x)\bar\zeta_t + J_q(t,x)\xi_{\alpha,t}\bigr]
+ + o(\varepsilon),
+\label{eq:member-linear}\\
+\bar f(x,t)
+&=
+H(x;\rho_t^\star,q_t^\star)
+ + \varepsilon\bigl[J_\rho(t,x)\eta_t + J_q(t,x)\bar\zeta_t\bigr]
+ + o(\varepsilon),
+\label{eq:mean-predictor-linear}\\
+f_\alpha(x,t)-\bar f(x,t)
+&=
+\varepsilon J_q(t,x)\xi_{\alpha,t} + o(\varepsilon).
+\label{eq:contrast-predictor-linear}
+\end{align}
+\end{theorem}
+
+\begin{proof}
+Linearizing \eqref{eq:full-system} around $(\rho_t^\star,q_t^\star,\dots,q_t^\star)$ gives
+\[
+\dot\eta_t
+=
+\sum_{\alpha=1}^K \bigl(B_\rho(t)\eta_t + B_q(t)\zeta_{\alpha,t}\bigr)
+=
+K\,B_\rho(t)\eta_t + K\,B_q(t)\bar\zeta_t,
+\]
+and
+\[
+\dot\zeta_{\alpha,t}
+=
+C_\rho(t)\eta_t + C_q(t)\zeta_{\alpha,t}.
+\]
+Averaging the second display over $\alpha$ yields \eqref{eq:mean-linear}. Subtracting the averaged equation from the $\alpha$th equation gives \eqref{eq:contrast-linear}.
+
+Now linearize the predictor map:
+\[
+f_\alpha(x,t)
+=
+H(x;\rho_t^\star,q_t^\star)
+\,+\,
+\varepsilon\bigl[J_\rho(t,x)\eta_t + J_q(t,x)\zeta_{\alpha,t}\bigr]
+ + o(\varepsilon).
+\]
+Substituting $\zeta_{\alpha,t}=\bar\zeta_t+\xi_{\alpha,t}$ proves \eqref{eq:member-linear}. Averaging over $\alpha$ and using $\sum_\alpha \xi_{\alpha,t}=0$ yields \eqref{eq:mean-predictor-linear}, and subtracting the mean gives \eqref{eq:contrast-predictor-linear}.
+\end{proof}
+
+\begin{corollary}[Centered perturbations leave the ensemble mean untouched to first order]
+\label{cor:centered-first-order}
+Assume $\eta_0=0$ and $\bar\zeta_0=0$. Then
+\[
+\eta_t \equiv 0,
+\qquad
+\bar\zeta_t \equiv 0
+\]
+for all $t \ge 0$ in the linearized dynamics. Hence
+\[
+\bar f(x,t)
+=
+H(x;\rho_t^\star,q_t^\star)
+ + o(\varepsilon),
+\]
+while each member deviation is
+\[
+f_\alpha(x,t)-\bar f(x,t)
+=
+\varepsilon J_q(t,x)\xi_{\alpha,t} + o(\varepsilon).
+\]
+\end{corollary}
+
+\begin{proof}
+The pair $(\eta_t,\bar\zeta_t)$ solves the homogeneous linear system \eqref{eq:eta-linear}--\eqref{eq:mean-linear} with zero initial condition, hence vanishes identically. The predictor claim follows from Theorem~\ref{thm:contrast-decoupling}.
+\end{proof}
+
+\begin{remark}[Interpretation]
+The only perturbations that create disagreement without moving the ensemble mean at order $\varepsilon$ are the centered contrast modes $\{\xi_{\alpha,t}\}_{\alpha=1}^K$. Consensus perturbations are not ``diversity'' at leading order; they merely push the shared backbone and the mean predictor.
+\end{remark}
+
+\section{What the Disagreement Coefficient Really Depends On}
+
+Let $\Phi_C(t,s)$ denote the fundamental solution of the contrast equation
+\[
+\partial_t \Phi_C(t,s) = C_q(t)\Phi_C(t,s),
+\qquad
+\Phi_C(s,s)=I.
+\]
+Under the hypotheses of Corollary~\ref{cor:centered-first-order},
+\[
+\xi_{\alpha,t} = \Phi_C(t,0)\xi_{\alpha,0}.
+\]
+Define the empirical contrast covariance
+\[
+\Sigma_0 := \frac1K \sum_{\alpha=1}^K \xi_{\alpha,0}\xi_{\alpha,0}^\top
+\]
+and the propagated predictor Gram matrix
+\begin{equation}
+G_t(x)
+:=
+\Phi_C(t,0)^\top J_q(t,x)^\top J_q(t,x)\Phi_C(t,0).
+\label{eq:gram}
+\end{equation}
+
+\begin{proposition}[Covariance formula for leading-order disagreement]
+\label{prop:covariance-formula}
+Under centered initialization $(\eta_0,\bar\zeta_0)=(0,0)$,
+\begin{equation}
+\mathrm{Dis}(x,t)
+=
+\varepsilon^2 \tr\!\bigl(G_t(x)\Sigma_0\bigr) + o(\varepsilon^2).
+\label{eq:dis-covariance}
+\end{equation}
+In particular, the leading disagreement depends on the initialization only through the contrast covariance $\Sigma_0$.
+\end{proposition}
+
+\begin{proof}
+By Corollary~\ref{cor:centered-first-order},
+\[
+f_\alpha(x,t)-\bar f(x,t)
+=
+\varepsilon J_q(t,x)\Phi_C(t,0)\xi_{\alpha,0} + o(\varepsilon).
+\]
+Therefore
+\begin{align*}
+\mathrm{Dis}(x,t)
+&=
+\frac1K \sum_{\alpha=1}^K \|f_\alpha(x,t)-\bar f(x,t)\|^2\\
+&=
+\frac{\varepsilon^2}{K}
+\sum_{\alpha=1}^K
+\xi_{\alpha,0}^\top
+\Phi_C(t,0)^\top J_q(t,x)^\top J_q(t,x)\Phi_C(t,0)
+\xi_{\alpha,0}
+ + o(\varepsilon^2)\\
+&=
+\varepsilon^2 \tr\!\bigl(G_t(x)\Sigma_0\bigr) + o(\varepsilon^2).
+\end{align*}
+\end{proof}
+
+\begin{proposition}[Centered contrast perturbs ensemble risk only at second order]
+\label{prop:risk-second-order}
+Fix $t \ge 0$ and suppose the map
+\[
+\varepsilon \mapsto \bar f_\varepsilon(\cdot,t)
+\]
+from initialization scale to the ensemble mean predictor is $C^2$ as an $L^2(\mathcal D_x)$-valued map near $\varepsilon=0$, where $\mathcal D_x$ is the input marginal of the data distribution. Let the loss $\ell(z,y)$ be $C^2$ in $z$ with locally bounded second derivative, and define
+\[
+\mathcal R_t(\varepsilon)
+:=
+\mathbb E_{(x,y)\sim\mathcal D}\bigl[\ell(\bar f_\varepsilon(x,t),y)\bigr].
+\]
+If the initialization is centered in the sense of Corollary~\ref{cor:centered-first-order}, then
+\[
+\mathcal R_t'(0)=0,
+\]
+and therefore
+\[
+\mathcal R_t(\varepsilon)=\mathcal R_t(0)+O(\varepsilon^2)
+\qquad
+(\varepsilon \to 0).
+\]
+\end{proposition}
+
+\begin{proof}
+By Corollary~\ref{cor:centered-first-order},
+\[
+\partial_\varepsilon \bar f_\varepsilon(x,t)\big|_{\varepsilon=0}=0
+\]
+for $\mathcal D_x$-almost every $x$. Differentiating under the expectation and using the chain rule gives
+\[
+\mathcal R_t'(0)
+=
+\mathbb E_{(x,y)\sim\mathcal D}
+\Bigl[
+\nabla_z \ell(\bar f_0(x,t),y)^\top
+\partial_\varepsilon \bar f_\varepsilon(x,t)\big|_{\varepsilon=0}
+\Bigr]
+=
+0.
+\]
+The $C^2$ regularity of $\bar f_\varepsilon$ and $\ell$ yields a second-order Taylor expansion of $\mathcal R_t(\varepsilon)$ around $\varepsilon=0$, hence
+\[
+\mathcal R_t(\varepsilon)=\mathcal R_t(0)+O(\varepsilon^2).
+\]
+\end{proof}
+
+\begin{corollary}[CLT-scale asymmetry yields only $M^{-1}$ disagreement]
+\label{cor:clt-mminus1}
+Suppose a sequence of centered perturbations is scaled as
+\[
+\varepsilon_M = M^{-1/2},
+\qquad
+\Sigma_0^{(M)} \to \Sigma_\infty
+\]
+for some fixed covariance matrix $\Sigma_\infty$. Then on every fixed time horizon and for every fixed input $x$,
+\[
+\mathrm{Dis}^{(M)}(x,t)
+=
+\frac{1}{M}\tr\!\bigl(G_t(x)\Sigma_\infty\bigr)
+ + o(M^{-1}).
+\]
+In particular, CLT-scale symmetry breaking cannot produce order-one predictive spread on fixed horizons near the collapsed regime.
+\end{corollary}
+
+\begin{proof}
+Substitute $\varepsilon=\varepsilon_M=M^{-1/2}$ into \eqref{eq:dis-covariance}:
+\[
+\mathrm{Dis}^{(M)}(x,t)
+=
+\frac{1}{M}\tr\!\bigl(G_t(x)\Sigma_0^{(M)}\bigr) + o(M^{-1}).
+\]
+Passing to the limit $\Sigma_0^{(M)} \to \Sigma_\infty$ yields the claim.
+\end{proof}
+
+\begin{remark}[Order-one diversity needs order-one contrast or strong amplification]
+Corollary~\ref{cor:clt-mminus1} implies a local no-go principle: if the only symmetry breaking available near the collapse diagonal is CLT-scale, then predictive spread is also vanishing. Therefore, order-one diversity in the wide regime requires either order-one contrast initialization/parameterization or a contrast-transfer operator $G_t(x)$ whose gain itself grows enough to offset the small initial scale.
+\end{remark}
+
+\begin{corollary}[Consensus energy is wasted if the goal is diversity]
+\label{cor:wasted-energy}
+Let
+\[
+m_0 := \frac1K\sum_{\alpha=1}^K \zeta_{\alpha,0},
+\qquad
+\xi_{\alpha,0} := \zeta_{\alpha,0}-m_0,
+\qquad
+E_0 := \frac1K\sum_{\alpha=1}^K \|\zeta_{\alpha,0}\|^2.
+\]
+Then
+\[
+E_0 = \|m_0\|^2 + \tr(\Sigma_0),
+\]
+and the leading disagreement obeys
+\begin{equation}
+\mathrm{Dis}(x,t)
+\le
+\varepsilon^2 \lambda_{\max}(G_t(x))\bigl(E_0-\|m_0\|^2\bigr)
+ + o(\varepsilon^2).
+\label{eq:wasted-energy}
+\end{equation}
+Thus any perturbation budget spent on the empirical mean $m_0$ cannot increase disagreement at leading order.
+\end{corollary}
+
+\begin{proof}
+The variance decomposition identity is elementary:
+\[
+\frac1K\sum_{\alpha=1}^K \|\zeta_{\alpha,0}\|^2
+=
+\|m_0\|^2 + \frac1K\sum_{\alpha=1}^K \|\xi_{\alpha,0}\|^2
+=
+\|m_0\|^2 + \tr(\Sigma_0).
+\]
+Applying Proposition~\ref{prop:covariance-formula} and the bound
+\[
+\tr(G_t(x)\Sigma_0)
+\le
+\lambda_{\max}(G_t(x))\tr(\Sigma_0)
+\]
+gives \eqref{eq:wasted-energy}.
+\end{proof}
+
+\section{Optimal Contrast Design}
+
+\begin{theorem}[Optimal small-budget diversity is rank-one and antithetic]
+\label{thm:optimal-antithetic}
+Fix $(x,t)$ and suppose the initialization is centered:
+\[
+\frac1K\sum_{\alpha=1}^K \xi_{\alpha,0}=0,
+\qquad
+\frac1K\sum_{\alpha=1}^K \|\xi_{\alpha,0}\|^2 \le \sigma^2.
+\]
+Then
+\begin{equation}
+\mathrm{Dis}(x,t)
+\le
+\varepsilon^2 \sigma^2 \lambda_{\max}(G_t(x))
+ + o(\varepsilon^2).
+\label{eq:optimal-bound}
+\end{equation}
+This upper bound is achieved by an antithetic two-cluster code:
+\begin{itemize}
+\item if $K$ is even, choose half the heads with $\xi_{\alpha,0}=+\sigma v_{\max}$ and half with $\xi_{\alpha,0}=-\sigma v_{\max}$;
+\item if $K$ is odd, choose one head equal to $0$ and split the remaining $K-1$ heads evenly between $\pm\sqrt{\frac{K}{K-1}}\sigma\,v_{\max}$,
+\end{itemize}
+where $v_{\max}$ is a top eigenvector of $G_t(x)$.
+\end{theorem}
+
+\begin{proof}
+By Proposition~\ref{prop:covariance-formula},
+\[
+\mathrm{Dis}(x,t)
+=
+\varepsilon^2 \tr(G_t(x)\Sigma_0) + o(\varepsilon^2).
+\]
+Since $\Sigma_0 \succeq 0$ and $\tr(\Sigma_0)\le \sigma^2$,
+\[
+\tr(G_t(x)\Sigma_0)
+\le
+\lambda_{\max}(G_t(x))\tr(\Sigma_0)
+\le
+\sigma^2 \lambda_{\max}(G_t(x)).
+\]
+This proves \eqref{eq:optimal-bound}.
+
+For the constructions above, $\Sigma_0 = \sigma^2 v_{\max}v_{\max}^\top$, so
+\[
+\tr(G_t(x)\Sigma_0)
+=
+\sigma^2 v_{\max}^\top G_t(x)v_{\max}
+=
+\sigma^2 \lambda_{\max}(G_t(x)).
+\]
+Therefore the bound is tight.
+\end{proof}
+
+\begin{corollary}[More heads do not buy more first-order disagreement by themselves]
+\label{cor:no-k-gain}
+Under the per-head contrast budget from Theorem~\ref{thm:optimal-antithetic}, the optimal leading-order disagreement coefficient is $\sigma^2 \lambda_{\max}(G_t(x))$, which contains no explicit factor of $K$. The role of extra heads is only to realize or sample a desired contrast covariance; simply increasing the ensemble size does not create a larger first-order diversity budget.
+\end{corollary}
+
+\begin{corollary}[Isotropic randomization is suboptimal unless $G_t(x)$ is isotropic]
+\label{cor:isotropic-gap}
+If the designer uses an isotropic contrast covariance
+\[
+\Sigma_0 = \frac{\sigma^2}{d_q} I,
+\]
+then
+\[
+\mathrm{Dis}(x,t)
+=
+\varepsilon^2 \frac{\sigma^2}{d_q}\tr(G_t(x))
+ + o(\varepsilon^2).
+\]
+Hence the ratio between the optimal coefficient and the isotropic coefficient is
+\[
+\frac{\lambda_{\max}(G_t(x))}{\tr(G_t(x))/d_q},
+\]
+which can be arbitrarily large when the propagated sensitivity $G_t(x)$ is anisotropic.
+\end{corollary}
+
+\begin{proposition}[Time/data-averaged objectives reduce to one eigenproblem]
+\label{prop:integrated-objective}
+Let $\mu$ be any finite nonnegative measure on input-time pairs $(x,t)$ and define the weighted disagreement objective
+\[
+\mathcal J_\mu(\varepsilon)
+:=
+\int \mathrm{Dis}(x,t)\,\mu(\mathrm dx,\mathrm dt).
+\]
+Under centered initialization,
+\[
+\mathcal J_\mu(\varepsilon)
+=
+\varepsilon^2 \tr(\bar G_\mu \Sigma_0) + o(\varepsilon^2),
+\qquad
+\bar G_\mu := \int G_t(x)\,\mu(\mathrm dx,\mathrm dt).
+\]
+Therefore, under the trace constraint $\tr(\Sigma_0)\le \sigma^2$, the optimal leading-order design is again rank-one along a top eigenvector of $\bar G_\mu$.
+\end{proposition}
+
+\begin{proof}
+Integrate \eqref{eq:dis-covariance} against $\mu$ and use Fubini's theorem:
+\[
+\mathcal J_\mu(\varepsilon)
+=
+\varepsilon^2 \int \tr\!\bigl(G_t(x)\Sigma_0\bigr)\,\mu(\mathrm dx,\mathrm dt) + o(\varepsilon^2)
+=
+\varepsilon^2 \tr\!\Bigl(\Bigl[\int G_t(x)\,\mu(\mathrm dx,\mathrm dt)\Bigr]\Sigma_0\Bigr) + o(\varepsilon^2).
+\]
+The optimality statement follows exactly as in Theorem~\ref{thm:optimal-antithetic}.
+\end{proof}
+
+\section{Practical Consequences}
+
+Theorems~\ref{thm:contrast-decoupling} and \ref{thm:optimal-antithetic} suggest a concrete design rule that is not visible from the collapsed-baseline theorem alone:
+\begin{enumerate}
+\item If the goal is uncertainty/disagreement without perturbing the ensemble mean, initialize and regularize \emph{centered contrast codes}. Any empirical mean component is wasted for diversity at leading order.
+\item Under a small perturbation budget, the best design is \emph{not} iid noise. The optimal covariance is rank-one and is realizable by antithetic pairing of heads.
+\item Increasing $K$ is not a substitute for a good contrast direction. On a fixed collapsed background path, extra heads do not create a larger first-order disagreement coefficient.
+\item The relevant object to estimate empirically is $G_t(x)$ or, more practically, the integrated matrix $\bar G_\mu$ from Proposition~\ref{prop:integrated-objective}. If this matrix is sharply anisotropic, structured contrast design can beat isotropic random initialization by a large factor.
+\end{enumerate}
+
+For a practitioner, the actionable implication is: when BatchEnsemble is close to the symmetric-collapse regime, diversity should be treated as a \emph{contrast-subspace design problem}, not as a mere question of using more ensemble members or injecting unstructured random fast weights.
+
+\end{document}

@@ -1,0 +1,217 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{hyperref}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Sym}{\operatorname{Sym}}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{example}[theorem]{Example}
+
+\title{Boundary Persistence vs Functional Persistence}
+\author{Research note generated in sandbox}
+\date{2026-04-05}
+
+\begin{document}
+\maketitle
+
+\section{Question}
+
+Suppose the member-specific boundary fast state $q_{\alpha,t}\in\R^p$ satisfies
+\begin{equation}
+\dot q_{\alpha,t}=\mathcal C(\rho_t,q_{\alpha,t}),
+\qquad
+\alpha=1,\dots,K,
+\label{eq:q-dyn}
+\end{equation}
+and the predictor is
+\[
+f_\alpha(x,t)=H(x;\rho_t,q_{\alpha,t}).
+\]
+If two members start from different boundary fast weights, do those differences necessarily disappear?
+
+\medskip
+
+There are in fact two distinct questions:
+\begin{itemize}
+\item Do the \emph{parameter differences} $q_{\alpha,t}-q_{\beta,t}$ disappear?
+\item Do the resulting \emph{predictive differences} $f_\alpha(\cdot,t)-f_\beta(\cdot,t)$ disappear?
+\end{itemize}
+
+The answers need not coincide.
+
+\section{Local Terminal Test}
+
+Assume the collapsed mean-field trajectory converges to a stationary law $(\rho_\star,q_\star)$ with
+\[
+\mathcal C(\rho_\star,q_\star)=0.
+\]
+Write
+\[
+A_\star := \partial_q \mathcal C(\rho_\star,q_\star),
+\qquad
+J_\star(x) := \partial_q H(x;\rho_\star,q_\star).
+\]
+For two nearby members, define
+\[
+\Delta_t := q_{\alpha,t}-q_{\beta,t}.
+\]
+Then near the terminal law,
+\begin{equation}
+\dot \Delta_t = A_\star \Delta_t + o(\|\Delta_t\|),
+\label{eq:delta-lin}
+\end{equation}
+and the predictive difference is
+\begin{equation}
+f_\alpha(x,t)-f_\beta(x,t)
+=
+J_\star(x)\Delta_t + o(\|\Delta_t\|).
+\label{eq:f-lin}
+\end{equation}
+
+\begin{remark}
+Equation \eqref{eq:delta-lin} governs whether the boundary parameters remain separated. Equation \eqref{eq:f-lin} governs whether that separation is visible at the level practitioners actually care about, namely prediction.
+\end{remark}
+
+\section{Parameter Collapse Is Not Automatic}
+
+\begin{proposition}[Contractive terminal dynamics imply parameter collapse]
+\label{prop:parameter-collapse}
+If
+\[
+\Sym(A_\star)\preceq -\gamma I
+\qquad
+\text{for some }\gamma>0,
+\]
+then every sufficiently small terminal boundary difference decays exponentially:
+\[
+\|\Delta_t\|
+\le
+e^{-\gamma (t-t_0)}\|\Delta_{t_0}\|
+\]
+for all large enough $t\ge t_0$.
+\end{proposition}
+
+\begin{proof}
+Ignoring the higher-order remainder in \eqref{eq:delta-lin}, the linearized energy satisfies
+\[
+\frac{d}{dt}\frac12\|\Delta_t\|^2
+=
+\langle \Delta_t,A_\star\Delta_t\rangle
+\le
+-\gamma \|\Delta_t\|^2.
+\]
+The nonlinear remainder is absorbed for sufficiently small $\|\Delta_t\|$.
+\end{proof}
+
+\begin{corollary}
+Boundary fast weights do \emph{not} disappear by default. They disappear only in a dynamically contractive regime.
+\end{corollary}
+
+\section{Persistence of Parameters Need Not Mean Persistence of Prediction}
+
+Let
+\[
+E_{\mathrm{ns}}
+:=
+\bigoplus_{\Re \lambda \ge 0} E_\lambda(A_\star)
+\]
+denote the non-stable generalized eigenspace of $A_\star$.
+
+\begin{proposition}[Predictively silent persistence]
+\label{prop:silent-persistence}
+Assume there exists a nonzero subspace $E\subseteq E_{\mathrm{ns}}$ such that
+\[
+J_\star(x) v = 0
+\qquad
+\text{for every }v\in E \text{ and every }x.
+\]
+Then boundary differences initialized in $E$ may persist to first order in parameter space without producing any first-order predictive disagreement.
+\end{proposition}
+
+\begin{proof}
+If $\Delta_{t_0}\in E$, then the linearized flow $e^{A_\star (t-t_0)}\Delta_{t_0}$ remains in $E$ because $E$ is $A_\star$-invariant. Since $E\subseteq E_{\mathrm{ns}}$, the linear dynamics does not force exponential decay along $E$. On the other hand, \eqref{eq:f-lin} vanishes identically on $E$ because $J_\star(x)E=\{0\}$ for every $x$.
+\end{proof}
+
+\begin{remark}
+So ``boundary fast weights do not disappear'' is still not enough for useful diversity. The surviving directions must also be visible through the predictor Jacobian.
+\end{remark}
+
+\section{Visible Persistence Gives Real Terminal Diversity}
+
+\begin{proposition}[Visible non-stable directions create terminal disagreement]
+\label{prop:visible-persistence}
+Assume there exists a vector $v\neq 0$ such that
+\[
+v\in E_{\mathrm{ns}}
+\qquad\text{and}\qquad
+\int \|J_\star(x)v\|^2\,\mu(\mathrm dx) > 0
+\]
+for the evaluation distribution $\mu$.
+Then arbitrarily small initial boundary differences with a component along $v$ produce non-vanishing first-order predictive disagreement near the terminal law.
+\end{proposition}
+
+\begin{proof}
+Choose $\Delta_{t_0}=\varepsilon v$. Since $v\in E_{\mathrm{ns}}$, the linearized terminal flow does not drive the coefficient of $v$ to zero exponentially. Therefore the first-order term in \eqref{eq:f-lin} retains a nonzero component proportional to $J_\star(x)v$. The stated integral condition guarantees that this component is nontrivial in prediction space.
+\end{proof}
+
+\section{A Better Practical Criterion}
+
+The correct practical question is therefore not
+\begin{quote}
+Do boundary fast weights disappear?
+\end{quote}
+but rather
+\begin{quote}
+Which boundary directions are both dynamically persistent and predictively visible?
+\end{quote}
+
+This gives a two-part test at the terminal law:
+\begin{itemize}
+\item \textbf{Dynamics test.}
+Check the terminal Jacobian $A_\star$. Directions with strongly negative decay rates are transient.
+\item \textbf{Visibility test.}
+Check the stationary predictor Gramian
+\[
+W_\star
+:=
+\int J_\star(x)^\top J_\star(x)\,\mu(\mathrm dx).
+\]
+Directions in or near $\ker W_\star$ are predictively silent.
+\end{itemize}
+
+\begin{corollary}[Safe design principle]
+\label{cor:safe-principle}
+Boundary fast weights are a meaningful place to encode finite-$K$ diversity only in directions that are simultaneously
+\begin{itemize}
+\item weakly decaying or persistent under $A_\star$, and
+\item non-silent under $W_\star$.
+\end{itemize}
+\end{corollary}
+
+\section{Examples}
+
+\begin{example}[Persistent but useless]
+Suppose $\mathcal C(\rho,q)=b(\rho)$ is independent of $q$. Then boundary differences persist exactly. But if the predictor also satisfies $H(x;\rho,q)=H(x;\rho)$ near the terminal law, then $J_\star(x)=0$ and the persistence is functionally irrelevant.
+\end{example}
+
+\begin{example}[Persistent and useful]
+If $A_\star$ has a neutral direction $v$ and $J_\star(x)v\not\equiv 0$, then a small boundary perturbation along $v$ yields a non-vanishing terminal disagreement to first order.
+\end{example}
+
+\section{Takeaway}
+
+The user's intuition is correct, but it needs one refinement:
+\begin{quote}
+Different boundary fast weights do not necessarily disappear. However, what matters for finite-$K$ uncertainty is not mere parameter persistence, but \emph{predictively visible persistence}.
+\end{quote}
+
+So the right end-of-training objects are the pair $(A_\star,W_\star)$, not just the existence of different initial boundary values.
+
+\end{document}

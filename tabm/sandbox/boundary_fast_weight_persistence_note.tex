@@ -1,0 +1,208 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{hyperref}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Sym}{\operatorname{Sym}}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{example}[theorem]{Example}
+
+\title{Do Boundary Fast Weights Persist or Collapse?}
+\author{Research note generated in sandbox}
+\date{2026-04-05}
+
+\begin{document}
+\maketitle
+
+\section{Question}
+
+Let $q_{\alpha,t}\in\R^p$ denote the member-specific boundary fast state in the mean-field limit, with dynamics
+\begin{equation}
+\dot q_{\alpha,t}=\mathcal C(\rho_t,q_{\alpha,t}),
+\qquad
+\alpha=1,\dots,K.
+\label{eq:q-dynamics}
+\end{equation}
+If the members are initialized with different boundary fast weights, must these differences disappear during training?
+
+\medskip
+
+Answer:
+
+\begin{quote}
+No. Different boundary initializations disappear only in a contractive regime. In general they may decay, persist, or grow.
+\end{quote}
+
+\section{A Clean Necessary Principle}
+
+Fix two members $\alpha,\beta$ and define
+\[
+\Delta_t:=q_{\alpha,t}-q_{\beta,t}.
+\]
+Then
+\[
+\dot\Delta_t
+=
+\mathcal C(\rho_t,q_{\alpha,t})-\mathcal C(\rho_t,q_{\beta,t}).
+\]
+
+\begin{theorem}[Uniform contraction implies disappearance]
+\label{thm:uniform-contraction}
+Assume there exists $\gamma>0$ such that for every $\rho\in\mathcal X$ and every $q,q'\in\R^p$,
+\begin{equation}
+\langle q-q',\,\mathcal C(\rho,q)-\mathcal C(\rho,q')\rangle
+\le
+-\gamma \|q-q'\|^2.
+\label{eq:onesided}
+\end{equation}
+Then
+\[
+\|q_{\alpha,t}-q_{\beta,t}\|
+\le
+e^{-\gamma t}\|q_{\alpha,0}-q_{\beta,0}\|
+\qquad
+\forall t\ge 0.
+\]
+In particular, all boundary-state differences vanish exponentially.
+\end{theorem}
+
+\begin{proof}
+Differentiate $\frac12\|\Delta_t\|^2$ and use \eqref{eq:onesided}:
+\[
+\frac{d}{dt}\frac12\|\Delta_t\|^2
+=
+\langle \Delta_t,\dot\Delta_t\rangle
+\le
+-\gamma \|\Delta_t\|^2.
+\]
+Gronwall gives the result.
+\end{proof}
+
+\begin{remark}
+So if one can prove a strong one-sided Lipschitz condition for the boundary-state drift, then different boundary fast weights \emph{do} wash out. But this is a genuine assumption, not a universal fact.
+\end{remark}
+
+\section{Why Differences Need Not Disappear}
+
+\begin{example}[Exact persistence]
+\label{ex:persistence}
+Take
+\[
+\mathcal C(\rho,q)=b(\rho),
+\]
+independent of $q$. Then every member obeys the same translated dynamics
+\[
+\dot q_{\alpha,t}=b(\rho_t),
+\]
+so
+\[
+\frac{d}{dt}(q_{\alpha,t}-q_{\beta,t})=0.
+\]
+Hence
+\[
+q_{\alpha,t}-q_{\beta,t}=q_{\alpha,0}-q_{\beta,0}
+\qquad
+\forall t.
+\]
+Initial boundary differences persist exactly forever.
+\end{example}
+
+\begin{example}[Growth]
+\label{ex:growth}
+Take
+\[
+\mathcal C(\rho,q)=Aq
+\]
+with a matrix $A$ having an eigenvalue of positive real part. Then differences evolve by
+\[
+\dot\Delta_t=A\Delta_t,
+\]
+and components in unstable eigendirections grow exponentially.
+\end{example}
+
+\begin{example}[Multiple attractors]
+\label{ex:multistable}
+In one dimension, let
+\[
+\mathcal C(\rho,q)=q-q^3.
+\]
+Then the dynamics has stable equilibria at $\pm 1$. If one member starts positive and another negative, they converge to different terminal states rather than collapsing together.
+\end{example}
+
+\begin{corollary}[No universal disappearance theorem]
+\label{cor:no-universal}
+Without an additional contraction assumption on $\mathcal C$, there is no theorem stating that different boundary initializations must vanish in the mean-field limit.
+\end{corollary}
+
+\section{Local Stationary-Law Test}
+
+Suppose the collapsed system converges to a stationary point $(\rho_\star,q_\star)$ with
+\[
+\mathcal C(\rho_\star,q_\star)=0.
+\]
+Define
+\[
+A_\star:=\partial_q \mathcal C(\rho_\star,q_\star).
+\]
+
+\begin{proposition}[Linear stationary-law criterion]
+\label{prop:linear-criterion}
+Near $(\rho_\star,q_\star)$, the fate of small boundary differences is determined at first order by
+\[
+\dot\Delta_t=A_\star \Delta_t.
+\]
+Hence:
+\begin{itemize}
+\item if $\Sym(A_\star)\preceq -\gamma I$ for some $\gamma>0$, then small differences decay exponentially;
+\item if $A_\star$ has an eigenvalue with positive real part, then some small differences grow;
+\item if $A_\star$ has neutral directions, then first-order theory alone does not force disappearance.
+\end{itemize}
+\end{proposition}
+
+\begin{proof}
+Linearize $\mathcal C(\rho_\star,q)$ in $q$ around $q_\star$:
+\[
+\mathcal C(\rho_\star,q_\star+\Delta)
+=
+A_\star \Delta + o(\|\Delta\|).
+\]
+This gives the stated linearized equation. The three bullets are standard consequences of linear ODE theory.
+\end{proof}
+
+\begin{remark}
+This criterion is the precise answer to the user's question in local mean-field terms. Boundary differences disappear only if the terminal boundary dynamics is stable in the member-specific directions.
+\end{remark}
+
+\section{What the Current Theory Can and Cannot Say}
+
+\begin{corollary}[Safe statement]
+\label{cor:safe}
+The current mean-field theory supports the following claim:
+
+\begin{quote}
+Different boundary fast weights may persist, decay, or grow. To know which occurs, one must analyze the boundary-state drift $\mathcal C$ or its stationary Jacobian $A_\star$.
+\end{quote}
+\end{corollary}
+
+\begin{remark}
+So if your intuition is ``boundary fast weights might not disappear'', that intuition is mathematically valid. They disappear only in a sufficiently contractive regime. Otherwise, they can survive all the way to the terminal law and may even be the correct place to encode finite-$K$ diversity.
+\end{remark}
+
+\section{Practical Consequence}
+
+There are two qualitatively different regimes:
+\begin{itemize}
+\item \textbf{Contractive boundary regime.}
+  Initialization-only diversity in the boundary variables is transient. One needs ongoing centered forcing, explicit constraints, or redesign at the terminal law.
+\item \textbf{Persistent boundary regime.}
+  Boundary differences can survive to the end. In that case, stationary-law simplex/tetrahedral design is meaningful as an actual terminal predictor design, not just a transient initialization trick.
+\end{itemize}
+
+\end{document}

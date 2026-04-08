@@ -1,0 +1,610 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{hyperref}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\tr}{\operatorname{tr}}
+\newcommand{\rank}{\operatorname{rank}}
+\newcommand{\Cov}{\operatorname{Cov}}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\title{Finite-\texorpdfstring{$K$}{K} Geometry of Diversity: Amplitude vs. Direction}
+\author{Research note generated in sandbox}
+\date{2026-04-05}
+
+\begin{document}
+\maketitle
+
+\section{Question}
+
+Suppose a collapsed BatchEnsemble baseline is perturbed so that the member predictors at a fixed time $t$ admit the local form
+\begin{equation}
+f_\alpha^\varepsilon(x,t)
+=
+f_{\mathrm{coll}}(x,t)
++
+\varepsilon \delta_\alpha(x,t)
++ o(\varepsilon),
+\qquad
+\alpha=1,\dots,K.
+\label{eq:local-members}
+\end{equation}
+For finite ensemble size $K$, what matters more:
+\begin{itemize}
+\item the \emph{amplitude} of the member deviations $\delta_\alpha$, or
+\item the \emph{geometry} of their directions?
+\end{itemize}
+
+The answer is that amplitude alone is not the key object. At fixed amplitude, one can spend the entire budget on a consensus drift that moves the ensemble mean and creates no disagreement, or one can spend the same budget on centered contrast directions that create disagreement while leaving the mean unchanged at first order. For finite $K$, the relevant design variable is therefore not ``how large is diversity?'', but rather ``how much of the energy lies in the consensus direction, and how evenly is the remaining contrast energy spread across protected modes?''.
+
+\section{An Exact Identity: Total Amplitude = Mean Drift + Disagreement}
+
+Fix $x$ and $t$, and abbreviate
+\[
+\delta_\alpha := \delta_\alpha(x,t),
+\qquad
+\bar\delta := \frac1K \sum_{\alpha=1}^K \delta_\alpha.
+\]
+Define the first-order disagreement and total deviation energy by
+\[
+\mathrm{Dis}^{(1)} := \frac1K\sum_{\alpha=1}^K \|\delta_\alpha-\bar\delta\|^2,
+\qquad
+\mathrm{Amp}^{(1)} := \frac1K\sum_{\alpha=1}^K \|\delta_\alpha\|^2.
+\]
+
+\begin{proposition}[Pythagorean decomposition]
+\label{prop:pythagorean}
+For every fixed $(x,t)$,
+\begin{equation}
+\mathrm{Amp}^{(1)}
+=
+\|\bar\delta\|^2 + \mathrm{Dis}^{(1)}.
+\label{eq:pythagorean}
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+Write $\delta_\alpha=(\delta_\alpha-\bar\delta)+\bar\delta$. Then
+\[
+\|\delta_\alpha\|^2
+=
+\|\delta_\alpha-\bar\delta\|^2
++ 2\langle \delta_\alpha-\bar\delta,\bar\delta\rangle
++ \|\bar\delta\|^2.
+\]
+Average over $\alpha$ and use
+\[
+\frac1K\sum_{\alpha=1}^K (\delta_\alpha-\bar\delta)=0.
+\]
+\end{proof}
+
+\begin{corollary}[Amplitude alone is not intrinsically useful]
+\label{cor:amplitude-not-enough}
+At fixed total amplitude $\mathrm{Amp}^{(1)}$, increasing disagreement is exactly equivalent to decreasing the first-order drift of the ensemble mean:
+\[
+\mathrm{Dis}^{(1)} = \mathrm{Amp}^{(1)} - \|\bar\delta\|^2.
+\]
+Thus the same amplitude budget can correspond either to a pure consensus shift ($\mathrm{Dis}^{(1)}=0$) or to a pure centered contrast design ($\bar\delta=0$).
+\end{corollary}
+
+\begin{remark}
+This directly answers the intuition in the user question. If all members move in the same direction, the amplitude may be large, but that energy is spent entirely on mean drift. If the members are arranged so that their deviations cancel in the mean, the \emph{same amplitude} produces disagreement without first-order bias in the average.
+\end{remark}
+
+\section{Equal-Amplitude Codes and the Role of Pairwise Correlation}
+
+Assume for this section that the first-order output deviations have equal norm:
+\[
+\|\delta_1\|=\cdots=\|\delta_K\|=r.
+\]
+Define the average pairwise correlation
+\[
+\bar\rho
+:=
+\frac{1}{K(K-1)r^2}
+\sum_{\alpha\neq\beta}
+\langle \delta_\alpha,\delta_\beta\rangle.
+\]
+
+\begin{proposition}[Same amplitude, different geometry]
+\label{prop:pairwise-correlation}
+Under the equal-norm assumption,
+\begin{align}
+\|\bar\delta\|^2
+&=
+\frac{r^2}{K}\Bigl(1+(K-1)\bar\rho\Bigr),
+\label{eq:mean-via-rho}\\
+\mathrm{Dis}^{(1)}
+&=
+r^2 \frac{K-1}{K}(1-\bar\rho).
+\label{eq:dis-via-rho}
+\end{align}
+\end{proposition}
+
+\begin{proof}
+Since
+\[
+\bar\delta=\frac1K\sum_{\alpha=1}^K \delta_\alpha,
+\]
+we have
+\[
+\|\bar\delta\|^2
+=
+\frac{1}{K^2}
+\sum_{\alpha,\beta=1}^K \langle \delta_\alpha,\delta_\beta\rangle
+=
+\frac{1}{K^2}
+\left(
+Kr^2 + \sum_{\alpha\neq\beta}\langle \delta_\alpha,\delta_\beta\rangle
+\right).
+\]
+Substitute the definition of $\bar\rho$ to get \eqref{eq:mean-via-rho}. Then combine with Proposition~\ref{prop:pythagorean} and $\mathrm{Amp}^{(1)}=r^2$.
+\end{proof}
+
+\begin{corollary}[Consensus, antithetic pairing, and simplex designs]
+\label{cor:geometry-examples}
+With the same per-member amplitude $r$:
+\begin{itemize}
+\item If all members point in the same direction, then $\bar\rho=1$, so $\|\bar\delta\|^2=r^2$ and $\mathrm{Dis}^{(1)}=0$.
+\item If $K=2$ and the members are antithetic, then $\bar\rho=-1$, so $\|\bar\delta\|^2=0$ and $\mathrm{Dis}^{(1)}=r^2$.
+\item More generally, if the $K$ deviations form a centered regular simplex, then $\bar\rho=-1/(K-1)$, so again $\|\bar\delta\|^2=0$ and $\mathrm{Dis}^{(1)}=r^2$.
+\end{itemize}
+\end{corollary}
+
+\begin{remark}
+This shows that for finite $K$, the practically important quantity is not just the deviation norm but the \emph{pairwise correlation geometry}. ``All in one direction'' and ``tetrahedrally spread'' can have the same amplitude and radically different consequences for the ensemble average.
+\end{remark}
+
+\section{Connection to the Local BatchEnsemble Theory}
+
+In the local collapse-nearby theory, the first-order deviations take the form
+\[
+\delta_\alpha(x,t) = J_t(x)\Phi_{t,0} c_\alpha,
+\]
+where $c_\alpha$ are the initial centered codes. Let
+\[
+L_t(x):=J_t(x)\Phi_{t,0},
+\qquad
+\bar c := \frac1K\sum_{\alpha=1}^K c_\alpha,
+\qquad
+S_0 := \frac1K\sum_{\alpha=1}^K (c_\alpha-\bar c)(c_\alpha-\bar c)^\top.
+\]
+Define
+\[
+G_t(x):=L_t(x)^\top L_t(x).
+\]
+
+\begin{proposition}[Metric decomposition in code space]
+\label{prop:metric-decomposition}
+The first-order mean drift and disagreement satisfy
+\begin{align}
+\|\bar\delta(x,t)\|^2
+&=
+\bar c^\top G_t(x)\bar c,
+\label{eq:mean-code}\\
+\mathrm{Dis}^{(1)}(x,t)
+&=
+\tr\!\bigl(G_t(x)S_0\bigr),
+\label{eq:dis-code}\\
+\mathrm{Amp}^{(1)}(x,t)
+&=
+\bar c^\top G_t(x)\bar c
++ \tr\!\bigl(G_t(x)S_0\bigr).
+\label{eq:amp-code}
+\end{align}
+\end{proposition}
+
+\begin{proof}
+The first identity follows from
+\[
+\bar\delta
+=
+\frac1K\sum_{\alpha=1}^K L_t(x)c_\alpha
+=
+L_t(x)\bar c.
+\]
+The second is the covariance formula from the local theory:
+\[
+\frac1K\sum_{\alpha=1}^K \|L_t(x)(c_\alpha-\bar c)\|^2
+=
+\tr\!\bigl(L_t(x)^\top L_t(x) S_0\bigr).
+\]
+The third is Proposition~\ref{prop:pythagorean} written in the $G_t(x)$ metric.
+\end{proof}
+
+\begin{corollary}[Exact answer to the amplitude question]
+\label{cor:exact-answer}
+In the local BatchEnsemble regime, amplitude is not a standalone design target. What matters is how the budget decomposes in the data-dependent metric $G_t(x)$:
+\begin{itemize}
+\item consensus energy $\bar c^\top G_t(x)\bar c$, which moves the ensemble mean;
+\item contrast energy $\tr(G_t(x)S_0)$, which creates disagreement.
+\end{itemize}
+Two code sets with the same total energy can have completely different finite-$K$ behavior.
+\end{corollary}
+
+\section{Two Different Design Objectives}
+
+Let
+\[
+W := \int G_t(x)\,\mu(\mathrm dx,\mathrm dt)\succeq 0
+\]
+be an integrated Gramian for some data-time weighting $\mu$. Then the total first-order disagreement is
+\[
+\mathcal D(S_0) := \tr(WS_0).
+\]
+Assume the budget constraint
+\[
+S_0\succeq 0,
+\qquad
+\tr(S_0)\le B,
+\qquad
+\rank(S_0)\le K-1.
+\]
+
+\subsection*{Objective A: maximize total disagreement}
+
+This is the objective studied in the previous note. It yields a rank-one solution aligned with the top eigenvector of $W$.
+
+\begin{proposition}[Trace objective prefers a single dominant direction]
+\label{prop:trace-objective}
+Let $\lambda_1(W)\ge\cdots\ge\lambda_p(W)$ be the eigenvalues of $W$ with eigenvectors $e_1,\dots,e_p$. Then
+\[
+\max_{S_0}\tr(WS_0)=B\lambda_1(W),
+\]
+and the optimum is achieved by
+\[
+S_0^\star = B e_1 e_1^\top.
+\]
+\end{proposition}
+
+\begin{proof}
+For any feasible $S_0$,
+\[
+\tr(WS_0)\le \lambda_1(W)\tr(S_0)\le B\lambda_1(W).
+\]
+Equality is attained by $S_0^\star$.
+\end{proof}
+
+\begin{remark}
+This design maximizes total spread, but it is maximally concentrated: all first-order diversity is spent on one preferred direction.
+\end{remark}
+
+\subsection*{Objective B: maximize robust multi-directional coverage}
+
+To formalize the user's concern about ``everyone drifting in the same direction'', define
+\[
+\mathcal C_r(S_0):=\lambda_r\bigl(W^{1/2}S_0W^{1/2}\bigr),
+\qquad
+r\le K-1,
+\]
+where $\lambda_r$ denotes the $r$th largest eigenvalue. This measures the largest variance level that can be guaranteed simultaneously in $r$ independent output directions.
+
+\begin{theorem}[Robust coverage theorem]
+\label{thm:robust-coverage}
+Fix $r\in\{1,\dots,K-1\}$ and assume $\lambda_r(W)>0$. Then
+\[
+\max_{S_0}\mathcal C_r(S_0)
+=
+\frac{B}{\sum_{i=1}^r \lambda_i(W)^{-1}}.
+\]
+An optimizer is
+\begin{equation}
+S_{0,\mathrm{rob}}^\star
+=
+c_r \sum_{i=1}^r \lambda_i(W)^{-1} e_i e_i^\top,
+\qquad
+c_r:=\frac{B}{\sum_{i=1}^r \lambda_i(W)^{-1}}.
+\label{eq:robust-opt}
+\end{equation}
+For this optimizer,
+\[
+W^{1/2}S_{0,\mathrm{rob}}^\star W^{1/2}
+=
+c_r \sum_{i=1}^r e_i e_i^\top,
+\]
+so the induced output covariance is perfectly equalized across the top $r$ eigen-directions of $W$.
+\end{theorem}
+
+\begin{proof}
+Let $X:=W^{1/2}S_0W^{1/2}\succeq 0$. Then
+\[
+S_0 = W^{-1/2}XW^{-1/2}
+\]
+on the support of $W$, and the budget constraint becomes
+\[
+\tr(W^{-1}X)\le B.
+\]
+If $\lambda_r(X)\ge t$, then $X$ has at least $r$ eigenvalues at least $t$, hence for some rank-$r$ projector $P$,
+\[
+X \succeq tP.
+\]
+Therefore
+\[
+B\ge \tr(W^{-1}X)\ge t\,\tr(W^{-1}P).
+\]
+Among rank-$r$ projectors, $\tr(W^{-1}P)$ is minimized by taking $P$ onto the span of the top $r$ eigenvectors $e_1,\dots,e_r$, in which case
+\[
+\tr(W^{-1}P)=\sum_{i=1}^r \lambda_i(W)^{-1}.
+\]
+Thus
+\[
+t\le \frac{B}{\sum_{i=1}^r \lambda_i(W)^{-1}}.
+\]
+This proves the upper bound.
+
+Now choose $S_{0,\mathrm{rob}}^\star$ as in \eqref{eq:robust-opt}. Then
+\[
+W^{1/2}S_{0,\mathrm{rob}}^\star W^{1/2}
+=
+c_r \sum_{i=1}^r e_i e_i^\top,
+\]
+whose top $r$ eigenvalues are all equal to $c_r$. Hence
+\[
+\mathcal C_r(S_{0,\mathrm{rob}}^\star)=c_r,
+\]
+which attains the upper bound.
+\end{proof}
+
+\begin{corollary}[Why amplitude is the wrong question]
+\label{cor:wrong-question}
+The trace-optimal design and the robust-coverage design generally differ:
+\begin{itemize}
+\item maximizing total disagreement concentrates all budget in one top mode;
+\item maximizing finite-$K$ directional robustness spreads budget across several modes.
+\end{itemize}
+Therefore the important distinction is not ``large amplitude vs small amplitude'', but rather ``concentrated one-direction diversity vs balanced multi-direction coverage''.
+\end{corollary}
+
+\section{What \texorpdfstring{$K=4$}{K=4} Really Means}
+
+\begin{corollary}[Tetrahedral principle for $K=4$]
+\label{cor:tetrahedral}
+With $K=4$, one can realize at most $K-1=3$ independent centered contrast directions at first order. Therefore:
+\begin{itemize}
+\item if the objective is total disagreement, the optimum remains rank-one and effectively uses only one axis;
+\item if the objective is robust three-direction coverage, the optimal covariance has rank $3$ and should be realized by a centered tight frame in three dimensions, with the regular tetrahedron as the canonical equal-norm design.
+\end{itemize}
+\end{corollary}
+
+\begin{theorem}[Exact simplex realization of target covariance]
+\label{thm:simplex-realization}
+Let $S_\star\succeq 0$ be a target centered contrast covariance of rank $r$. If $K=r+1$, then there exist codes
+\[
+c_1,\dots,c_K\in\R^p
+\]
+such that
+\begin{align}
+\frac1K\sum_{\alpha=1}^K c_\alpha &= 0,
+\label{eq:simplex-realization-mean}\\
+\frac1K\sum_{\alpha=1}^K c_\alpha c_\alpha^\top &= S_\star.
+\label{eq:simplex-realization-cov}
+\end{align}
+One explicit construction is obtained by taking regular-simplex vertices
+\[
+v_1,\dots,v_{r+1}\in\R^r
+\]
+with
+\[
+\frac1{r+1}\sum_{\alpha=1}^{r+1} v_\alpha = 0,
+\qquad
+\frac1{r+1}\sum_{\alpha=1}^{r+1} v_\alpha v_\alpha^\top = \frac1r I_r,
+\]
+factoring
+\[
+S_\star = U\Lambda U^\top
+\]
+with $U\in\R^{p\times r}$ and $\Lambda\in\R^{r\times r}$ diagonal positive semidefinite, and setting
+\[
+c_\alpha := \sqrt r\, U\Lambda^{1/2}v_\alpha.
+\]
+\end{theorem}
+
+\begin{proof}
+Using the simplex identities,
+\[
+\frac1K\sum_{\alpha=1}^K c_\alpha
+=
+\sqrt r\, U\Lambda^{1/2}
+\left(
+\frac1K\sum_{\alpha=1}^K v_\alpha
+\right)
+=
+0,
+\]
+which gives \eqref{eq:simplex-realization-mean}. Also
+\[
+\frac1K\sum_{\alpha=1}^K c_\alpha c_\alpha^\top
+=
+r\,U\Lambda^{1/2}
+\left(
+\frac1K\sum_{\alpha=1}^K v_\alpha v_\alpha^\top
+\right)
+\Lambda^{1/2}U^\top
+=
+U\Lambda U^\top
+=
+S_\star,
+\]
+which gives \eqref{eq:simplex-realization-cov}.
+\end{proof}
+
+\begin{corollary}[Finite-$K$ quadrature interpretation]
+\label{cor:quadrature}
+For $K=r+1$, every target rank-$r$ local covariance can be represented \emph{exactly} by a centered simplex code. In particular, with $K=4$, every rank-$3$ target covariance can be implemented exactly by a tetrahedral design.
+\end{corollary}
+
+\section{Concrete Design Under a Per-Member Deviation Budget}
+
+We now formulate the design problem suggested by the user:
+
+\begin{quote}
+estimate uncertainty well, while keeping the ensemble mean accurate by ensuring that individual members do not drift too far from the mean.
+\end{quote}
+
+In the local theory, the natural integrated deviation of member $\alpha$ is
+\[
+\mathcal E_\alpha := \int \|\delta_\alpha(x,t)\|^2\,\mu(\mathrm dx,\mathrm dt)
+=
+\|W^{1/2}c_\alpha\|^2.
+\]
+This is the squared distance of member $\alpha$ from the collapsed mean, measured in the integrated predictive metric induced by the problem.
+
+Define the realized output deviations
+\[
+z_\alpha := W^{1/2}c_\alpha,
+\qquad
+\frac1K\sum_{\alpha=1}^K z_\alpha = 0,
+\qquad
+Q := \frac1K\sum_{\alpha=1}^K z_\alpha z_\alpha^\top.
+\]
+Then
+\[
+\mathcal E_\alpha = \|z_\alpha\|^2,
+\qquad
+\tr(Q)=\frac1K\sum_{\alpha=1}^K \mathcal E_\alpha.
+\]
+
+\begin{theorem}[Optimal robust uncertainty under a per-member budget]
+\label{thm:per-member-budget}
+Fix $r\in\{1,\dots,K-1\}$ and a per-member deviation budget $\tau>0$. Consider the class of centered designs satisfying
+\[
+\|z_\alpha\|^2 \le \tau,
+\qquad
+\alpha=1,\dots,K.
+\]
+Then the $r$th coverage eigenvalue of the realized output covariance obeys
+\begin{equation}
+\lambda_r(Q)\le \frac{\tau}{r}.
+\label{eq:per-member-upper}
+\end{equation}
+If $K=r+1$, this bound is tight and is attained by a centered regular simplex with
+\[
+\|z_1\|^2=\cdots=\|z_K\|^2=\tau,
+\qquad
+Q=\frac{\tau}{r}P_r,
+\]
+where $P_r$ is the orthogonal projector onto an $r$-dimensional subspace.
+\end{theorem}
+
+\begin{proof}
+Because $Q\succeq 0$,
+\[
+\lambda_r(Q)\le \frac{1}{r}\sum_{i=1}^r \lambda_i(Q)\le \frac{1}{r}\tr(Q).
+\]
+Also,
+\[
+\tr(Q)=\frac1K\sum_{\alpha=1}^K \|z_\alpha\|^2 \le \tau.
+\]
+Combining the two displays gives \eqref{eq:per-member-upper}.
+
+For tightness when $K=r+1$, choose simplex vertices $v_1,\dots,v_{r+1}\in\R^r$ with
+\[
+\frac1K\sum_{\alpha=1}^K v_\alpha = 0,
+\qquad
+\frac1K\sum_{\alpha=1}^K v_\alpha v_\alpha^\top = \frac1r I_r,
+\qquad
+\|v_\alpha\|^2=1.
+\]
+Set
+\[
+z_\alpha := \sqrt{\tau}\,U_r v_\alpha,
+\]
+where $U_r\in\R^{m\times r}$ has orthonormal columns spanning the chosen subspace. Then each $\|z_\alpha\|^2=\tau$, the design is centered, and
+\[
+Q=\frac1K\sum_{\alpha=1}^K z_\alpha z_\alpha^\top
+=
+\tau U_r\left(\frac1r I_r\right)U_r^\top
+=
+\frac{\tau}{r}P_r.
+\]
+Hence the top $r$ eigenvalues of $Q$ are all equal to $\tau/r$.
+\end{proof}
+
+\begin{corollary}[Best-possible finite-$K$ balance]
+\label{cor:best-balance}
+Under the local theory, centered simplex designs are simultaneously optimal in the following sense:
+\begin{itemize}
+\item they preserve the ensemble mean at first order;
+\item among all designs with the same target covariance, they minimize the worst member deviation from the mean;
+\item under a fixed worst-member budget $\tau$, they maximize the smallest covered uncertainty eigenvalue.
+\end{itemize}
+\end{corollary}
+
+\begin{proof}
+The first point follows from centering. The second follows from Theorem~\ref{thm:simplex-realization} together with the trivial lower bound
+\[
+\max_\alpha \|z_\alpha\|^2 \ge \frac1K\sum_{\alpha=1}^K \|z_\alpha\|^2 = \tr(Q),
+\]
+with equality exactly when all member norms are equal, which is realized by the simplex construction. The third point is Theorem~\ref{thm:per-member-budget}.
+\end{proof}
+
+\begin{remark}[Antithetic vs. simplex]
+There is no contradiction between the previous rank-one antithetic optimum and the present simplex optimum. They solve different problems:
+\begin{itemize}
+\item antithetic rank-one codes maximize \emph{total} disagreement at fixed trace budget;
+\item simplex codes maximize \emph{robust multi-directional coverage} at fixed worst-member deviation.
+\end{itemize}
+So if the goal is uncertainty estimation with finite-$K$ stability of the ensemble mean, the simplex criterion is closer to the right design problem.
+\end{remark}
+
+\subsection*{Explicit parameter-space design}
+
+Assume the integrated Gramian has eigendecomposition
+\[
+W=\sum_{i=1}^p \lambda_i e_i e_i^\top,
+\qquad
+\lambda_1\ge\cdots\ge\lambda_p\ge 0.
+\]
+Fix a target rank $r\le K-1$ and simplex vertices $v_\alpha\in\R^r$ as above. Define
+\begin{equation}
+c_\alpha
+:=
+\sqrt{\tau}
+\sum_{i=1}^r \lambda_i^{-1/2} (v_\alpha)_i e_i.
+\label{eq:explicit-code}
+\end{equation}
+Then
+\[
+z_\alpha = W^{1/2}c_\alpha = \sqrt{\tau}\sum_{i=1}^r (v_\alpha)_i e_i,
+\]
+so the members are centered, each member has integrated deviation exactly $\tau$, and the realized output covariance is
+\[
+Q=\frac{\tau}{r}\sum_{i=1}^r e_i e_i^\top.
+\]
+Thus the concrete prescription is:
+\begin{enumerate}
+\item estimate $W$ on a calibration set;
+\item choose $r\le K-1$ according to how many uncertainty directions one wants to protect;
+\item build a centered simplex in $\R^r$;
+\item map it back to code space with the inverse-square-root weighting in \eqref{eq:explicit-code}.
+\end{enumerate}
+
+\begin{remark}
+This gives a precise mathematical version of the intuition ``for $K=4$, what matters is whether everyone drifts together or in different directions.'' Four members are not enough to sample a rich high-dimensional uncertainty distribution in an unstructured Monte Carlo sense, but they \emph{are} enough to implement a carefully designed low-rank quadrature rule: one antithetic pair if one wants a single dominant uncertainty axis, or a tetrahedral code if one wants balanced coverage of three axes.
+\end{remark}
+
+\section{Takeaways}
+
+\begin{enumerate}
+\item Diversity amplitude by itself is not the right primitive. The exact identity
+\[
+\mathrm{Amp}^{(1)}=\|\bar\delta\|^2+\mathrm{Dis}^{(1)}
+\]
+shows that amplitude splits into a harmful consensus part and a useful contrast part.
+\item For finite $K$, geometry matters through pairwise correlations. With the same amplitude, one can get either zero disagreement (all directions aligned) or zero mean drift (simplex-like centered designs).
+\item There are at least two mathematically distinct design goals:
+\begin{itemize}
+\item maximize total disagreement: rank-one, antithetic, concentrated;
+\item maximize robust multi-direction coverage: spread the budget across several top Gramian modes according to the inverse-spectrum rule in Theorem~\ref{thm:robust-coverage}, or equivalently use simplex codes under a worst-member budget as in Theorem~\ref{thm:per-member-budget}.
+\end{itemize}
+\item For $K=4$, the right picture is not ``four Monte Carlo samples of a broad ensemble law'', but ``a small quadrature rule whose geometry should be explicitly designed''; by Theorem~\ref{thm:simplex-realization}, tetrahedral codes exactly realize any target rank-$3$ local covariance.
+\end{enumerate}
+
+\end{document}

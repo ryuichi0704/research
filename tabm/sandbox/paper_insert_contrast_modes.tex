@@ -1,0 +1,181 @@
+\subsection{Linearized Symmetry Breaking: Consensus and Contrast Modes}
+
+Proposition~\ref{prop:paper-collapse-baseline} identifies the correct deterministic reference trajectory on the permutation-symmetric diagonal. The next question is how small asymmetries evolve around that diagonal, and which ones generate useful disagreement rather than merely perturbing the common predictor.
+
+Write the collapsed trajectory as
+\[
+(\rho_t^\star,q_t^\star)
+\qquad
+\text{with}
+\qquad
+q_t^\star=(u_t^\star,v_t^\star),
+\]
+so that
+\[
+\dot\rho_t^\star = K\,\mathcal B(\rho_t^\star,q_t^\star),
+\qquad
+\dot q_t^\star = \mathcal C(\rho_t^\star,q_t^\star),
+\]
+where $\mathcal C:=(\mathcal C_u,\mathcal C_v)$. Assume for this subsection that $\mathcal B$, $\mathcal C$, and the predictor map $H$ from \eqref{eq:member-state-predictor} are continuously differentiable along this path. Denote the corresponding derivatives by
+\[
+B_\rho(t):=D_\rho\mathcal B(\rho_t^\star,q_t^\star),
+\quad
+B_q(t):=D_q\mathcal B(\rho_t^\star,q_t^\star),
+\]
+\[
+C_\rho(t):=D_\rho\mathcal C(\rho_t^\star,q_t^\star),
+\quad
+C_q(t):=D_q\mathcal C(\rho_t^\star,q_t^\star),
+\]
+and
+\[
+J_\rho(t,x):=D_\rho H(x;\rho_t^\star,q_t^\star),
+\qquad
+J_q(t,x):=D_q H(x;\rho_t^\star,q_t^\star).
+\]
+
+Consider a perturbation of the full $K$-member system of the form
+\[
+\rho_t = \rho_t^\star + \varepsilon \eta_t + o(\varepsilon),
+\qquad
+q_{\alpha,t} = q_t^\star + \varepsilon \zeta_{\alpha,t} + o(\varepsilon).
+\]
+Decompose the member perturbations into their empirical mean and centered part:
+\[
+\bar\zeta_t:=\frac{1}{K}\sum_{\alpha=1}^K \zeta_{\alpha,t},
+\qquad
+\xi_{\alpha,t}:=\zeta_{\alpha,t}-\bar\zeta_t,
+\qquad
+\sum_{\alpha=1}^K \xi_{\alpha,t}=0.
+\]
+
+\begin{theorem}[Consensus/contrast decomposition around the collapsed diagonal]
+\label{thm:paper-consensus-contrast}
+The linearized dynamics split into two invariant sectors:
+\begin{align}
+\dot\eta_t
+&=
+K\,B_\rho(t)\eta_t + K\,B_q(t)\bar\zeta_t,
+\label{eq:paper-lin-rho}\\
+\dot{\bar\zeta}_t
+&=
+C_\rho(t)\eta_t + C_q(t)\bar\zeta_t,
+\label{eq:paper-lin-mean}\\
+\dot\xi_{\alpha,t}
+&=
+C_q(t)\xi_{\alpha,t},
+\qquad
+\alpha=1,\dots,K.
+\label{eq:paper-lin-contrast}
+\end{align}
+Moreover, the member predictors satisfy
+\begin{align}
+f_\alpha(x,t)-\bar f(x,t)
+=
+\varepsilon J_q(t,x)\xi_{\alpha,t} + o(\varepsilon),
+\label{eq:paper-lin-disagreement}
+\end{align}
+whereas the ensemble mean satisfies
+\begin{align}
+\bar f(x,t)
+=
+H(x;\rho_t^\star,q_t^\star)
+\,+\,
+\varepsilon\bigl[J_\rho(t,x)\eta_t + J_q(t,x)\bar\zeta_t\bigr]
+\,+\,
+o(\varepsilon).
+\label{eq:paper-lin-mean-predictor}
+\end{align}
+Hence only the centered contrast modes $\{\xi_{\alpha,t}\}_{\alpha=1}^K$ contribute to disagreement at first order, while the consensus mode $(\eta_t,\bar\zeta_t)$ controls the first-order shift of the common predictor.
+\end{theorem}
+
+\begin{proof}
+Linearizing the full system
+\[
+\dot\rho_t = \sum_{\alpha=1}^K \mathcal B(\rho_t,q_{\alpha,t}),
+\qquad
+\dot q_{\alpha,t} = \mathcal C(\rho_t,q_{\alpha,t})
+\]
+around the diagonal trajectory $(\rho_t^\star,q_t^\star,\dots,q_t^\star)$ gives
+\[
+\dot\eta_t
+=
+\sum_{\alpha=1}^K \bigl(B_\rho(t)\eta_t + B_q(t)\zeta_{\alpha,t}\bigr)
+=
+K\,B_\rho(t)\eta_t + K\,B_q(t)\bar\zeta_t,
+\]
+and
+\[
+\dot\zeta_{\alpha,t}
+=
+C_\rho(t)\eta_t + C_q(t)\zeta_{\alpha,t}.
+\]
+Averaging the second display over $\alpha$ yields \eqref{eq:paper-lin-mean}, and subtracting the averaged equation from the $\alpha$th equation yields \eqref{eq:paper-lin-contrast}. Linearizing the predictor map gives
+\[
+f_\alpha(x,t)
+=
+H(x;\rho_t^\star,q_t^\star)
+\,+\,
+\varepsilon\bigl[J_\rho(t,x)\eta_t + J_q(t,x)\zeta_{\alpha,t}\bigr]
+\,+\,
+o(\varepsilon),
+\]
+from which \eqref{eq:paper-lin-disagreement} and \eqref{eq:paper-lin-mean-predictor} follow after writing $\zeta_{\alpha,t}=\bar\zeta_t+\xi_{\alpha,t}$ and averaging.
+\end{proof}
+
+Theorem~\ref{thm:paper-consensus-contrast} has a sharp design consequence. If one wants disagreement without perturbing the common predictor, then the perturbation budget should be placed entirely in the centered contrast sector.
+
+Let $\Phi_C(t,s)$ denote the fundamental solution of \eqref{eq:paper-lin-contrast}, let
+\[
+\Sigma_0
+:=
+\frac{1}{K}\sum_{\alpha=1}^K \xi_{\alpha,0}\xi_{\alpha,0}^\top,
+\]
+and define the propagated contrast Gram matrix
+\[
+G_t(x)
+:=
+\Phi_C(t,0)^\top J_q(t,x)^\top J_q(t,x)\Phi_C(t,0).
+\]
+
+\begin{corollary}[Leading disagreement depends only on contrast covariance]
+\label{cor:paper-contrast-cov}
+If the initial perturbation is centered in the sense that
+\[
+\eta_0=0,
+\qquad
+\bar\zeta_0=0,
+\]
+then
+\begin{equation}
+\mathrm{Dis}(x,t)
+=
+\varepsilon^2 \operatorname{tr}\!\bigl(G_t(x)\Sigma_0\bigr)
+\,+\,
+o(\varepsilon^2).
+\label{eq:paper-contrast-cov}
+\end{equation}
+Thus the leading disagreement depends on the initialization only through the empirical covariance of the contrast codes.
+\end{corollary}
+
+\begin{proof}
+Under $\eta_0=0$ and $\bar\zeta_0=0$, the homogeneous system \eqref{eq:paper-lin-rho}--\eqref{eq:paper-lin-mean} implies $\eta_t\equiv 0$ and $\bar\zeta_t\equiv 0$. Hence
+\[
+\xi_{\alpha,t}=\Phi_C(t,0)\xi_{\alpha,0}
+\]
+and
+\[
+f_\alpha(x,t)-\bar f(x,t)
+=
+\varepsilon J_q(t,x)\Phi_C(t,0)\xi_{\alpha,0} + o(\varepsilon).
+\]
+Substituting this into the definition of $\mathrm{Dis}(x,t)$ yields \eqref{eq:paper-contrast-cov}.
+\end{proof}
+
+Equation~\eqref{eq:paper-contrast-cov} turns small-budget diversity design into a covariance-design problem. In particular, under the trace constraint
+\[
+\operatorname{tr}(\Sigma_0)\le \sigma^2,
+\]
+the optimal leading-order disagreement coefficient is $\sigma^2\lambda_{\max}(G_t(x))$ and is achieved by a rank-one antithetic code: half the heads are initialized with $+\sigma v_{\max}$ and half with $-\sigma v_{\max}$, where $v_{\max}$ is a top eigenvector of $G_t(x)$. This shows that, near the collapsed diagonal, iid isotropic randomness is generally suboptimal, and increasing $K$ by itself does not increase the best achievable first-order disagreement coefficient.
+
+Furthermore, Theorem~\ref{thm:paper-consensus-contrast} implies that centered contrast perturbations do not move the ensemble mean predictor at order $\varepsilon$. Consequently, under the additional mild assumption that the solution map and the loss are $C^2$ in the perturbation scale, the ensemble risk of the mean predictor changes only at order $O(\varepsilon^2)$. So, to leading order, one can increase disagreement without paying a first-order price in the central predictor.
