@@ -213,3 +213,6 @@ __marimo__/
 .DS_Store
 *latexmk
 *.fls
+
+# tabpfn generated experiment artifacts
+tabpfn/codes/results/
