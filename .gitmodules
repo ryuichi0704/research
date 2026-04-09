@@ -1,0 +1,3 @@
+[submodule "tabpfn/codes/learned/TFM-Playground"]
+	path = tabpfn/codes/learned/TFM-Playground
+	url = https://github.com/automl/TFM-Playground.git
