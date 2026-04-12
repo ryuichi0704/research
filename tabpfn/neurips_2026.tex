@@ -41,19 +41,26 @@
 \newcommand{\KL}{\mathrm{KL}}
 \newcommand{\Dtwo}{\mathrm{D}_2}
 \newcommand{\I}{\mathrm{I}}
+\newcommand{\JS}{\mathrm{JS}}
 \newcommand{\TV}{\mathrm{TV}}
+\newcommand{\Ber}{\mathrm{Bernoulli}}
+\newcommand{\BetaDist}{\mathrm{Beta}}
+\newcommand{\BetaBin}{\mathrm{BetaBin}}
+\newcommand{\Bin}{\mathrm{Bin}}
+\newcommand{\Poi}{\mathrm{Poisson}}
+\newcommand{\Var}{\mathrm{Var}}
 \newcommand{\cT}{\mathcal{T}}
 \newcommand{\cZ}{\mathcal{Z}}
+\newcommand{\cO}{\mathcal{O}}
 \newcommand{\cY}{\mathcal{Y}}
-\newcommand{\BetaDist}{\mathrm{Beta}}
-\newcommand{\dd}{\,\mathrm{d}}
+\newcommand{\Rbb}{\mathbb{R}}
+\newcommand{\ind}{\mathbf{1}}
 \newcommand{\tr}{\mathrm{tr}}
 \newcommand{\te}{\mathrm{te}}
-\newcommand{\soft}{\mathrm{soft}}
-\newcommand{\hard}{\mathrm{hard}}
-\newcommand{\topk}{\mathrm{top}\text{-}k}
+\newcommand{\klb}{\mathrm{kl}}
+\newcommand{\dd}{\,\mathrm{d}}
 
-\title{Support-Adaptive Specialist Merging for PFNs}
+\title{Boundary-Aware Synthetic Prior Libraries for PFNs}
 
 \author{Anonymous Authors}
 
@@ -62,767 +69,2822 @@
 \maketitle
 
 \begin{abstract}
-Prior-data fitted networks (PFNs) are pretrained on synthetic task priors, so deployment under prior shift is unavoidable. Broad synthetic prior mixtures are therefore attractive and often strong, but a single monolithic broad-prior PFN need not be the best finite model for every realized task. We propose a different design: first train a broad base PFN, then fine-tune a small set of specialist PFNs on structured generator families such as SCM-only, Tree-only, and NN-only data, and adapt only after observing the task support. The key theoretical object is not the soft specialist portfolio by itself, which is simply the hierarchical-Bayes reference, but the \emph{support-induced mixed-prior objective} that the realized task defines over those specialists. Support evidence produces a posterior over specialists, and that posterior in turn specifies a task-adapted mixed training surrogate. We prove that if specialist PFNs are fine-tuned from a shared broad base checkpoint and remain in a common locally quadratic basin, then support-weighted linear merging exactly minimizes that surrogate in the ideal case and remains stable under scorer error and local nonquadraticity, with suboptimality controlled by a quadratic penalty in weight mismatch plus a local remainder. A complementary learned-portfolio decomposition separates routing error, within-specialist approximation error, and merge compression. Exact Beta--Bernoulli calculations validate the broad-coverage picture and motivate the learned benchmark. The resulting design rule is simple: pretrain broadly, specialize by generator family, infer a support posterior, and if compute is tight merge the relevant specialists back into one task-adapted PFN.
+PFNs are pretrained on synthetic task libraries, so deployment robustness is a prior-design problem. We argue that the central question is not merely whether to mix broadly, but which family distinctions are safe to collapse. Broad mixtures hedge deployment uncertainty, yet in rare-event boundary regimes collapsing across mismatched families can change the one-step predictive tail law. We first give a minimal oracle split/merge calculus: among prompt-only predictors the collapsed predictive is Bayes-optimal, and the irreducible price of hiding family structure is the prompt-conditioned predictive distinctiveness $\I(F;Y\mid O)$, equivalently a generalized Jensen--Shannon divergence between family predictives after the prompt. Bucket refinement gains exactly the conditional mutual information it reveals, while practical bucketed PFNs trade router cross-entropy against within-bucket expert KL. We then prove a sharp boundary theory. In Beta--Bernoulli tasks, collapsed mixtures inherit the most singular boundary component, fixed-count mismatches already force the slow $n^{-(1+c)}$ law, and matched boundary profiles restore the regular $n^{-2}$ regime. A regular-variation extension shows that this is a general rare-event phenomenon, and zero-count slopes provide an operational diagnostic for boundary-aware bucketing. Exact closed-form experiments verify the phase transition and the benefit of preserving shared-profile buckets. The resulting design rule is asymmetric: mix broadly for coverage, but in rare-event regimes route across boundary profiles rather than collapsing them.
 \end{abstract}
 
 \section{Introduction}
 
-Prior-data fitted networks (PFNs) learn predictive rules by pretraining on synthetic tasks rather than by fitting one dataset at a time \citep{muller2022,nagler2023}. Once PFNs are used as tabular foundation models, the central modeling question becomes a prior-design question: what synthetic tasks should be seen during pretraining, and how should they be organized? Broad synthetic mixtures, shift-aware priors, and expert-style variants have all been proposed \citep{helli2024,zhang2025,xu2025mixturepfn,grinsztajn2025tabpfn25,qu2026tabiclv2}, and a broad library is often the right hedge against the fact that the deployment prior is unknown at training time.
+Prior-data fitted networks (PFNs) learn predictive rules by pretraining on synthetic tasks rather than by fitting one dataset at a time \citep{muller2022,nagler2023}. Once PFNs are used as tabular foundation models, the central modeling choice becomes \emph{synthetic-prior design}: which task generators should be included, and how should they be combined? Recent systems increasingly rely on broad mixed libraries, shift-aware synthetic tasks, or specialized experts \citep{helli2024,zhang2025,xu2025mixturepfn,grinsztajn2025tabpfn25,qu2026tabiclv2}, but the design rule remains unclear.
 
-But broad is not the same thing as monolithic. A single PFN trained on a very broad library can be an excellent hedge and still fail to be the best finite-capacity approximation for each realized task. That gap is especially natural when the broad library itself is heterogeneous, for example mixing structural-causal, tree-based, and neural-network-style generators. In that setting, a single broad PFN must approximate several different posterior mechanisms at once, while a few generator-specific specialists may each be easier to fit accurately.
+This is a PFN-specific misspecification problem. An oracle PFN returns the Bayes posterior predictive under the training prior, so deployment error under prior shift splits into an irreducible synthetic-prior term and any additional neural amortization error. We therefore study oracle PFNs first. The key question is not whether broad synthetic libraries are useful; they are. The sharper question is which family distinctions can be safely \emph{collapsed} once those families have been placed into the same library.
 
-This suggests a two-stage design. First pretrain a broad base PFN on the full synthetic library. Then fine-tune a small number of specialists, for example an SCM-only specialist, a Tree-only specialist, and an NN-only specialist, all starting from the same base checkpoint. At deployment time, do not ask which prior should have been chosen in advance. Instead, use the observed support data to decide how much each specialist should contribute to the realized task.
+That distinction matters because global mixing and local collapse are different decisions. A broad mixture is a hedge device. Collapse is a visibility decision about whether family structure remains explicit after conditioning on the prompt. At the oracle level this creates a subtle negative result: among prompt-only predictors, the collapsed predictive is already Bayes-optimal. So routing cannot help merely by re-expressing hidden family labels. But this does \emph{not} make collapse harmless. It means that the design question is two-stage: hedge globally by covering plausible families, then decide which distinctions are too dangerous to hide.
 
-This leads to a much cleaner object than ex ante prior partitioning. For a realized support set $D_n$, every specialist PFN induces a support evidence score: its prior weight plus its cumulative prequential log loss on the support. These evidence scores can be used in three progressively cheaper ways:
+Our main answer is sharp and asymmetric. In regular identifiable regimes, prior mismatch repairs quickly and the one-step oracle gap has the benign $n^{-2}$ tail. In rare-event boundary regimes, the story changes qualitatively: collapsing across mismatched families can preserve the wrong small-count boundary profile and thereby the wrong one-step tail law, even when the cumulative hedge budget remains small. This failure mode, not the generic statement that ``broad mixtures are good,'' is the paper's main technical contribution.
+
+Our contribution has two layers, in deliberate order. First and most importantly, we characterize the rare-event failure mode. In Beta--Bernoulli tasks, we show that collapsed mixtures inherit the most singular boundary component, that mismatched fixed-count profiles already force the slow $n^{-(1+c)}$ regime, that matched profiles restore the regular $n^{-2}$ tail, and that these phenomena extend beyond conjugacy through boundary regular variation. This yields an operational rule: in rare-event regimes, route by boundary profile rather than by unconditional family diversity alone. Second, we give a minimal oracle design calculus for the surrounding decisions: broad mixtures hedge globally, prompt-conditioned predictive distinctiveness $\I(F;Y\mid O)$ is the irreducible local price of hiding family structure, bucket refinement gains exactly the predictive information it reveals, and practical specialization trades router error against within-bucket expert mismatch.
+
+At a high level, the paper answers three design questions.
 \begin{enumerate}[leftmargin=18pt]
-\item \textbf{Soft aggregation}: weight all specialists by posterior evidence.
-\item \textbf{Hard selection}: choose the single best specialist under that posterior.
-\item \textbf{Support-adaptive merge}: use the same posterior weights to synthesize several specialists into one task-adapted checkpoint.
+\item \textbf{Which family distinctions are dangerous to collapse?} In rare-event regimes the dangerous object is the small-count boundary profile, of which the boundary exponent is only the first observable summary. Collapsing across mismatched profiles can change the predictive tail law from the regular $n^{-2}$ regime to the singular $n^{-(1+c)}$ regime.
+\item \textbf{What does the oracle split/merge calculus actually say?} Broad mixtures hedge deployment uncertainty, but the local price of hiding family structure is exactly $\I(F;Y\mid O)$. Bucket refinement gains the predictive information it reveals, and practical bucketing trades router cross-entropy against within-bucket expert KL.
+\item \textbf{How should these claims be validated empirically?} We provide exact closed-form validations of the hedge, boundary-failure, and phase-transition claims, and we spell out a learned-PFN benchmark protocol whose primary diagnostics are rare-event calibration quantities rather than average accuracy alone.
 \end{enumerate}
 
-The first contribution of this paper is to identify the right theoretical object after the support has been observed. Conditioning on a latent specialist index is standard hierarchical Bayes, but in PFNs it has an additional consequence: the resulting support posterior does not only rank specialists, it induces a \emph{task-specific mixed-prior training objective} over synthetic generator families. That induced objective is the bridge between prior design and deployment-time model synthesis.
-
-The second contribution is to explain where model merging belongs in this story. Model merging is \emph{not} the exact mixed-prior Bayes predictor in general; the latter uses support-dependent output weights. But if the specialist PFNs are fine-tuned from a shared broad base checkpoint and remain in a common locally quadratic basin, then support-weighted linear merging approximately solves the support-induced mixed training objective, with a clean stability bound in the scorer mismatch and the deviation from that common basin. When the local curvatures differ, Fisher-weighted merging is the principled second-order correction. This connects PFN prior design directly to model soups \citep{wortsman2022}, task arithmetic \citep{ilharco2022task}, Fisher-weighted averaging \citep{matena2022fisher}, and re-basin arguments for mergeability \citep{entezari2022,ainsworth2022git}.
-
-The message is deliberately different from ``guess the right prior family.'' Broad pretraining remains important, but it should produce a strong base model rather than the final deployment answer. Then train a small specialist basis. Rank specialists by support evidence. Use soft aggregation as the exact hierarchical-Bayes reference. Then decide how much compute you can spend: keep the full soft portfolio, truncate to top-$k$, hard-select one model, or merge several specialists back into a single task-adapted checkpoint of unchanged size. In short, prior design becomes a broad-to-specialist training pipeline followed by post-support adaptation.
-
-\paragraph{Contributions.}
-\begin{enumerate}[leftmargin=18pt]
-\item We formalize a broad-base-plus-specialists view of PFN prior design and identify support evidence as the posterior over generator specialists; pairwise evidence gaps are posterior log-odds whose expectation accumulates sequential KL separation.
-\item We show that this support posterior induces a task-specific mixed-prior training objective, and we prove that support-adaptive linear merging is exact in a common quadratic basin and otherwise incurs only a quadratic penalty in weight mismatch plus a local nonquadratic remainder.
-\item We give an approximation hierarchy for learned support-adaptive PFNs: routing error, within-specialist approximation error, and merge compression; Fisher merging and weighted task vectors appear as second- and first-order refinements.
-\item We provide exact Beta--Bernoulli validations of broad coverage and support-adaptive deployment, and we specify the learned benchmark in which a broad PFN is specialized into SCM-only, Tree-only, and NN-only variants.
-\end{enumerate}
+The oracle calculus surrounding the second question relies on classical sequential log-loss identities under misspecification \citep{clarke1990,amari1993,feder2021,morningstar2022,margossian2024,agrawal2025}, but the rare-event boundary theory is new. Throughout, we work at the oracle level first and use exact closed-form validations to isolate prior-design effects before finite-capacity or optimization issues enter. The roadmap is correspondingly simple: Section~\ref{sec:oracle-design} gives only the minimal split/merge calculus needed later, Section~\ref{sec:rare-events} contains the paper's main rare-event failure results, and Section~\ref{sec:experiments} validates those claims and specifies the learned-PFN benchmark suggested by the theory.
 
 \section{Related Work}
 \label{sec:related}
 
-Our starting point is the PFN view that pretraining learns a Bayes posterior predictive under a synthetic task prior \citep{muller2022,nagler2023,muller2025position}. This explains why PFNs can be strong small-data predictors \citep{hollmann2025}, but it does not by itself answer how one should organize multiple priors when the deployment family is unknown.
+Our starting point is the PFN view that pretraining learns a Bayes posterior predictive under a synthetic task prior \citep{muller2022,nagler2023,muller2025position}. This perspective explains why PFNs can be strong small-data predictors \citep{hollmann2025}, but it does not by itself answer how a tabular foundation model should organize a \emph{library} of heterogeneous synthetic families.
 
-One line of work strengthens a \emph{single} PFN by changing the synthetic library itself. Drift-Resilient TabPFN builds a temporal-shift prior on top of SCM generators \citep{helli2024}. MITRA studies which synthetic priors should be mixed and trains one stronger model on that curated mixture \citep{zhang2025}. TabPFN-2.5 and TabICLv2 continue this trend toward broader generators, larger-scale pretraining, and stronger single-model deployment \citep{grinsztajn2025tabpfn25,qu2026tabiclv2}. Our paper starts from the same premise that broad coverage is valuable, but draws a different conclusion: a broad library should produce a strong \emph{base} PFN, after which deployment should adapt across a small basis of generator specialists rather than commit to one monolithic broad model.
+On the systems side, recent tabular foundation models increasingly broaden or adapt their synthetic task libraries. Drift-Resilient TabPFN adds temporally structured priors for shift robustness \citep{helli2024}; MITRA emphasizes mixed synthetic priors and prior ``distinctiveness'' \citep{zhang2025}; TabPFN-2.5 and TabICLv2 continue the trend toward broader libraries and larger-scale tabular foundation models \citep{grinsztajn2025tabpfn25,qu2026tabiclv2}; and MixturePFN studies specialized experts and learned routing for tabular PFNs \citep{xu2025mixturepfn}. In MoE language, these systems differ mainly in how they choose expert-specific training distributions and how they route among them. Our paper is complementary to this empirical line: we do not propose a new architecture, but instead ask which family distinctions are intrinsically worth keeping explicit, which can be safely collapsed, and when explicit bucketing or routing is worth its complexity. In particular, our prompt-conditioned quantity $\E[\JS_{w(O)}(q_1,\dots,q_M)] = \I(F;Y\mid O)$ can be read as a theoretical sharpening of ``distinctiveness'' from an unconditional prior notion to an observable post-prompt predictive one.
 
-The closest systems paper to ours is MixturePFN \citep{xu2025mixturepfn}, which brings mixture-of-experts style routing \citep{jacobs1991} to tabular PFNs. MixturePFN clusters the realized training dataset, builds a pool of prompters/experts tied to those clusters, and routes test points to the selected expert at inference; its context-aware fine-tuning further specializes experts to the realized dataset via adapters. That is a different operating point from ours. MixturePFN is a routed multi-expert serving system whose active expert pool depends on the realized dataset and remains explicit at inference. By contrast, we keep a \emph{small fixed} set of specialists defined by generator families such as SCM-only, Tree-only, and NN-only, infer a single support posterior over those specialists once per task, and optionally compress that posterior into one fixed-size checkpoint by model merging. In short, MixturePFN is closest to pointwise routing over dataset clusters, whereas our object is task-level support adaptation and compression over prior specialists.
+At a more abstract statistical level, the prompt-only collapse result is closely related to Bayesian model averaging under log loss \citep{hoeting1999}: when the latent model index is hidden, the model-averaged predictive is already Bayes-optimal among rules that only see the observable data. Our point is different. For PFNs, the deployment question is not whether averaging is Bayes-optimal, but how large the gap to a family-aware oracle can remain after the prompt and which family distinctions are still worth preserving explicitly. The quantity $\I(F;Y\mid O)$ answers exactly that post-prompt question.
 
-There is also a practical ecosystem around post-hoc combinations of TabPFN models. Prior Labs' AutoTabPFN tooling already exposes post-hoc ensembles over multiple TabPFN variants, but the public extension is documented and implemented as a random search over the TabPFN hyperparameter space followed by AutoGluon weighting, rather than as an explicit switch over synthetic prior families \citep{priorlabs2025ensembles}. TabPFN-2.5 then introduces a distillation engine that compresses a strong PFN into a fast MLP or tree ensemble for deployment \citep{grinsztajn2025tabpfn25}. These are complementary rather than competing with our goal. Post-hoc ensembles show that simply running several PFNs is already useful in practice, so our novelty is not ``multiple PFNs'' by itself. Distillation, in turn, is a downstream compression step for a chosen PFN predictor. Our contribution lives one level earlier: how to construct a stronger support-adaptive PFN object in the first place, before any optional serving-time distillation.
+Our routed-library discussion is also complementary to classical mixture-of-experts work \citep{jacobs1991}, which studies how experts and gates partition inputs. We do not analyze the representational advantages of any specific routing architecture. Instead we isolate a PFN-specific statistical question: when does keeping a synthetic family bucket explicit reduce approximation difficulty enough to justify router error and expert specialization?
 
-At the statistical level, hierarchical Bayes and log-loss aggregation provide the reference identities behind our support posterior \citep{hoeting1999,feder2021}. We use those facts only as the starting point. Our theoretical claim begins one step later: for PFNs, the support posterior over prior-specialist models induces a task-specific mixed training objective, and model merging can approximately solve that induced objective when specialists share a broad-base basin.
+Methodologically, our paper is closest to sequential log-loss prediction under misspecification \citep{clarke1990,amari1993,feder2021,morningstar2022,agrawal2025}. We use those identities as scaffolding, but the emphasis here is different. The first layer of results is a PFN-specific synthesis of misspecified-Bayes accounting for mixed prior libraries. The new technical ingredients beyond that scaffolding are a prompt-conditioned interpretation of collapse cost for PFN family libraries, a practical bucketed-expert tradeoff, and a boundary-profile analysis that explains rare-event failure modes of collapsed mixtures.
 
-Finally, our model-merge section connects PFN prior specialization to the modern model-merging literature. Model soups justify weight averaging inside a common low-error basin \citep{wortsman2022}; task arithmetic interprets fine-tuning deltas as approximately additive task vectors \citep{ilharco2022task}; Fisher-weighted averaging gives a second-order merge rule \citep{matena2022fisher}; and re-basin work clarifies when independent models can be aligned well enough to merge \citep{entezari2022,ainsworth2022git}. We use those ideas not as standalone engineering tricks, but as a theory of when a support-adapted PFN portfolio can be compressed into one checkpoint.
-
-\section{Setup}
+\section{Problem Setup}
 \label{sec:setup}
 
-Let $\cT$ denote a task space. Each task $t\in\cT$ induces a distribution $P_t$ on one observation $Z=(X,Y)\in\cZ$. A task prior $\pi$ generates an episode by drawing
-\[
-t\sim \pi,\qquad Z_1,\dots,Z_n,Z_{n+1}\stackrel{i.i.d.}{\sim} P_t.
-\]
-We write $D_n:=Z_{1:n}$.
+This section introduces the common probabilistic setup used throughout the paper. The purpose is to define the oracle PFN comparison once, so that the later sections can focus on what prior design should optimize rather than on notation.
 
-For any prior $\pi$, the induced $n$-sample mixture law is
+Let $\cT$ denote a task space. Each task $t\in\cT$ induces a distribution $P_t$ on one observation $Z=(X,Y)\in\cZ$. For a context length $n$, a task-prior $\pi$ generates an episode by first drawing
 \[
-m_\pi^n(d_n)
+t \sim \pi,
+\]
+then drawing conditionally i.i.d.
+\[
+Z_1,\dots,Z_n,Z_{n+1} \stackrel{i.i.d.}{\sim} P_t.
+\]
+We write $Z_{1:n}:=(Z_1,\dots,Z_n)$.
+
+For exposition we assume all relevant laws admit densities with respect to common dominating measures, and we identify a law with its density. The $n$-sample mixture law induced by $\pi$ is
+\[
+m_\pi^n(z_{1:n})
 :=
-\int_{\cT}\prod_{i=1}^n P_t(z_i)\,\pi(\dd t),
+\int_{\cT}
+\prod_{i=1}^n P_t(z_i)\,\pi(\dd t),
 \]
-and the corresponding oracle posterior predictive is
+and the corresponding posterior predictive for the next observation is
 \[
-q_n^\pi(z_{n+1}\mid d_n)
+q_n^\pi(z_{n+1}\mid z_{1:n})
 :=
-\frac{m_\pi^{n+1}(d_n,z_{n+1})}{m_\pi^n(d_n)}.
+\frac{m_\pi^{n+1}(z_{1:n+1})}{m_\pi^n(z_{1:n})}.
 \]
+In a standard supervised setting, one simply conditions on $X_{n+1}$ and interprets $q_n^\pi$ as a predictive law for $Y_{n+1}$ given $(X_{n+1},Z_{1:n})$; all proofs are unchanged.
 
-Now fix a finite portfolio of specialist priors $\pi_1,\dots,\pi_M$ and a prior over specialists $\rho\in\Delta_M$. Let $F\in\{1,\dots,M\}$ denote the latent specialist index. The hierarchical prior first draws
+We consider a training prior $\pi_{\tr}$ and a deployment prior $\pi_{\te}$. An oracle PFN trained on $\pi_{\tr}$ returns $q_n^{\tr}:=q_n^{\pi_{\tr}}$, while the deployment-optimal oracle is $q_n^{\te}:=q_n^{\pi_{\te}}$. Under log loss, the one-step excess deployment risk of the oracle PFN is
 \[
-F\sim \rho,
-\qquad
-t\mid F=j \sim \pi_j,
-\]
-then generates the episode from $P_t$.
-
-The practical case we have in mind is a broad generator library together with a few fine-grained subfamilies. For example, $\pi_1,\pi_2,\pi_3$ may correspond to SCM-style, tree-style, and neural-network-style synthetic generators, while a separate broad base prior mixes all three. The theory below treats the specialists abstractly, but Section~\ref{sec:learned} returns to this concrete broad-base-plus-specialists picture.
-
-For each specialist $j$, define
-\[
-m_j^n:=m_{\pi_j}^n,
-\qquad
-q_{j,n}:=q_n^{\pi_j}.
-\]
-The hierarchical mixture law is
-\[
-m_\rho^n(d_n):=\sum_{j=1}^M \rho_j m_j^n(d_n),
-\]
-and its oracle posterior predictive is
-\[
-q_{\rho,n}(z_{n+1}\mid d_n):=\frac{m_\rho^{n+1}(d_n,z_{n+1})}{m_\rho^n(d_n)}.
-\]
-
-The support evidence posterior over specialists is
-\[
-w_j(d_n)
+\Delta_n
 :=
-\Pbb(F=j\mid D_n=d_n)
+\E_{m_{\te}^{n+1}}
+\left[
+\log
+\frac{q_n^{\te}(Z_{n+1}\mid Z_{1:n})}
+{q_n^{\tr}(Z_{n+1}\mid Z_{1:n})}
+\right].
+\]
+We also define the observable $n$-sample KL divergence
+\[
+K_n := \KL(m_{\te}^n \,\|\, m_{\tr}^n).
+\]
+When $\pi_{\te}\ll\pi_{\tr}$, also define the posterior mismatch
+\[
+D_n
+:=
+\E_{m_{\te}^{n}}
+\Bigl[
+\KL\bigl(
+\pi_{\te}(\cdot\mid Z_{1:n})
+\;\|\;
+\pi_{\tr}(\cdot\mid Z_{1:n})
+\bigr)
+\Bigr].
+\]
+
+\section{Minimal Oracle Design Calculus for Split/Merge Decisions}
+\label{sec:oracle-design}
+
+This section provides only the oracle accounting needed for the main rare-event story. The purpose is to separate three decisions that are often conflated in PFN design: global coverage by broad mixtures, local collapse of family structure after conditioning on the prompt, and practical specialization by buckets or routed experts.
+
+\subsection{Minimal Oracle Accounting}
+
+Before asking which families should be merged or routed, we need to know what prior design should try to control. The answer is not a latent distance between generators, but an observable predictive mismatch after conditioning on the prompt.
+
+\begin{theorem}[Oracle accounting and budget]
+\label{thm:exact}
+For every context length $n\ge 0$,
+\[
+\Delta_n
 =
-\frac{\rho_j m_j^n(d_n)}{\sum_{k=1}^M \rho_k m_k^n(d_n)}.
-\]
-Since
-\[
-m_j^n(d_n)=\prod_{i=1}^n q_{j,i-1}(z_i\mid d_{i-1}),
-\]
-the log evidence score can be written as
-\[
-S_j(d_n)
-:=
-\log \rho_j + \log m_j^n(d_n)
+\E_{m_{\te}^{n}}
+\Bigl[
+\KL\bigl(
+q_n^{\te}(\cdot\mid Z_{1:n})
+\;\|\;
+q_n^{\tr}(\cdot\mid Z_{1:n})
+\bigr)
+\Bigr]
 =
-\log \rho_j - \sum_{i=1}^n \bigl[-\log q_{j,i-1}(z_i\mid d_{i-1})\bigr].
+K_{n+1}-K_n.
 \]
-So ranking specialists by posterior evidence is exactly the same as ranking them by prior weight plus cumulative support log loss.
-
-\section{From Broad Base to Specialist Weights}
-\label{sec:portfolio}
-
-This section isolates the middle part of the paper's story. Broad synthetic pretraining is still the right hedge against unknown deployment, but a monolithic broad PFN need not be the best finite-capacity model for the realized task. The alternative is to start from a broad base model, specialize it into a few generator-specific PFNs, and use the support set to determine their weights.
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=0.72\linewidth]{codes/results/closed_form/figure1_global_hedge.pdf}
-\caption{Closed-form global-hedge sanity check. Entries report cumulative oracle budget over the first $128$ support sizes. Broad synthetic pretraining is the right hedge even when deployment priors are only \emph{near} the training families rather than exactly equal to them. The uniform mixture is not the hindsight-best specialist on any one deployment, but it is the best robust default, reducing the worst-case oracle budget from $1.49$--$5.29$ for single priors to $0.533$. This is the sense in which broad synthetic pretraining is necessary even though it need not be the final deployment model.}
-\label{fig:global-hedge}
-\end{figure}
-
-Figure~\ref{fig:global-hedge} captures the paper's starting point. Broad synthetic pretraining is the right coverage decision when deployment is unknown. But it is only a coverage decision. Even though none of the plotted deployment priors coincides exactly with a training prior, the broad mixture remains the robust default, while each fixed deployment still has a better matched specialist. This is exactly the regime where a broad base PFN plus support-adapted specialists becomes attractive.
-
-\subsection{Support Evidence Defines the Reference Object}
-
-For exact specialists, conditioning on the latent specialist index immediately gives the hierarchical reference predictor
+If moreover $\pi_{\te}\ll\pi_{\tr}$, then
 \[
-q_{\rho,n}(\cdot\mid d_n)
-=
-\sum_{j=1}^M w_j(d_n)\, q_{j,n}(\cdot\mid d_n),
+K_n = \KL(\pi_{\te}\,\|\,\pi_{\tr}) - D_n,
 \qquad
-w_j(d_n)\propto \rho_j m_j^n(d_n).
+\Delta_n = D_n-D_{n+1},
 \]
-Equivalently, the cumulative support log loss of that soft portfolio satisfies
+and hence, for every horizon $N\ge 1$,
 \[
--\log m_\rho^n(d_n)
+\sum_{n=0}^{N-1}\Delta_n = K_N \le \KL(\pi_{\te}\,\|\,\pi_{\tr}).
+\]
+\end{theorem}
+
+Theorem~\ref{thm:exact} is the accounting bridge to the rest of the paper.
+\begin{enumerate}[leftmargin=18pt]
+\item \textbf{Finite cumulative damage.} Oracle misspecification under log loss is budgeted. Even over many prediction steps, the additional cumulative loss cannot exceed the prior KL.
+\item \textbf{Damage is front-loaded.} Since $\Delta_n=D_n-D_{n+1}$, the one-step penalty is large only while the context still changes the posterior mismatch substantially. In identifiable regimes, the tail becomes small rapidly.
+\item \textbf{Observable mismatch is the intrinsic object.} All quantities $\Delta_n$, $K_n$, $m_\pi^n$, and $q_n^\pi$ depend only on the pushforward of $\pi$ through the map $t\mapsto P_t$, not on a particular latent parametrization. The upper bound $\KL(\pi_{\te}\|\pi_{\tr})$ itself is representation-dependent and can therefore be loose. For PFN design, one should compare \emph{observable task laws}, not raw SCM latent coordinates.
+\end{enumerate}
+
+Only after this reduction does it make sense to ask how mixing hedges globally and when collapse hides distinctions that later matter.
+
+\subsection{Hedging, Safe Merging, and Routed Family Libraries}
+
+TabPFN-style priors are often constructed as libraries of heterogeneous generator families. The first question is global: if deployment-family uncertainty is the main concern, why mix at all? The next proposition gives the clean hedge answer. The harder question comes immediately after: once a broad library exists, which distinctions may be safely collapsed, and which should remain explicit?
+
+Let $\pi_1,\dots,\pi_M$ be base priors and define
+\[
+\pi_\alpha := \sum_{j=1}^M \alpha_j \pi_j,
+\qquad
+\pi_\lambda := \sum_{j=1}^M \lambda_j \pi_j,
+\]
+where $\alpha,\lambda$ lie in the simplex.
+
+\begin{proposition}[Mixture-of-priors hedge]
+\label{thm:mixture}
+For every horizon $N\ge 1$,
+\[
+\sum_{n=0}^{N-1}\Delta_n(\pi_\alpha,\pi_\lambda)
+=
+\KL(m_\alpha^N\,\|\,m_\lambda^N)
 \le
-\min_j\Bigl\{-\log \rho_j - \log m_j^n(d_n)\Bigr\}.
+\KL(\alpha\,\|\,\lambda).
 \]
-These are the correct reference identities, but we do not treat them as the main novelty of the paper. They simply specify what any practical support-adaptive PFN should try to approximate once the support has been observed.
-
-\paragraph{Support evidence is the right statistic.}
-The score
+In particular, if deployment is concentrated on one base prior $\pi_j$, then
 \[
-S_j(D_n)=\log \rho_j-\sum_{i=1}^n[-\log q_{j,i-1}(z_i\mid d_{i-1})]
-\]
-is not an ad hoc validation metric. Appendix~\ref{app:soft-and-evidence} shows that pairwise score differences are exactly posterior log-odds between specialists, and that under a well-specified specialist their expectation grows by cumulative sequential KL discrimination against competing specialists. This is why ranking SCM, Tree, and NN specialists by support performance is statistically well founded.
-
-\paragraph{Learned specialist portfolios.}
-The oracle reference above is only the first layer. In a learned system, each oracle specialist $q_{j,n}$ is replaced by a learned PFN $\widehat q_{j,n}$ and the oracle posterior weights $w_j(D_n)$ are replaced by a computable support scorer $\widehat w_j(D_n)$. Appendix~\ref{app:proof-approx} shows that
-\[
-\KL\bigl(q_{\rho,n}(\cdot\mid d_n)\,\|\,\widehat q_n(\cdot\mid d_n)\bigr)
+\sum_{n=0}^{N-1}\Delta_n(\pi_j,\pi_\lambda)
 \le
-\KL\bigl(w(d_n)\,\|\,\widehat w(d_n)\bigr)
+-\log \lambda_j.
+\]
+\end{proposition}
+
+The proposition yields the global hedge guarantee: if every plausible family receives positive mass, deployment cannot incur catastrophic oracle regret merely because the synthetic library emphasized the wrong family. But this says nothing about whether the family label should remain explicit after the prompt.
+
+The remaining identities are conceptually one split/merge calculus. We state them modularly because each piece is reused later, but the message is simple: the irreducible prompt-only price of hiding family structure is $\I(F;Y\mid O)$; refinement gains exactly the predictive information it reveals; and practical routing adds router error and within-bucket expert mismatch on top of that oracle floor. To study this, let $F\in\{1,\dots,M\}$ be the latent family label and $O_n:=(Z_{1:n},X_{n+1})$ in a supervised setting.
+\[
+q_j(y\mid O_n):=\Pbb(Y_{n+1}=y\mid O_n,F=j),
+\qquad
+w_j(O_n):=\Pbb(F=j\mid O_n),
+\]
+\[
+q_{\mathrm{coll}}(y\mid O_n):=\sum_{j=1}^M w_j(O_n)\,q_j(y\mid O_n),
+\qquad
+\hat q(y\mid O_n):=\sum_{j=1}^M \hat w_j(O_n)\,q_j(y\mid O_n).
+\]
+\[
+q_{\mathrm{aware}}(y\mid O_n,F):=q_F(y\mid O_n),
+\qquad
+R(r):=\E[-\log r(Y_{n+1}\mid O_n)].
+\]
+
+\begin{proposition}[Prompt-only optimum and collapse cost]
+\label{prop:prompt-opt}
+For any predictive law $r(\cdot\mid O_n)$ measurable with respect to $O_n$,
+\[
+R(r)-R(q_{\mathrm{aware}})
+=
+\I(F;Y_{n+1}\mid O_n)
 +
-\sum_{j=1}^M w_j(d_n)\,
-\KL\bigl(q_{j,n}(\cdot\mid d_n)\,\|\,\widehat q_{j,n}(\cdot\mid d_n)\bigr),
+\E\!\left[
+\KL\bigl(
+q_{\mathrm{coll}}(\cdot\mid O_n)
+\;\|\;
+r(\cdot\mid O_n)
+\bigr)
+\right].
 \]
-so the learned portfolio gap already separates into routing error and within-specialist approximation error. This decomposition is more important for the paper than the soft-portfolio identity itself, because it tells us what remains to be controlled before any deployment-time merge is attempted.
-
-\section{Practical Deployment at Fixed Model Size}
-
-Once specialist weights are available, deployment reduces to a compute choice. One can keep the oracle reference in output space via soft aggregation, approximate it by hard or top-$k$ routing, or synthesize one support-adapted model of unchanged size by merging specialist updates.
-
-\subsection{Hard Selection and Top-\texorpdfstring{$k$}{k} Truncation}
-
-Soft aggregation is the exact reference predictor, but it can be expensive at inference time because every specialist must be evaluated. Two practical compressions are hard selection and top-$k$ truncation.
-
-Let
+In particular,
 \[
-j^\star(d_n):=\arg\max_j w_j(d_n)
+R(q_{\mathrm{coll}})-R(q_{\mathrm{aware}})
+=
+\I(F;Y_{n+1}\mid O_n).
 \]
-be the posterior-best specialist and let
+\end{proposition}
+
+\begin{corollary}[Prompt-conditioned predictive distinctiveness]
+\label{cor:js}
+For each realized prompt $O_n=o$, define the generalized Jensen--Shannon divergence
 \[
-q_{\hard,n}(\cdot\mid d_n):=q_{j^\star(d_n),n}(\cdot\mid d_n).
-\]
-For a set $K(d_n)\subseteq \{1,\dots,M\}$, let
-\[
-r_K(d_n):=\sum_{j\in K(d_n)} w_j(d_n),
-\]
-and define the renormalized top-$k$ predictor
-\[
-q_{\topk,n}(\cdot\mid d_n)
+\JS_{w(o)}(q_1,\dots,q_M)
 :=
-\sum_{j\in K(d_n)} \frac{w_j(d_n)}{r_K(d_n)}\, q_{j,n}(\cdot\mid d_n).
+\sum_{j=1}^M w_j(o)\,
+\KL\bigl(
+q_j(\cdot\mid o)
+\;\|\;
+q_{\mathrm{coll}}(\cdot\mid o)
+\bigr).
 \]
-These choices admit immediate one-step penalty bounds:
+Then
 \[
--\log q_{\hard,n}(z\mid d_n)
--
-\bigl[-\log q_{\rho,n}(z\mid d_n)\bigr]
-\le
--\log w_{j^\star(d_n)}(d_n),
+R(q_{\mathrm{coll}})-R(q_{\mathrm{aware}})
+=
+\E\!\left[
+\JS_{w(O_n)}(q_1,\dots,q_M)
+\right]
+=
+\I(F;Y_{n+1}\mid O_n).
+\]
+\end{corollary}
+
+Equivalently, among all predictors measurable with respect to $O_n$, the best achievable regret to the family-aware oracle is exactly $\I(F;Y_{n+1}\mid O_n)$, attained by $q_{\mathrm{coll}}$. Collapse should therefore be judged by \emph{prompt-conditioned predictive distinctiveness}, not by unconditional family diversity. This turns split/merge into a bucket-design problem. Let $C_n$ be a refinement of a bucket label $B_n$, meaning that $B_n=f(C_n)$ almost surely for some deterministic map $f$. Define the corresponding oracle predictives
+\[
+q_B(y\mid O_n,B_n):=\Pbb(Y_{n+1}=y\mid O_n,B_n),
+\qquad
+q_C(y\mid O_n,C_n):=\Pbb(Y_{n+1}=y\mid O_n,C_n),
+\]
+and their oracle risks
+\[
+R_B(q_B):=\E[-\log q_B(Y_{n+1}\mid O_n,B_n)],
+\qquad
+R_C(q_C):=\E[-\log q_C(Y_{n+1}\mid O_n,C_n)].
+\]
+
+\begin{proposition}[Value of partition refinement]
+\label{prop:refine}
+If $B_n=f(C_n)$ almost surely, then
+\[
+R_B(q_B)-R_C(q_C)=\I(C_n;Y_{n+1}\mid O_n,B_n).
+\]
+Moreover, writing
+\[
+q_c(y\mid O_n):=\Pbb(Y_{n+1}=y\mid O_n,C_n=c),
+\]
+the refinement gain is the within-bucket generalized Jensen--Shannon divergence
+\[
+\I(C_n;Y_{n+1}\mid O_n,B_n)
+=
+\E\!\left[
+\sum_c \Pbb(C_n=c\mid O_n,B_n)\,
+\KL\bigl(
+q_c(\cdot\mid O_n)
+\;\|\;
+q_B(\cdot\mid O_n,B_n)
+\bigr)
+\right].
+\]
+\end{proposition}
+
+\begin{corollary}[Optimal family bucketing]
+\label{cor:bucket}
+Let $B_n=b(F)$ be any deterministic coarsening of the family label. Then
+\[
+\I(F;Y_{n+1}\mid O_n)
+=
+\I(B_n;Y_{n+1}\mid O_n)
++
+\I(F;Y_{n+1}\mid O_n,B_n).
+\]
+Consequently, among all coarsenings with at most $K$ buckets, any bucketization minimizing the best achievable $K$-bucket regret is equivalently any maximizer of $\I(B_n;Y_{n+1}\mid O_n)$.
+\end{corollary}
+
+These identities imply the local split rule: refine a bucket only when the within-bucket prompt-conditioned JS remains appreciable. Synthetic family labels matter twice here: they are the right supervision signal for routers, and they specify which coarse family distinctions remain worth preserving after conditioning on the prompt. If the family label itself is not available at deployment, a router $\hat w(O_n)$ induces the predictor
+\[
+\hat q(y\mid O_n):=\sum_{j=1}^M \hat w_j(O_n)\,q_j(y\mid O_n).
+\]
+The next theorem specializes the prompt-only optimum to routed approximations.
+
+\begin{theorem}[Routed family libraries]
+\label{thm:router}
+For any measurable router $\hat w(O_n)$ taking values in the simplex,
+\[
+\begin{aligned}
+R(\hat q)-R(q_{\mathrm{aware}})
+&=
+\I(F;Y_{n+1}\mid O_n)
++
+\E\!\left[
+\KL\bigl(
+q_{\mathrm{coll}}(\cdot\mid O_n)
+\;\|\;
+\hat q(\cdot\mid O_n)
+\bigr)
+\right] \\
+&\le
+\I(F;Y_{n+1}\mid O_n)
++
+\E\!\left[
+\KL\bigl(
+w(O_n)
+\;\|\;
+\hat w(O_n)
+\bigr)
+\right].
+\end{aligned}
+\]
+\end{theorem}
+
+\begin{corollary}[Router cross-entropy identity]
+\label{cor:router-ce}
+\[
+\E[-\log \hat w_F(O_n)]
+=
+H(F\mid O_n)
++
+\E\!\left[
+\KL\bigl(
+w(O_n)
+\;\|\;
+\hat w(O_n)
+\bigr)
+\right],
+\]
+\end{corollary}
+
+To connect this oracle story to an actual bucketed PFN, let $B_n=b(F)$ be a chosen family bucket, and write
+\[
+q_b(y\mid O_n):=\Pbb(Y_{n+1}=y\mid O_n,B_n=b),
+\qquad
+w_b(O_n):=\Pbb(B_n=b\mid O_n),
 \]
 \[
--\log q_{\topk,n}(z\mid d_n)
--
-\bigl[-\log q_{\rho,n}(z\mid d_n)\bigr]
-\le
--\log r_K(d_n).
+w_B(O_n):=(w_b(O_n))_b,
+\qquad
+\tilde q(y\mid O_n):=\sum_b \hat w_b(O_n)\,\tilde q_b(y\mid O_n).
 \]
-If $w_{(1)}(d_n)\ge w_{(2)}(d_n)\ge \cdots \ge w_{(M)}(d_n)$ and
+The next proposition quantifies the practical trade-off created by keeping those buckets explicit.
+
+\begin{proposition}[Approximate bucketed experts]
+\label{prop:bucketed-approx}
+For any bucket label $B_n=b(F)$,
 \[
-\gamma(d_n):=\log \frac{w_{(1)}(d_n)}{w_{(2)}(d_n)},
+R(\tilde q)-R(q_{\mathrm{aware}})
+=
+\I(F;Y_{n+1}\mid O_n)
++
+\E\!\left[
+\KL\bigl(
+q_{\mathrm{coll}}(\cdot\mid O_n)
+\;\|\;
+\tilde q(\cdot\mid O_n)
+\bigr)
+\right].
+\]
+Moreover,
+\[
+\begin{aligned}
+R(\tilde q)-R(q_{\mathrm{aware}})
+&\le
+\I(F;Y_{n+1}\mid O_n) \\
+&\qquad +
+\E\!\left[
+\KL\bigl(
+w_B(O_n)
+\;\|\;
+\hat w(O_n)
+\bigr)
+\right] \\
+&\qquad +
+\E\!\left[
+\sum_b w_b(O_n)\,
+\KL\bigl(
+q_b(\cdot\mid O_n)
+\;\|\;
+\tilde q_b(\cdot\mid O_n)
+\bigr)
+\right].
+\end{aligned}
+\]
+\end{proposition}
+
+Taken together, Corollary~\ref{cor:bucket}, Corollary~\ref{cor:router-ce}, and Proposition~\ref{prop:bucketed-approx} yield the practical granularity rule. Family buckets should be chosen by \emph{retained predictive information}, router cross-entropy is the right supervision target for the hidden bucket label, and MoE-style specialization is justified only when the proposed partition preserves predictive information and reduces within-bucket mismatch enough to offset router error.
+
+\section{The Main Failure Mode: Rare-Event Boundary Profiles}
+\label{sec:rare-events}
+
+The previous section deliberately stayed at the level of generic oracle calculus. We now isolate the paper's main new phenomenon: a global mixture can be hedge-safe in cumulative KL and still be tail-wrong in rare-event boundary regimes. The issue is how quickly context repairs misspecification in concrete regimes. In regular identifiable problems the repair is fast and yields the benchmark $n^{-2}$ tail. In rare-event boundary regimes it can be much slower, producing the phase transitions that matter most for prior construction and, as we will show, a natural boundary-profile routing rule.
+
+\subsection{Regular Benchmark: The Benign Case}
+\label{sec:regular}
+
+We first record the regular benchmark only as contrast for the failure mode below.
+
+\begin{proposition}[Regular benchmark]
+\label{prop:regular}
+Under the one-posterior regularity assumptions stated in Appendix~\ref{app:regular-proofs}, if
+\[
+u(\theta):=\nabla \log \frac{\pi_{\te}(\theta)}{\pi_{\tr}(\theta)},
+\qquad
+I(\theta):=\text{Fisher information of }P_\theta,
 \]
 then
 \[
-w_{(1)}(d_n)\ge \frac{1}{1+(M-1)e^{-\gamma(d_n)}},
+D_n
+=
+\frac{C_{\mathrm{reg}}}{2n}
++ o(n^{-1}),
+\qquad
+\Delta_n
+=
+\frac{C_{\mathrm{reg}}}{2n(n+1)}
++ o(n^{-2}),
 \]
-so the hard-selection penalty is at most $\log(1+(M-1)e^{-\gamma(d_n)})$. The proofs are one-line inequalities and are deferred to Appendix~\ref{app:compression-lemmas}. These bounds are useful, but they are not the theoretical centerpiece of the paper; they simply quantify the compute trade-off once the specialist posterior has already been formed. In exact Beta--Bernoulli calculations, soft aggregation matches the monolithic hierarchical-prior oracle, top-$2$ tracks it closely, and hard selection is looser but still substantially better than committing to one fixed specialist in advance.
+where
+\[
+C_{\mathrm{reg}}
+:=
+\E_{\theta\sim\pi_{\te}}
+\bigl[
+u(\theta)^\top I(\theta)^{-1}u(\theta)
+\bigr].
+\]
+\end{proposition}
+
+Thus regular identifiable regimes provide the benign $n^{-2}$ tail law. The next subsection shows that rare-event boundaries can violate this benchmark sharply.
+
+\subsection{Beta--Bernoulli Boundary Profiles}
+
+The regular $n^{-2}$ law is not universal. It can fail when the deployment prior puts substantial mass near nearly deterministic tasks. This is exactly the kind of rare-event regime that mixed prior libraries often try to ``cover'' by adding extreme generators, and it is where unsafe family collapse becomes most consequential.
+
+Consider the conjugate Beta--Bernoulli model. The training prior is
+\[
+\theta \sim \BetaDist(a,b),
+\]
+the deployment prior is
+\[
+\theta \sim \BetaDist(c,d),
+\]
+and within each task
+\[
+Y_i\mid \theta \stackrel{i.i.d.}{\sim} \Ber(\theta).
+\]
+Let $S_n:=\sum_{i=1}^n Y_i$.
+
+\begin{theorem}[Beta--Bernoulli phase transition]
+\label{thm:beta}
+For every $n\ge 0$,
+\[
+\Delta_n
+=
+\E_{S_n\sim \BetaBin(n,c,d)}
+\left[
+\klb\!\left(
+\frac{c+S_n}{c+d+n},
+\frac{a+S_n}{a+b+n}
+\right)
+\right].
+\]
+Moreover:
+\begin{enumerate}[leftmargin=18pt]
+\item If $c,d>1$, then
+\[
+\Delta_n
+=
+\frac{C_{a,b,c,d}}{2n^2}
++ o(n^{-2}),
+\]
+where
+\[
+C_{a,b,c,d}
+=
+\frac{d(c-a)^2}{c-1}
++
+\frac{c(d-b)^2}{d-1}
+- 2(c-a)(d-b).
+\]
+\item If $0<c<1<d$ and $a\neq c$, then
+\[
+\Delta_n \asymp n^{-(1+c)}.
+\]
+\item If $c=1<d$ and $a\neq 1$, then
+\[
+\Delta_n \asymp \frac{\log n}{n^2}.
+\]
+\end{enumerate}
+The right-boundary statements follow by symmetry after swapping $(a,c)$ with $(b,d)$.
+\end{theorem}
+
+Theorem~\ref{thm:beta} is the first sharp sign that rare-event regimes are qualitatively different. In smooth interior regimes, prior misspecification becomes negligible after a modest amount of context. But if deployment emphasizes rare-event or almost deterministic tasks, oracle misspecification can decay much more slowly. This is the regime where average accuracy can look benign while calibrated probabilities remain prior-sensitive for a long time.
+
+\begin{corollary}[Matched boundary restores the regular rate]
+\label{cor:beta-matched}
+If $a=c$ and $d>1$, then
+\[
+\Delta_n
+=
+\frac{c(d-b)^2}{2(d-1)}\,n^{-2}
++ o(n^{-2}),
+\]
+and symmetrically, if $b=d$ and $c>1$, then
+\[
+\Delta_n
+=
+\frac{d(c-a)^2}{2(c-1)}\,n^{-2}
++ o(n^{-2}).
+\]
+\end{corollary}
+
+So the left- or right-boundary slowdowns above disappear once the training prior matches the corresponding deployment boundary profile.
+
+The phase transition above also reveals the limitation of naive mixture hedging that motivates the paper. A library mixture can have a small \emph{cumulative} oracle gap by Proposition~\ref{thm:mixture} and yet still inherit the wrong \emph{one-step tail law} near a dangerous boundary if the family label is collapsed across different boundary exponents.
+
+\begin{proposition}[Collapsed mixtures inherit the most singular boundary component]
+\label{thm:beta-mix}
+Let the training prior be a finite mixture
+\[
+\pi_\lambda
+:=
+\sum_{j=1}^M \lambda_j \BetaDist(a_j,b_j),
+\qquad
+\lambda_j>0,
+\qquad
+a_\star:=\min_{1\le j\le M} a_j.
+\]
+If $q_n^\lambda(\cdot\mid S_n)$ is the corresponding oracle predictive, then
+\[
+q_n^\lambda(1\mid S_n=0)
+=
+\frac{a_\star}{n}
++ O(n^{-1-\delta}),
+\]
+where
+\[
+\delta
+:=
+\min\!\left\{
+1,\;
+\min_{j:\,a_j>a_\star}(a_j-a_\star)
+\right\},
+\]
+with the convention $\delta=1$ if all $a_j=a_\star$.
+
+Consequently, if deployment is $\BetaDist(c,d)$ with $0<c<1<d$ and $a_\star\neq c$, then
+\[
+\Delta_n(\pi_{\te},\pi_\lambda)\asymp n^{-(1+c)}.
+\]
+The right-boundary statement is symmetric with $b_\star:=\min_j b_j$.
+\end{proposition}
+
+Proposition~\ref{thm:beta-mix} is the paper's main structural failure theorem. \emph{Including} the correct rare-event component in a broad synthetic mixture is not enough if more singular components are also present and the family label is collapsed. Near the dangerous boundary, the collapsed predictive behaves as if it had been trained on the most singular exponent in the library. This does not contradict Proposition~\ref{thm:mixture}: the cumulative oracle budget can still be small while the \emph{shape} of the one-step tail remains wrong.
+
+Zero counts are only the first obstruction. The next proposition shows that any fixed small-count mismatch can already force the same slow $n^{-(1+c)}$ regime.
+
+\begin{proposition}[Fixed-count boundary obstruction]
+\label{prop:fixed-count}
+Suppose deployment is $\BetaDist(c,d)$ with $0<c<1<d$, and fix $s\in\{0,1,2,\dots\}$. If a predictor satisfies, for some $\beta_s>0$ and $\delta>0$,
+\[
+\hat q_n(1\mid S_n=s)=\frac{\beta_s}{n}+O(n^{-1-\delta}),
+\]
+and $\beta_s\neq c+s$, then there exists $C_s>0$ such that
+\[
+\Delta_n(\hat q_n)\ge C_s\,n^{-(1+c)}
+\]
+for all large $n$.
+\end{proposition}
+
+So the real rare-event object is a \emph{small-count boundary profile}
+\[
+\beta_s := \lim_{n\to\infty} n\,\hat q_n(1\mid S_n=s),
+\qquad s=0,1,2,\dots,
+\]
+when that limit exists. The exponent controls how often the dangerous small-count events occur, but the profile controls what the predictor does once they occur. In the Beta family, same-exponent buckets are safe precisely because they share the full fixed-count profile.
+
+\begin{corollary}[Shared-profile bucket guarantee]
+\label{cor:beta-shared}
+If deployment is $\BetaDist(c,d)$ with $0<c\le 1<d$ and experts have predictives
+\[
+q_{n,j}(1\mid s)=\frac{c+s}{c+b_j+n},
+\]
+then any soft mixture
+\[
+\hat q_n(1\mid s)=\sum_{j=1}^J w_{n,j}(s)\,q_{n,j}(1\mid s)
+\]
+still satisfies $\Delta_n(\hat q_n)=O(n^{-2})$.
+\end{corollary}
+
+So the design rule is asymmetric: route \emph{across} boundary exponents, but in the Beta family it is safe to merge or softly mix \emph{within} a shared profile bucket.
+
+The Beta analysis is valuable because it is sharp and explicit, but the mechanism is broader than conjugacy. What really matters is the amount of deployment mass near the boundary.
+
+\begin{theorem}[Boundary slowdown is a regular-variation phenomenon]
+\label{thm:boundary-general}
+Suppose deployment tasks satisfy $Y_i\mid \theta \stackrel{i.i.d.}{\sim} \Ber(\theta)$ and the deployment prior has density
+\[
+f(\theta)=\theta^{c-1}h(\theta),
+\qquad
+0<c<1,
+\]
+where $h$ is continuous at $0$ and $h(0)>0$. Consider any predictor satisfying, for some $\alpha>0$ and $\delta>0$,
+\[
+\hat q_n(1\mid S_n=0)=\frac{\alpha}{n}+O(n^{-1-\delta}).
+\]
+\[
+\Pbb_{\te}(S_n=0)\sim h(0)\Gamma(c)\,n^{-c},
+\qquad
+q_n^{\te}(1\mid S_n=0)=\frac{c}{n}+o(n^{-1}).
+\]
+If $\alpha\neq c$, then there exists $C>0$ such that
+\[
+\Delta_n(\hat q_n)
+:=
+\E
+\left[
+\klb\bigl(
+q_n^{\te}(1\mid S_n),
+\hat q_n(1\mid S_n)
+\bigr)
+\right]
+\quad\text{under the deployment law of }S_n
+\ge
+C\,n^{-(1+c)}
+\]
+for all large $n$.
+\end{theorem}
+
+Theorem~\ref{thm:boundary-general} shows that Proposition~\ref{thm:beta-mix} is not a Beta-specific curiosity. The danger comes from boundary regular variation, not from conjugacy, and the lower bound is already forced by the zero-count event alone. The practitioner-facing message is therefore sharper than ``add some rare-event tasks'': one must represent the relevant boundary profile, route mass away from mismatched exponents, and avoid collapsing buckets whose small-count asymptotics differ.
+
+\begin{corollary}[Observable boundary exponent]
+\label{cor:observable-exponent}
+Under the assumptions of Theorem~\ref{thm:boundary-general}, if
+\[
+\Pbb_{\te}(S_n=0)\sim C n^{-c}
+\qquad\text{for some } C>0,
+\]
+then
+\[
+-\frac{\log \Pbb_{\te}(S_n=0)}{\log n}\to c.
+\]
+Hence the dangerous boundary exponent is estimable from prior-predictive simulation alone.
+\end{corollary}
+
+Corollary~\ref{cor:observable-exponent} is what makes boundary-aware routing operational. A practitioner need not inspect latent parameters: one can simulate tasks from each synthetic family, estimate the log-log slope of zero-count events, bucket families by that observable slope, and keep those buckets explicit. But the exponent is only the first diagnostic. In practice one should also inspect the small-count curves $n\,\hat q_n(1\mid S_n=s)$ for $s=0,1,2,\dots$, since families with the same exponent can still disagree in boundary profile. The resulting rule is asymmetric: mix within shared-profile buckets, but do not collapse across mismatched boundary profiles.
+
+\section{Exact Validation and Learned-PFN Benchmark Protocol}
+\label{sec:experiments}
+
+We validate the theory in the same order in which we want the reader to remember it. First come the boundary-failure and boundary-repair ablations, because those are the paper's main substantive claims. We then show the phase transition directly, and only after that return to the global hedge sanity check. All reported curves are exact deterministic calculations from closed-form Beta--Binomial formulas or numerical summation, so there is no optimizer, seed, or sampling variance in these plots. They should therefore be read as theorem sanity checks and design ablations, not as substitutes for end-to-end learned-PFN benchmarks.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.78\linewidth]{codes/results/closed_form/figure2_lambda_sweep.pdf}
-\caption{Fixed test priors induce different optimal mixture weights. We fix two specialist priors, $\operatorname{Beta}(8,2)$ and $\operatorname{Beta}(3,6)$, and evaluate the exact oracle predictor obtained from their mixture prior $q_\alpha$ as the mixture weight $\alpha$ varies. The vertical axis is the cumulative oracle budget over the first $128$ support sizes. Each curve corresponds to one fixed integer-valued deployment prior. The minimizer shifts substantially across deployments; neither the one-hot endpoints $\alpha\in\{0,1\}$ nor the uniform center $\alpha=0.5$ is uniformly best. This is the exact toy motivation for adjusting mixture weights after observing the task, rather than committing in advance to one fixed coefficient.}
-\label{fig:weighted-vs-onehot}
+\includegraphics[width=\linewidth]{codes/results/closed_form/figure2_boundary_failure_and_fix.pdf}
+\caption{Closed-form validation of the boundary-profile story on deployment prior $\BetaDist(0.5,4)$. Left: cumulative one-step gap for a strong single constituent prior $\BetaDist(0.5,3)$, a global collapsed mixture, and a boundary-aware bucket that mixes only the shared-$c=0.5$ component family. Right: oracle-centered small-count profile errors $n(\hat q-q_{\mathrm{oracle}})$ for $S_n\in\{0,1,2\}$. The bucketed library improves over both the global collapse and the strongest single constituent prior, cutting the exact oracle budget $K_{256}$ from $9.1\times 10^{-2}$ to $2.0\times 10^{-3}$, while the single $\BetaDist(0.5,3)$ prior remains at $2.1\times 10^{-2}$.}
+\label{fig:boundary-fix}
 \end{figure}
 
-Figure~\ref{fig:weighted-vs-onehot} is the missing bridge from broad coverage to merge. Even in the exact oracle toy, there is no universally best interpolation coefficient between the two specialists $\operatorname{Beta}(8,2)$ and $\operatorname{Beta}(3,6)$. The deployment-optimal $\alpha^\star$ moves with the realized task. This already rules out both fixed uniform hedging and fixed one-hot commitment as universal deployment rules. The point of support adaptation is therefore to estimate a task-specific interpolation coefficient from the observed support. Hard selection is the discrete extreme of that idea; merge is the continuous fixed-size implementation.
+Figure~\ref{fig:boundary-fix} is the main practical MoE-style result. The global collapsed mixture mixes the right rare-event family with the wrong boundary profile and therefore keeps a substantial small-count mismatch. A boundary-aware bucket, interpreted operationally as an expert-specific synthetic training distribution or specialized checkpoint, removes most of that mismatch and materially improves the one-step gap. Importantly, the bucketed predictor is not merely a matched single prior in disguise: it outperforms the strongest single constituent library component because it still hedges \emph{within} the shared-profile bucket.
 
-\subsection{Support-Adaptive Merging from a Shared Base}
-\label{sec:merge}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{codes/results/closed_form/figure3_phase_transition.pdf}
+\caption{Closed-form validation of the phase transition in Theorem~\ref{thm:beta}. The left panel shows the observed one-step gap for a fixed training prior $\BetaDist(1.5,4)$ as deployment moves from interior to critical and singular boundary regimes, together with anchored asymptotic reference slopes. The right panel shows the corresponding task-level prevalence priors $f_{\Theta}(\theta)$: as deployment mass shifts toward $\theta\approx 0$, the one-step tail law slows from the regular $n^{-2}$ regime toward the singular $n^{-(1+c)}$ law.}
+\label{fig:phase-transition}
+\end{figure}
 
-The previous section compressed the soft portfolio in output space. Model merging performs the same adaptation in parameter space by synthesizing one deployment checkpoint from a shared base model and a few specialist deltas.
+Figure~\ref{fig:phase-transition} validates the rate-level rare-event theory. The fitted tail slopes are approximately $-1.98$ for the interior regime, $-1.81$ for the critical regime, $-1.47$ for $\BetaDist(0.5,4)$, and $-1.19$ for $\BetaDist(0.2,4)$, closely matching the predicted transition from $n^{-2}$ to $(\log n)n^{-2}$ and then to $n^{-(1+c)}$. The right panel shows why: decreasing $c$ shifts more task mass toward near-deterministic rare-event tasks, so small-count boundary events continue to dominate the one-step oracle gap even at large context lengths.
 
-\paragraph{Mixed-prior training objective.}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{codes/results/closed_form/figure1_global_hedge.pdf}
+\caption{Closed-form validation of Proposition~\ref{thm:mixture}. Three interior train priors are compared against three deployment priors. The left panel reports the cumulative oracle gap $K_{128}$ for each train--test pair; the right panel summarizes average and worst-case regret. The broad mixture sharply improves worst-case robustness, reducing the worst-case gap from $2.32$--$4.77$ for single-family libraries to $0.696$.}
+\label{fig:global-hedge}
+\end{figure}
 
-Let $\theta$ denote PFN parameters and let
-\[
-L_{\pi}(\theta)
-:=
-\E_{E\sim \pi}\bigl[\ell(\theta;E)\bigr]
-\]
-denote the pretraining objective under synthetic prior $\pi$, where $E$ is a sampled episode. For a mixture prior
-\[
-\pi_\alpha := \sum_{j=1}^M \alpha_j \pi_j,
-\]
-linearity of expectation gives the exact identity
-\[
-L_{\pi_\alpha}(\theta)=\sum_{j=1}^M \alpha_j L_{\pi_j}(\theta).
-\]
-So mixed-prior training is literally a weighted sum of the specialist training objectives.
+Figure~\ref{fig:global-hedge} plays a more limited role: it validates the global hedging claim. On three interior families, a broad mixture is not expected to beat the hindsight-matched specialist on its own family, but it is the best robust default when deployment is unknown. This is the role of Proposition~\ref{thm:mixture}: mixing is the right \emph{coverage} decision even before one decides what later deserves explicit buckets.
 
-This creates a natural bridge from support evidence to model merging. Once support data produce posterior weights $w(d_n)$, one can view them as defining a \emph{task-adapted mixed training surrogate}
-\[
-L_{w(d_n)}(\theta):=\sum_{j=1}^M w_j(d_n)\,L_{\pi_j}(\theta).
-\]
-The question becomes: when does merging the specialist checkpoints approximate the minimizer of this surrogate?
+The open empirical question is whether the same boundary-aware bucketings improve finite-capacity PFNs. The theory predicts that any learned gain should appear first in rare-event calibration diagnostics rather than in average accuracy alone. We therefore make the intended benchmark explicit already in this revision.
 
-In the broad-base picture, let $\theta_0$ denote a PFN pretrained on the full heterogeneous synthetic library and let each specialist be obtained by fine-tuning that base:
-\[
-\theta_j = \theta_0 + \Delta_j.
-\]
-Given support data $d_n$, the deployment-time merged model is then
-\[
-\theta_{\mathrm{merge}}(d_n)
-:=
-\theta_0 + \sum_{j=1}^M \alpha_j(d_n)\Delta_j,
-\]
-where ideally $\alpha(d_n)=w(d_n)$ and in practice $\alpha(d_n)$ is computed from learned support evidence scores. The role of the next result is to justify this synthesis step.
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.19\linewidth} >{\raggedright\arraybackslash}p{0.31\linewidth} >{\raggedright\arraybackslash}p{0.40\linewidth}}
+\toprule
+System & Training library / specialization & Planned evaluation metrics \\
+\midrule
+Monolithic mixed-prior PFN & Single checkpoint trained on the globally collapsed mixed library & Log loss, Brier score, ECE, and zero-/small-count calibration curves $n\,\hat q_n(1\mid S_n=s)$ for $s\in\{0,1,2\}$ \\
+Boundary-aware bucket head & Shared backbone with an explicit boundary bucket head or bucket-specific head over shared-profile families & The same predictive metrics, plus bucket cross-entropy and within-bucket calibration diagnostics \\
+Routed specialists & Expert-specific checkpoints over boundary-profile buckets with a learned router & The same predictive metrics, plus router CE and ablations separating routing error from expert mismatch \\
+\bottomrule
+\end{tabular}
+\caption{Placeholder for the end-to-end learned-PFN benchmark motivated by the theory. The key falsifiable prediction is that boundary-aware specialization should help most on rare-event calibration diagnostics, not necessarily on average accuracy.}
+\label{tab:learned-placeholder}
+\end{table}
 
-\begin{theorem}[Support-adaptive merge solves the induced mixed objective]
-\label{thm:merge-stability}
-Fix support $d_n$ and let $w:=w(d_n)\in\Delta_M$ be the resulting specialist posterior. For any coefficients $\alpha\in\Delta_M$, define the linear merge
-\[
-\theta_\alpha(d_n):=\theta_0+\sum_{j=1}^M \alpha_j(\theta_j-\theta_0)=\sum_{j=1}^M \alpha_j\theta_j.
-\]
-Assume there is a neighborhood $U$, a positive-definite matrix $H$, and a scalar $\varepsilon_{\mathrm{quad}}\ge 0$ such that for every specialist $j$ and every $\theta\in U$,
-\[
-L_{\pi_j}(\theta)
-=
-c_j + \frac{1}{2}(\theta-\theta_j)^\top H(\theta-\theta_j)+r_j(\theta),
-\qquad
-|r_j(\theta)|\le \varepsilon_{\mathrm{quad}}.
-\]
-Assume also that $\|\theta_j-\theta_0\|\le R$ for every $j$, and let
-\[
-\theta_w^\star(d_n)\in \arg\min_{\theta\in U} \sum_{j=1}^M w_j(d_n)L_{\pi_j}(\theta).
-\]
-Then
-\[
-L_{w(d_n)}\bigl(\theta_\alpha(d_n)\bigr)-L_{w(d_n)}\bigl(\theta_w^\star(d_n)\bigr)
-\le
-\frac{\lambda_{\max}(H)}{2}R^2\|\alpha-w(d_n)\|_1^2
-+
-2\varepsilon_{\mathrm{quad}},
-\]
-where $L_{w(d_n)}(\theta):=\sum_{j=1}^M w_j(d_n)L_{\pi_j}(\theta)$. In particular, if $\varepsilon_{\mathrm{quad}}=0$ and $\alpha=w(d_n)$, then support-weighted linear merging is an exact minimizer of the support-adapted mixed objective.
-\end{theorem}
-\noindent\emph{Proof deferred to Appendix~\ref{app:proof-merge}.}
-
-Theorem~\ref{thm:merge-stability} is the actual theoretical core of the paper. Support evidence is not only a model-selection score; it turns the realized task into a task-specific mixed-prior \emph{training objective}. Model merging is justified precisely when it approximately solves that induced objective. The theorem makes the two approximation sources explicit: scorer error enters through $\|\alpha-w(d_n)\|_1^2$, and geometry error enters through the local nonquadratic remainder $\varepsilon_{\mathrm{quad}}$.
-
-Combined with the learned-portfolio decomposition from Section~\ref{sec:portfolio}, this yields the paper's approximation hierarchy:
-\begin{enumerate}[leftmargin=18pt]
-\item routing error in forming the specialist posterior,
-\item within-specialist approximation error in the learned PFNs,
-\item merge compression error from replacing the support-induced mixed objective by one checkpoint.
-\end{enumerate}
-That three-way split, rather than the soft-portfolio identity alone, is what explains why broad-base pretraining plus specialist merging is a coherent design principle.
-
-Appendix~\ref{app:proof-fisher} shows that when the local curvatures differ, the corresponding second-order refinement is Fisher/Hessian-weighted merging rather than plain averaging. Appendix~\ref{app:proof-task} further shows that there is a first-order task-vector interpretation. With $\alpha=w(d_n)$,
-\[
-\sum_j w_j(d_n)\Delta_j
-\approx
--\eta P \nabla \left(\sum_j w_j(d_n)L_{\pi_j}\right)(\theta_0),
-\]
-so the merged task vector approximates the gradient step for the support-adapted mixed objective. This makes the connection to task arithmetic \citep{ilharco2022task} direct.
-
-Model merging still does not implement hierarchical Bayes exactly. The oracle acts in output space through support-dependent predictive averaging, whereas merging acts in parameter space through a support-induced surrogate objective. The point is not that merging \emph{is} the Bayes solution, but that it is the right fixed-size approximation once the support posterior has been formed.
-
-\section{Learned-PFN Benchmark Implied by the Theory}
-\label{sec:learned}
-
-The theoretical story suggests a concrete learned benchmark with one base PFN and a small set of specialists.
-
-\paragraph{Training.}
-\begin{enumerate}[leftmargin=18pt]
-\item Train a broad base PFN on a heterogeneous synthetic library that mixes several generator classes.
-\item Fine-tune specialist PFNs from that same checkpoint on a small number of structured generator families, for example SCM-only, Tree-only, and NN-only data.
-\item Keep the original broad base PFN and, optionally, separately train one monolithic PFN on the explicit hierarchical mixture of those same families as a reference.
-\end{enumerate}
-
-\paragraph{Test-time methods.}
-\begin{enumerate}[leftmargin=18pt]
-\item Broad base PFN with no support adaptation.
-\item Monolithic hierarchical PFN.
-\item Soft evidence-weighted portfolio.
-\item Hard selection.
-\item Top-$k$ sparse soft portfolio.
-\item Linear support-adaptive merge
-\[
-\theta_0+\alpha_{\mathrm{SCM}}(D_n)\Delta_{\mathrm{SCM}}
-+\alpha_{\mathrm{Tree}}(D_n)\Delta_{\mathrm{Tree}}
-+\alpha_{\mathrm{NN}}(D_n)\Delta_{\mathrm{NN}}.
-\]
-\item Fisher-weighted merge with the same support-dependent coefficients.
-\end{enumerate}
-
-\paragraph{Evaluation.}
-\begin{enumerate}[leftmargin=18pt]
-\item Query log loss, Brier score, and calibration after observing a support set of size $n$.
-\item Support evidence concentration curves $w_{(1)}(D_n)$ and retained top-$k$ mass.
-\item Whether merged specialists beat the unchanged broad base model at the same deployment model size.
-\item Distance between merged checkpoints and the directly mixed-prior-trained PFN, measured in parameter space and predictive space.
-\item Interpolation barriers and, if needed, re-basin ablations to test the shared-basin assumption.
-\end{enumerate}
-
-This benchmark cleanly separates the three theoretical layers of the paper:
-\begin{enumerate}[leftmargin=18pt]
-\item \textbf{Oracle layer}: soft evidence weighting.
-\item \textbf{Output-compression layer}: hard and top-$k$ truncation.
-\item \textbf{Parameter-compression layer}: linear and Fisher merging.
-\end{enumerate}
-
-\section{Discussion}
-
-The story that emerges is simple.
-
-\paragraph{1. Prior design should start broad, then specialize.}
-When the deployment family is unknown, broad synthetic pretraining remains the correct hedge. But the broad model should be treated as a base representation, not as the only deployment model we are allowed to use.
-
-\paragraph{2. Support evidence is the natural adaptation signal.}
-The realized support set already contains exactly the statistic needed to rank specialists: prior weight plus cumulative prequential log loss. More importantly, that same posterior over specialists induces the task-specific mixed-prior objective that the deployment model should solve. No extra router target has to be invented.
-
-\paragraph{3. Soft portfolios are the reference; merge is the real synthesis theorem.}
-Soft evidence weighting is exact hierarchical Bayes, but only as a reference object. The paper's real theoretical claim is that support evidence defines a mixed-prior training surrogate, and that shared-base specialists can be merged to approximately solve that surrogate while keeping deployment model size fixed.
-
-\paragraph{4. Model merging belongs in the paper, but not as the main oracle object.}
-The correct theoretical role of model merging is not ``this is the Bayes solution.'' It is ``this is when support evidence turns prior mismatch into a solvable mixed-objective approximation problem.'' That statement is stronger than simple checkpoint compression, and it is precisely where linear mode connectivity, task vectors, and Fisher-weighted averaging become relevant.
-
-\paragraph{5. The proposal is upstream of later deployment compression.}
-Our goal is to strengthen the PFN itself under prior mismatch by moving from one monolithic broad model to a support-adaptive specialist basis. That is different from downstream accelerators such as post-hoc ensembles or TabPFN-2.5's distillation engine. In fact the two layers are compatible: once a stronger support-adaptive PFN or merged PFN has been constructed, standard distillation machinery could be applied afterwards if a cheaper MLP or tree ensemble is needed in production.
+Table~\ref{tab:learned-placeholder} is intentionally specific about what the later learned experiment should test. The comparison is not ``MoE versus non-MoE'' in the abstract, but \emph{global collapse versus boundary-aware specialization on the rare-event synthetic regimes singled out by the theory}. The primary diagnostics are log loss, Brier, ECE, and the boundary-profile curves $n\,\hat q_n(1\mid S_n=s)$, because those are exactly where the oracle results predict gains.
 
 \section{Conclusion}
 
-This paper proposes a different answer to the PFN prior-design problem. Instead of asking for one synthetic prior library that is correct before the task is seen, we propose to pretrain broadly, fine-tune a small set of generator specialists, and adapt only after the task support is observed. The soft specialist portfolio is the correct hierarchical-Bayes reference, but the paper's theoretical core is one step later: the support posterior induces a task-specific mixed-prior training objective, and under shared-base geometry a merged checkpoint approximately solves that objective with an explicit stability bound. Hard selection and top-$k$ remain useful output-space approximations, but model merging is what turns post-support adaptation into a fixed-size deployment rule. The resulting design rule is practical and asymmetric: hedge broadly during pretraining, specialize into a small basis, and merge those specialists back together only after the support reveals what kind of task has arrived.
+We can now step back from the theorem chain and answer the motivating question directly: \emph{how should one design a mixed synthetic prior library for PFNs?} The main lesson is asymmetric. Broad mixtures are the right device for coverage, but they are not a license to collapse family structure. The central failure mode is rare-event boundary collapse: a library can be hedge-safe in cumulative KL and still be tail-wrong because its small-count boundary profile is wrong.
+
+\paragraph{1. Cover first, but do not mistake coverage for safe collapse.}
+Proposition~\ref{thm:mixture} is the global argument for broad prior libraries: assigning each plausible family positive mass hedges deployment uncertainty. But coverage and merging are different decisions. The relevant object is observable predictive behavior after the prompt, not raw latent generator coordinates.
+
+\paragraph{2. In rare-event regimes, organize the library by boundary profile.}
+Theorem~\ref{thm:beta}, Proposition~\ref{thm:beta-mix}, Proposition~\ref{prop:fixed-count}, Theorem~\ref{thm:boundary-general}, and Corollary~\ref{cor:observable-exponent} together say that rare-event mismatch is about small-count boundary profiles, with the exponent as only the first observable summary. The practical rule is asymmetric: mix within shared-profile buckets, but route across mismatched profiles and validate rare-event tails explicitly rather than relying only on average synthetic loss.
+
+\paragraph{3. Merge only when prompt-conditioned predictive distinctiveness is small.}
+Proposition~\ref{prop:prompt-opt}, Corollary~\ref{cor:js}, and Proposition~\ref{prop:refine} say that the right split/merge object is the prompt-conditioned generalized Jensen--Shannon divergence, not unconditional diversity. Families should be merged only when that prompt-conditioned geometry is small; otherwise the split buys exactly the conditional mutual information it reveals.
+
+\paragraph{4. Choose routing granularity by retained predictive information and router CE.}
+Proposition~\ref{prop:bucketed-approx} says that explicit bucketing helps only when the reduction in within-bucket expert KL outweighs the extra router error. This does not force a full mixture-of-experts PFN. The progression can be lightweight: auxiliary bucket heads first, bucket-specific heads next, and explicit routed experts only when router cross-entropy and within-bucket predictive distinctiveness both remain large.
+
+\paragraph{Limitations.}
+
+This paper is theory-first. The sharpest results are oracle statements about what no architecture can undo unless the synthetic prior itself changes. In particular, Proposition~\ref{prop:prompt-opt} is a \emph{negative} result as much as a positive one: without extra visible information, routing cannot improve the prompt-only Bayes optimum. The routed-library and bucketed-expert results therefore explain when explicit family structure can help finite PFNs, but they do not prove that any one architecture dominates a monolithic PFN under realistic optimization and capacity constraints. The oracle identities in Section~\ref{sec:oracle-design} also do not by themselves provide an automatic estimator of $\I(F;Y\mid O)$ or a complete bucket-selection algorithm; they identify the target quantity rather than solve the full statistical estimation problem. Our empirical section now makes the intended learned-PFN benchmark explicit, but still reports only exact closed-form validations. Finally, the rare-event theory is sharpest in one-dimensional Bernoulli prevalence models, while the regular benchmark relies on a one-posterior quadratic-tilt regime made explicit in Appendix~\ref{app:regular-proofs}. The appendix contains complementary extensions, but they are not needed for the main boundary-profile spine.
+
+\paragraph{Discussion.}
+
+The message is deliberately simple. Mix broadly to hedge globally. Do not collapse across boundary profiles just because average synthetic loss looks benign. Merge only when the prompt-conditioned predictive geometry certifies that doing so is safe. And do not expect routing to beat the prompt-only Bayes optimum unless it exposes useful visible information or materially eases approximation in exactly those dangerous regimes.
+
+This also clarifies how to read routing proposals. The theory does not say that vanilla PFNs are intrinsically wrong; in the oracle limit they can implement soft routing implicitly, and without extra visible information they are already optimal among prompt-only predictors. What it does say is that bucketed heads or explicit experts become principled once the relevant family differences are both predictive and hard to approximate monolithically.
+
+\section*{Acknowledgments}
+
+This submission is anonymized for review.
 
 \appendix
 
-\section{Support Evidence and Portfolio Bounds}
-\label{app:soft-and-evidence}
+\section{Deployment-Visible Side Information}
 
-\begin{lemma}[Soft aggregation identity]
-\label{lem:soft-identity}
-For every context length $n$ and every realized support $d_n$,
+The main text studies prompt-only collapse and bucketing. A nearby question is what additional deployment-visible side information can buy. Let $U_n$ denote such a side signal, and define
 \[
-q_{\rho,n}(\cdot\mid d_n)
-=
-\sum_{j=1}^M w_j(d_n)\, q_{j,n}(\cdot\mid d_n).
+R_U(r):=\E[-\log r(Y_{n+1}\mid O_n,U_n)],
 \]
-\end{lemma}
-
-\begin{proof}
-Use
 \[
-m_\rho^{n+1}(d_n,z)=\sum_{j=1}^M \rho_j m_j^{n+1}(d_n,z)
-=
-\sum_{j=1}^M \rho_j m_j^n(d_n) q_{j,n}(z\mid d_n),
+q_U(y\mid O_n,U_n):=\Pbb(Y_{n+1}=y\mid O_n,U_n),
 \]
-then divide by $m_\rho^n(d_n)=\sum_j \rho_j m_j^n(d_n)$.
-\end{proof}
-
-\begin{lemma}[Best-specialist support bound]
-\label{lem:best-specialist}
-For every realized support $d_n$,
 \[
--\log m_\rho^n(d_n)
-\le
-\min_j\Bigl\{-\log \rho_j - \log m_j^n(d_n)\Bigr\}.
+q_{\mathrm{aware}}^U(y\mid O_n,U_n,F):=\Pbb(Y_{n+1}=y\mid O_n,U_n,F).
 \]
-\end{lemma}
 
-\begin{proof}
-Since $m_\rho^n(d_n)=\sum_j \rho_j m_j^n(d_n)\ge \rho_j m_j^n(d_n)$ for every $j$, the claim follows by taking logs and using the prequential factorization of each $m_j^n$.
-\end{proof}
-
-\begin{proposition}[Support evidence equals posterior log-odds]
-\label{prop:evidence-odds}
-Fix two specialists $j$ and $k$. For every realized support $d_n$,
+\begin{proposition}[Value of deployment-visible side information]
+\label{prop:visible}
+Let $U_n$ be any deployment-visible side information. For any predictive law $r(\cdot\mid O_n,U_n)$ measurable with respect to $(O_n,U_n)$,
 \[
-\log \frac{w_j(d_n)}{w_k(d_n)}
+R_U(r)-R_U(q_{\mathrm{aware}}^U)
 =
-\log \frac{\rho_j}{\rho_k}
+\I(F;Y_{n+1}\mid O_n,U_n)
 +
-\sum_{i=1}^n
-\log \frac{q_{j,i-1}(z_i\mid d_{i-1})}{q_{k,i-1}(z_i\mid d_{i-1})}.
-\]
-If the episode is generated from specialist $j$, that is $D_n\sim m_j^n$, then
-\[
-\E_{D_n\sim m_j^n}
-\left[
-\log \frac{w_j(D_n)}{w_k(D_n)}
-\right]
-=
-\log \frac{\rho_j}{\rho_k}
-+
-\sum_{i=1}^n
-\E_{D_{i-1}\sim m_j^{i-1}}
+\E\!\left[
 \KL\bigl(
-q_{j,i-1}(\cdot\mid D_{i-1})
-\,
-\|
-\,
-q_{k,i-1}(\cdot\mid D_{i-1})
-\bigr).
+q_U(\cdot\mid O_n,U_n)
+\;\|\;
+r(\cdot\mid O_n,U_n)
+\bigr)
+\right].
+\]
+Moreover,
+\[
+R(q_{\mathrm{coll}})-R_U(q_U)
+=
+\I(U_n;Y_{n+1}\mid O_n).
 \]
 \end{proposition}
 
-\begin{proof}
-The first identity is immediate from
+\begin{corollary}[Prompt-derived tokens add no oracle information]
+\label{cor:prompt-metadata}
+If $U_n=\phi(O_n)$ almost surely for some measurable function $\phi$, then
 \[
-\frac{w_j(d_n)}{w_k(d_n)}
-=
-\frac{\rho_j m_j^n(d_n)}{\rho_k m_k^n(d_n)}
+\I(U_n;Y_{n+1}\mid O_n)=0
+\qquad\text{and hence}\qquad
+R(q_{\mathrm{coll}})=R_U(q_U).
 \]
-and the prequential factorization of each $m_j^n$. For the expectation, expand the same factorization and use the tower property:
+So prompt-derived metadata can help only through optimization or approximation, not by reducing Bayes risk.
+\end{corollary}
+
+\section{Local Dangerous Directions}
+
+Another complementary question is which infinitesimal prior perturbations remain dangerous after conditioning on the prompt. Fix a reference prior $\pi_0$ and a bounded measurable score function $\psi:\cT\to\Rbb$ satisfying $\E_{\pi_0}\psi=0$. Define the tilted prior
 \[
-\E_{D_n\sim m_j^n}\log \frac{m_j^n(D_n)}{m_k^n(D_n)}
+\frac{\dd \pi_\varepsilon}{\dd \pi_0}(t)
 =
-\sum_{i=1}^n
-\E_{D_{i-1}\sim m_j^{i-1}}
-\E_{Z_i\sim q_{j,i-1}(\cdot\mid D_{i-1})}
+\exp\{\varepsilon \psi(t)-A(\varepsilon)\},
+\qquad
+A(\varepsilon)
+:=
+\log \E_{\pi_0} e^{\varepsilon\psi(t)}.
+\]
+Let
+\[
+\mu_n := \E_{\pi_0}[\psi(t)\mid Z_{1:n}],
+\qquad
+V_n := \E_{m_0^n}\!\left[\Var_{\pi_0(\cdot\mid Z_{1:n})}(\psi)\right].
+\]
+
+\begin{proposition}[Local dangerous-direction expansion]
+\label{thm:small}
+For bounded $\psi$,
+\[
+\Delta_n(\varepsilon)
+=
+\frac{\varepsilon^2}{2}\bigl(V_n-V_{n+1}\bigr)
++ O(\varepsilon^3)
+\qquad
+(\varepsilon\to 0),
+\]
+with a remainder uniform in $n$ for $|\varepsilon|$ in a fixed neighborhood of $0$. Moreover,
+\[
+V_n-V_{n+1}
+=
+\E\bigl[(\mu_{n+1}-\mu_n)^2\bigr].
+\]
+\end{proposition}
+
+\section{Change-of-Measure Transfer for Learned PFNs}
+\label{app:transfer}
+
+Returning to the supervised notation of Section~\ref{sec:oracle-design}, let $\widehat q_n$ be the predictive rule output by a learned PFN and define the deployment log risk
+\[
+\mathcal R_n(\widehat q_n)
+:=
+\E_{m_{\te}^{n+1}}
+\bigl[
+-\log \widehat q_n(Z_{n+1}\mid Z_{1:n})
+\bigr].
+\]
+For every learned predictor $\widehat q_n$,
+\[
+\mathcal R_n(\widehat q_n)-\mathcal R_n(q_n^{\te})
+=
+\Delta_n
++
+\E_{m_{\te}^{n+1}}
 \left[
-\log \frac{q_{j,i-1}(Z_i\mid D_{i-1})}{q_{k,i-1}(Z_i\mid D_{i-1})}
+\log
+\frac{q_n^{\tr}(Z_{n+1}\mid Z_{1:n})}
+{\widehat q_n(Z_{n+1}\mid Z_{1:n})}
 \right].
 \]
-The inner expectation is exactly the displayed KL term.
-\end{proof}
+The first term is the irreducible oracle misspecification term analyzed in the main text. The second term is an amortization / architecture / optimization term. It need not be positive: a real PFN can occasionally outperform the exact $\pi_{\tr}$-Bayes predictor on deployment because the network extrapolates beyond the support of the training prior.
 
-\section{Learned-Portfolio Decomposition}
-\label{app:proof-approx}
-
-\begin{theorem}[Mixture decomposition for learned portfolios]
-\label{thm:approx-portfolio}
-For every realized support $d_n$,
+Under the prompt-wise support condition
 \[
-\KL\bigl(q_{\rho,n}(\cdot\mid d_n)\,\|\,\widehat q_n(\cdot\mid d_n)\bigr)
+q_n^{\tr}(\cdot\mid z_{1:n}) \ll \widehat q_n(\cdot\mid z_{1:n})
+\]
+for $m_{\te}^n$-almost every context $z_{1:n}$, define
+\[
+G_n(z_{1:n})
+:=
+\Dtwo\!\left(
+q_n^{\tr}(\cdot\mid z_{1:n})
+\;\|\;
+\widehat q_n(\cdot\mid z_{1:n})
+\right)
+=
+\log \int
+\frac{(q_n^{\tr}(z\mid z_{1:n}))^2}{\widehat q_n(z\mid z_{1:n})}\,\dd z.
+\]
+
+\begin{proposition}[Change-of-measure transfer for learned PFNs]
+\label{thm:transfer}
+Under the support condition above,
+\[
+\mathcal R_n(\widehat q_n)-\mathcal R_n(q_n^{\te})
 \le
-\KL\bigl(w(d_n)\,\|\,\widehat w(d_n)\bigr)
+2\Delta_n + \E_{m_{\te}^{n}}[G_n(Z_{1:n})].
+\]
+For every $\eta>0$,
+\[
+\E_{m_{\te}^{n}}[G_n]
+\le
+\frac{K_n+\log \E_{m_{\tr}^{n}} e^{\eta G_n}}{\eta}.
+\]
+\end{proposition}
+
+Proposition~\ref{thm:transfer} is intentionally tail-sensitive. Under prior shift, rare prompts on which the learned PFN puts very little mass where the oracle puts moderate mass can dominate deployment behavior. A mean training KL can miss this effect, whereas the order-2 gap $G_n$ and its prompt-level concentration control it directly.
+
+\begin{corollary}[Sub-gamma prompt-tail transfer]
+\label{cor:transfer-subgamma}
+If $G_n-\bar G_n^{\tr}$ is sub-gamma with variance factor $v_n$ and scale $c_n$ under $m_{\tr}^{n}$, then
+\[
+\E_{m_{\te}^{n}}[G_n]
+\le
+\bar G_n^{\tr}
 +
-\sum_{j=1}^M w_j(d_n)\,
-\KL\bigl(q_{j,n}(\cdot\mid d_n)\,\|\,\widehat q_{j,n}(\cdot\mid d_n)\bigr).
-\]
-\end{theorem}
-
-\begin{proof}
-Consider the joint laws on $(F,Z_{n+1})$ with shared conditional support $d_n$:
-\[
-P(F=j,Z_{n+1}\in \dd z)=w_j(d_n)\,q_{j,n}(z\mid d_n)\,\dd z,
-\]
-\[
-Q(F=j,Z_{n+1}\in \dd z)=\widehat w_j(d_n)\,\widehat q_{j,n}(z\mid d_n)\,\dd z.
-\]
-By the chain rule for KL,
-\[
-\KL(P\|Q)
-=
-\KL(w\|\widehat w)
+\sqrt{2v_nK_n}
 +
-\sum_j w_j \KL(q_j\|\widehat q_j).
+c_nK_n.
 \]
-Marginalizing out $F$ sends $(P,Q)$ to $(q_{\rho,n},\widehat q_n)$, so data processing gives
+\end{corollary}
+
+\begin{corollary}[Uniform log-approximation consequence]
+\label{cor:transfer-uniform}
+If $\widehat q_n$ uniformly approximates the training-prior oracle in log probability, namely if
 \[
-\KL(q_{\rho,n}\|\widehat q_n)\le \KL(P\|Q).
+\sup_{z_{1:n+1}}
+\left|
+\log \widehat q_n(z_{n+1}\mid z_{1:n})
+- \log q_n^{\tr}(z_{n+1}\mid z_{1:n})
+\right|
+\le \varepsilon_n,
 \]
-\end{proof}
-
-\section{Compression Lemmas for Hard and Top-\texorpdfstring{$k$}{k}}
-\label{app:compression-lemmas}
-
-\begin{lemma}[Compression penalties]
-\label{lem:compression}
-For every support $d_n$ and every next outcome $z$,
+then
 \[
--\log q_{\hard,n}(z\mid d_n)
--
-\bigl[-\log q_{\rho,n}(z\mid d_n)\bigr]
+\mathcal R_n(\widehat q_n)-\mathcal R_n(q_n^{\te})
 \le
--\log w_{j^\star(d_n)}(d_n),
+\Delta_n + \varepsilon_n.
 \]
-and
+\end{corollary}
+
+\section{Active-Feature Family-Resolution Model}
+\label{app:active-feature}
+
+This appendix records a TabPFN-like family-resolution model complementary to the main oracle-misspecification results. The family label is an unknown active feature among $d$ candidates; the predictor must identify it from a short context.
+
+Fix $d\ge 2$ and $\delta\in(0,1/2]$. The latent family is
 \[
--\log q_{\topk,n}(z\mid d_n)
+M\in\{1,\dots,d\},
+\]
+drawn uniformly. The context and query features are i.i.d. Rademacher vectors
+\[
+X_i,X_* \in \{-1,+1\}^d,
+\]
+and labels satisfy
+\[
+\Pbb(Y_i=X_{iM}\mid X_i,M)=\frac{1+\delta}{2},
+\qquad
+\Pbb(Y_i=-X_{iM}\mid X_i,M)=\frac{1-\delta}{2}.
+\]
+The query label $Y_*$ follows the same rule. Let
+\[
+D_n:=((X_1,Y_1),\dots,(X_n,Y_n)),
+\qquad
+\pi_n(j):=\Pbb(M=j\mid D_n).
+\]
+The family-aware oracle predicts
+\[
+\Pbb(Y_*=y\mid X_*,D_n,M)=\frac{1+y\delta X_{*M}}{2},
+\]
+while the collapsed broad-prior predictor is
+\[
+q_n(y\mid D_n,X_*)=
+\sum_{j=1}^d \pi_n(j)\frac{1+y\delta X_{*j}}{2}.
+\]
+
+Define the collapse regret
+\[
+R_n
+:=
+\E[-\log q_n(Y_*\mid D_n,X_*)]
 -
-\bigl[-\log q_{\rho,n}(z\mid d_n)\bigr]
-\le
--\log r_K(d_n).
+\E[-\log \Pbb(Y_*\mid D_n,X_*,M)].
 \]
-\end{lemma}
 
-\begin{proof}
-Since
+\begin{theorem}[Regret and posterior feature ambiguity]
+\label{thm:active-gini}
+Let
 \[
-q_{\rho,n}(z\mid d_n)
-=
-\sum_j w_j(d_n) q_{j,n}(z\mid d_n)
-\ge
-w_{j^\star(d_n)}(d_n)\,q_{\hard,n}(z\mid d_n),
-\]
-the first claim follows after taking logs. Likewise,
-\[
-q_{\rho,n}(z\mid d_n)
-\ge
-\sum_{j\in K(d_n)} w_j(d_n) q_{j,n}(z\mid d_n)
-=
-r_K(d_n)\,q_{\topk,n}(z\mid d_n).
-\]
-\end{proof}
-
-\begin{lemma}[Evidence-gap control]
-\label{lem:evidence-gap}
-Let $w_{(1)}(d_n)\ge w_{(2)}(d_n)\ge \cdots \ge w_{(M)}(d_n)$ denote the posterior weights in decreasing order and define
-\[
-\gamma(d_n):=\log \frac{w_{(1)}(d_n)}{w_{(2)}(d_n)}.
+G_n := 1-\sum_{j=1}^d \pi_n(j)^2.
 \]
 Then
 \[
-w_{(1)}(d_n)\ge \frac{1}{1+(M-1)e^{-\gamma(d_n)}}.
+\frac{\delta^2}{2}\E[G_n]
+\le
+R_n
+\le
+\frac{2\delta^2}{3}\E[G_n].
+\]
+\end{theorem}
+
+\begin{proposition}[Equivalence to feature identification error]
+\label{prop:active-id}
+Let
+\[
+e_n := 1-\E\bigl[\max_j \pi_n(j)\bigr],
+\]
+the Bayes error probability for identifying $M$ from the context. Then
+\[
+\frac{\delta^2}{2}e_n
+\le
+R_n
+\le
+\frac{4\delta^2}{3}e_n.
+\]
+\end{proposition}
+
+\begin{theorem}[Sharp context law]
+\label{thm:active-context}
+There exist universal constants $c_1,c_2,c_3,c_4>0$ such that
+\[
+R_n \le c_1\delta^2 d e^{-c_2 n\delta^2}
+\]
+for all $n\ge 1$, while if $d\ge 4$ and
+\[
+n \le c_3\frac{\log d}{\delta^2},
+\]
+then
+\[
+R_n \ge c_4\delta^2.
+\]
+Hence the context length needed to remove family ambiguity is
+\[
+\Theta\!\left(\frac{\log d}{\delta^2}\right).
+\]
+\end{theorem}
+
+\begin{corollary}[Candidate-set restriction]
+\label{cor:active-candidates}
+If side information restricts the true active feature to a candidate set of size at most $s$, then the law in Theorem~\ref{thm:active-context} holds with $d$ replaced by $s$.
+\end{corollary}
+
+\section{Proofs}
+
+\subsection{Proof of Theorem~\ref{thm:exact}}
+
+\begin{proof}
+By definition,
+\begin{align*}
+K_{n+1}-K_n
+&=
+\E_{m_{\te}^{n+1}}
+\left[
+\log\frac{m_{\te}^{n+1}(Z_{1:n+1})}{m_{\tr}^{n+1}(Z_{1:n+1})}
+-
+\log\frac{m_{\te}^{n}(Z_{1:n})}{m_{\tr}^{n}(Z_{1:n})}
+\right] \\
+&=
+\E_{m_{\te}^{n+1}}
+\left[
+\log
+\frac{
+m_{\te}^{n+1}(Z_{1:n+1}) / m_{\te}^{n}(Z_{1:n})
+}{
+m_{\tr}^{n+1}(Z_{1:n+1}) / m_{\tr}^{n}(Z_{1:n})
+}
+\right] \\
+&=
+\E_{m_{\te}^{n+1}}
+\left[
+\log
+\frac{
+q_n^{\te}(Z_{n+1}\mid Z_{1:n})
+}{
+q_n^{\tr}(Z_{n+1}\mid Z_{1:n})
+}
+\right]
+=
+\Delta_n.
+\end{align*}
+Conditioning on $Z_{1:n}$ under $m_{\te}^{n+1}$ yields
+\[
+\Delta_n
+=
+\E_{m_{\te}^{n}}
+\Bigl[
+\KL\bigl(
+q_n^{\te}(\cdot\mid Z_{1:n})
+\;\|\;
+q_n^{\tr}(\cdot\mid Z_{1:n})
+\bigr)
+\Bigr].
+\]
+
+Define joint laws on $(t,Z_{1:n})$:
+\[
+J_{\te}(\dd t,\dd z_{1:n})
+:=
+\pi_{\te}(\dd t)\prod_{i=1}^n P_t(\dd z_i),
+\qquad
+J_{\tr}(\dd t,\dd z_{1:n})
+:=
+\pi_{\tr}(\dd t)\prod_{i=1}^n P_t(\dd z_i).
+\]
+Because the conditional law of $Z_{1:n}$ given $t$ is the same under both,
+\[
+\KL(J_{\te}\,\|\,J_{\tr})=\KL(\pi_{\te}\,\|\,\pi_{\tr}).
+\]
+Applying the chain rule for KL with the marginal on $Z_{1:n}$ gives
+\begin{align*}
+\KL(J_{\te}\,\|\,J_{\tr})
+&=
+\KL(m_{\te}^{n}\,\|\,m_{\tr}^{n}) \\
+&\qquad
++ \E_{m_{\te}^{n}}
+\Bigl[
+\KL\bigl(
+\pi_{\te}(\cdot\mid Z_{1:n})
+\;\|\;
+\pi_{\tr}(\cdot\mid Z_{1:n})
+\bigr)
+\Bigr] \\
+&=
+K_n + D_n.
+\end{align*}
+Hence
+\[
+K_n=\KL(\pi_{\te}\,\|\,\pi_{\tr})-D_n.
+\]
+Subtracting the same identity at $n+1$ and using Theorem~\ref{thm:exact},
+\[
+\Delta_n = K_{n+1}-K_n = D_n-D_{n+1}.
+\]
+Finally,
+\[
+\sum_{n=0}^{N-1}\Delta_n
+=
+K_N-K_0.
+\]
+Since $K_0=0$ and $K_N\le \KL(\pi_{\te}\,\|\,\pi_{\tr})$, the cumulative bound follows.
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{thm:mixture}}
+\label{app:exact-proofs}
+
+\begin{proof}
+The equality
+\[
+\sum_{n=0}^{N-1}\Delta_n(\pi_\alpha,\pi_\lambda)
+=
+\KL(m_\alpha^N\,\|\,m_\lambda^N)
+\]
+is immediate from Theorem~\ref{thm:exact} by telescoping from $n=0$ to $N-1$.
+
+For the upper bound, introduce the latent family index $J\in\{1,\dots,M\}$ and define
+\[
+\widetilde P_\alpha(j,z_{1:N}) := \alpha_j m_{\pi_j}^N(z_{1:N}),
+\qquad
+\widetilde P_\lambda(j,z_{1:N}) := \lambda_j m_{\pi_j}^N(z_{1:N}).
+\]
+Because the conditional law of $Z_{1:N}$ given $J=j$ is the same under both,
+\[
+\KL(\widetilde P_\alpha\,\|\,\widetilde P_\lambda)
+=
+\KL(\alpha\,\|\,\lambda).
+\]
+Marginalizing out $J$ maps $(J,Z_{1:N})$ to $Z_{1:N}$, and the corresponding marginals are exactly $m_\alpha^N$ and $m_\lambda^N$. By data processing,
+\[
+\KL(m_\alpha^N\,\|\,m_\lambda^N)
+\le
+\KL(\widetilde P_\alpha\,\|\,\widetilde P_\lambda)
+=
+\KL(\alpha\,\|\,\lambda).
+\]
+The single-family specialization is obtained by setting $\alpha=e_j$.
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{prop:prompt-opt}}
+
+\begin{proof}
+Let $q_{\mathrm{aware}}(y\mid O_n,F)=P(Y_{n+1}=y\mid O_n,F)$ and
+$q_{\mathrm{coll}}(y\mid O_n)=P(Y_{n+1}=y\mid O_n)$. For any predictive law $r(\cdot\mid O_n)$ measurable with respect to $O_n$, add and subtract the collapsed risk:
+\begin{align*}
+&\E[-\log r(Y_{n+1}\mid O_n)]
+-\E[-\log q_{\mathrm{aware}}(Y_{n+1}\mid O_n,F)] \\
+&=
+\Bigl(
+\E[-\log r(Y_{n+1}\mid O_n)]
+-\E[-\log q_{\mathrm{coll}}(Y_{n+1}\mid O_n)]
+\Bigr) \\
+&\qquad +
+\Bigl(
+\E[-\log q_{\mathrm{coll}}(Y_{n+1}\mid O_n)]
+-\E[-\log q_{\mathrm{aware}}(Y_{n+1}\mid O_n,F)]
+\Bigr).
+\end{align*}
+Conditioning on $O_n$ turns the first bracket into
+\[
+\E\!\left[
+-\log r(Y_{n+1}\mid O_n)
++\log q_{\mathrm{coll}}(Y_{n+1}\mid O_n)
+\;\middle|\;
+O_n
+\right]
+=
+\KL\bigl(
+q_{\mathrm{coll}}(\cdot\mid O_n)
+\;\|\;
+r(\cdot\mid O_n)
+\bigr).
+\]
+The second bracket equals
+\[
+H(Y_{n+1}\mid O_n)-H(Y_{n+1}\mid O_n,F)
+=
+\I(F;Y_{n+1}\mid O_n).
+\]
+Averaging proves the decomposition, and setting $r=q_{\mathrm{coll}}$ gives the final display.
+\end{proof}
+
+\subsection{Proof of Corollary~\ref{cor:js}}
+
+\begin{proof}
+Condition on $O_n=o$. The conditional law of $F$ then has weights $w(o)$ and mixture predictive $q_{\mathrm{coll}}(\cdot\mid o)$. Therefore
+\[
+\I(F;Y_{n+1}\mid O_n=o)
+=
+\sum_{j=1}^M w_j(o)\,
+\KL\bigl(
+q_j(\cdot\mid o)
+\;\|\;
+q_{\mathrm{coll}}(\cdot\mid o)
+\bigr)
+=
+\JS_{w(o)}(q_1,\dots,q_M).
+\]
+Average over $O_n$ and invoke Proposition~\ref{prop:prompt-opt}.
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{prop:refine}}
+
+\begin{proof}
+Because $B_n=f(C_n)$,
+\[
+R_B(q_B)-R_C(q_C)
+=
+H(Y_{n+1}\mid O_n,B_n)-H(Y_{n+1}\mid O_n,C_n)
+=
+\I(C_n;Y_{n+1}\mid O_n,B_n).
+\]
+Condition on $(O_n,B_n)$. The conditional law of $C_n$ is a mixture weight on the predictives $q_c(\cdot\mid O_n)$, and $q_B(\cdot\mid O_n,B_n)$ is the corresponding mixture predictive. Expanding the conditional mutual information by the mixture-entropy identity yields the within-bucket generalized Jensen--Shannon formula.
+\end{proof}
+
+\subsection{Proof of Corollary~\ref{cor:bucket}}
+
+\begin{proof}
+Because $B_n=b(F)$ is a deterministic function of $F$,
+\[
+\I(B_n;Y_{n+1}\mid O_n,F)=0.
+\]
+Applying the chain rule,
+\begin{align*}
+\I(F;Y_{n+1}\mid O_n)
+&=
+\I(B_n,F;Y_{n+1}\mid O_n) \\
+&=
+\I(B_n;Y_{n+1}\mid O_n)
++
+\I(F;Y_{n+1}\mid O_n,B_n).
+\end{align*}
+Since the left-hand side is fixed once the library is fixed, maximizing the first term is equivalent to minimizing the second, which is exactly the best achievable regret to the family-aware oracle when only $(O_n,B_n)$ are visible.
+\end{proof}
+
+\subsection{Proof of Theorem~\ref{thm:router}}
+
+\begin{proof}
+Write $q_{\mathrm{aware}}(y\mid O_n,F)=q_F(y\mid O_n)$.
+Add and subtract the collapsed risk:
+\begin{align*}
+&\E[-\log \hat q(Y_{n+1}\mid O_n)]
+-\E[-\log q_{\mathrm{aware}}(Y_{n+1}\mid O_n,F)] \\
+&=
+\Bigl(
+\E[-\log q_{\mathrm{coll}}(Y_{n+1}\mid O_n)]
+-\E[-\log q_{\mathrm{aware}}(Y_{n+1}\mid O_n,F)]
+\Bigr) \\
+&\qquad +
+\Bigl(
+\E[-\log \hat q(Y_{n+1}\mid O_n)]
+-\E[-\log q_{\mathrm{coll}}(Y_{n+1}\mid O_n)]
+\Bigr).
+\end{align*}
+The first bracket is the second display of Proposition~\ref{prop:prompt-opt}. For the second bracket, condition on $O_n$ to obtain
+\[
+\E\!\left[
+-\log \hat q(Y_{n+1}\mid O_n)
++\log q_{\mathrm{coll}}(Y_{n+1}\mid O_n)
+\;\middle|\;
+O_n
+\right]
+=
+\KL\bigl(
+q_{\mathrm{coll}}(\cdot\mid O_n)
+\;\|\;
+\hat q(\cdot\mid O_n)
+\bigr).
+\]
+Averaging over $O_n$ proves the exact decomposition.
+
+For the upper bound, fix a realized context $O_n=o$ and define the Markov kernel
+\[
+T_o(y\mid j):=q_j(y\mid o).
+\]
+Then
+\[
+q_{\mathrm{coll}}(\cdot\mid o)=w(o)T_o,
+\qquad
+\hat q(\cdot\mid o)=\hat w(o)T_o.
+\]
+By data processing,
+\[
+\KL\bigl(
+q_{\mathrm{coll}}(\cdot\mid o)
+\;\|\;
+\hat q(\cdot\mid o)
+\bigr)
+\le
+\KL\bigl(
+w(o)
+\;\|\;
+\hat w(o)
+\bigr).
+\]
+Average this inequality over $O_n$.
+\end{proof}
+
+\subsection{Proof of Corollary~\ref{cor:router-ce}}
+
+\begin{proof}
+Condition on $O_n$. Since $F\mid O_n$ has law $w(O_n)$,
+\begin{align*}
+\E[-\log \hat w_F(O_n)\mid O_n]
+&=
+\sum_{j=1}^M w_j(O_n)\log\frac{1}{\hat w_j(O_n)} \\
+&=
+H(F\mid O_n)
++
+\KL\bigl(
+w(O_n)
+\;\|\;
+\hat w(O_n)
+\bigr).
+\end{align*}
+Average over $O_n$.
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{prop:bucketed-approx}}
+
+\begin{proof}
+The exact decomposition
+\[
+R(\tilde q)-R(q_{\mathrm{aware}})
+=
+\I(F;Y_{n+1}\mid O_n)
++
+\E\!\left[
+\KL\bigl(
+q_{\mathrm{coll}}(\cdot\mid O_n)
+\;\|\;
+\tilde q(\cdot\mid O_n)
+\bigr)
+\right]
+\]
+is Proposition~\ref{prop:prompt-opt} applied to the $O_n$-measurable predictor $\tilde q$.
+
+For the upper bound, fix a realized context $O_n=o$ and define
+\[
+P_o(b,y):=w_b(o)\,q_b(y\mid o),
+\qquad
+Q_o(b,y):=\hat w_b(o)\,\tilde q_b(y\mid o).
+\]
+Marginalizing over $b$ gives $q_{\mathrm{coll}}(\cdot\mid o)$ from $P_o$ and $\tilde q(\cdot\mid o)$ from $Q_o$. Therefore, by data processing,
+\[
+\KL\bigl(
+q_{\mathrm{coll}}(\cdot\mid o)
+\;\|\;
+\tilde q(\cdot\mid o)
+\bigr)
+\le
+\KL(P_o\,\|\,Q_o).
+\]
+The chain rule for KL yields
+\[
+\KL(P_o\,\|\,Q_o)
+=
+\KL\bigl(
+w_B(o)
+\;\|\;
+\hat w(o)
+\bigr)
++
+\sum_b w_b(o)\,
+\KL\bigl(
+q_b(\cdot\mid o)
+\;\|\;
+\tilde q_b(\cdot\mid o)
+\bigr).
+\]
+Average over $O_n$ and combine with the exact decomposition.
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{prop:regular}}
+\label{app:regular-proofs}
+
+\begin{assumption}[One-posterior regularity]
+\label{ass:bvm}
+Tasks are parameterized by $\theta\in\Theta\subset\Rbb^p$, where $\Theta$ is open and $Z_i\mid \theta \sim P_\theta$ i.i.d. Let $\pi_{\tr}$ and $\pi_{\te}$ have positive densities on $\Theta$ and define
+\[
+g(\theta):=\log \frac{\pi_{\te}(\theta)}{\pi_{\tr}(\theta)},
+\qquad
+u(\theta):=\nabla g(\theta),
+\qquad
+I(\theta):=\text{Fisher information of }P_\theta.
+\]
+Assume $g\in C^3(\Theta)$. If $\theta_0$ generates $Z_{1:n}$ and
+\[
+\Pi_{\tr,n}:=\pi_{\tr}(\cdot\mid Z_{1:n}),
+\]
+then:
+\begin{enumerate}[leftmargin=18pt]
+\item there exist measurable envelopes $L,M:\Theta\to[1,\infty)$ such that, for $\pi_{\te}$-almost every $\theta_0$,
+\[
+\sup_{\|\vartheta-\theta_0\|\le 1}
+\max\!\left\{
+\|\nabla^2 g(\vartheta)\|,
+\|\nabla^3 g(\vartheta)\|
+\right\}
+\le
+L(\theta_0),
+\]
+\[
+\sup_{n\ge 1}
+\E_{Z_{1:n}\mid \theta_0}
+\E_{\Pi_{\tr,n}}
+\|\sqrt n(\Theta-\theta_0)\|^3
+\le
+M(\theta_0),
+\]
+and
+\[
+\E_{\theta\sim\pi_{\te}}
+\bigl[(1+\|u(\theta)\|^3)L(\theta)M(\theta)\bigr]
+<\infty;
+\]
+\item the posterior covariance satisfies the weighted $L^1$ convergence
+\[
+\E_{\theta_0\sim\pi_{\te}}
+\E_{Z_{1:n}\mid \theta_0}
+\left|
+u(\theta_0)^\top
+\Bigl(
+n\,\Var_{\Pi_{\tr,n}}(\Theta)-I(\theta_0)^{-1}
+\Bigr)
+u(\theta_0)
+\right|
+\to 0.
+\]
+\end{enumerate}
+These conditions are the one-posterior BvM input we need: local quadratic control of the posterior tilt $g$, posterior third-moment localization at scale $n^{-1/2}$, and integrable weighted covariance convergence for the training posterior.
+\end{assumption}
+
+\begin{proof}
+Fix the true parameter $\theta_0$ and write $\Pi_n:=\Pi_{\tr,n}=\pi_{\tr}(\cdot\mid Z_{1:n})$.
+Because the likelihood is the same under both priors, Bayes' rule gives the exact posterior tilt identity
+\[
+\frac{\dd \pi_{\te}(\cdot\mid Z_{1:n})}{\dd \Pi_n}(\theta)
+=
+\frac{e^{g(\theta)}}{\E_{\Pi_n}e^{g(\Theta)}}.
+\]
+Hence the posterior KL at the realized dataset equals
+\begin{align*}
+D_n(Z_{1:n})
+&:=
+\KL\bigl(
+\pi_{\te}(\cdot\mid Z_{1:n})
+\;\|\;
+\pi_{\tr}(\cdot\mid Z_{1:n})
+\bigr) \\
+&=
+\E_{\pi_{\te}(\cdot\mid Z_{1:n})} g(\Theta)
+- \log \E_{\Pi_n} e^{g(\Theta)}.
+\end{align*}
+
+Subtract the constant $g(\theta_0)$ and define
+\[
+X_n:=g(\Theta)-g(\theta_0),
+\qquad
+\psi_n(\lambda):=\log \E_{\Pi_n} e^{\lambda X_n}.
+\]
+Then
+\[
+D_n(Z_{1:n}) = \psi_n'(1)-\psi_n(1).
+\]
+
+A third-order Taylor expansion of $g$ around $\theta_0$ gives
+\[
+X_n
+=
+u(\theta_0)^\top(\Theta-\theta_0)
+ + R_n,
+\qquad
+|R_n|
+\le
+C L(\theta_0)\|\Theta-\theta_0\|^2
+\]
+for a universal constant $C$. By Assumption~\ref{ass:bvm}(1) and H\"older's inequality,
+\[
+\E_{Z_{1:n}\mid \theta_0}\E_{\Pi_n}|R_n|
+\le
+C L(\theta_0) M(\theta_0)^{2/3} n^{-1},
+\]
+and similarly
+\[
+\E_{Z_{1:n}\mid \theta_0}\E_{\Pi_n}|X_n|^3
+\le
+C (1+\|u(\theta_0)\|^3)L(\theta_0)M(\theta_0)\,n^{-3/2}.
+\]
+Thus $X_n=o_{L^3(\Pi_n)}(1)$ on average under the data law. Conditioning on a realized dataset and using the standard scalar cumulant expansion with third-moment remainder, there is a deterministic remainder $\rho_n(\lambda)$ such that, uniformly for $\lambda\in[0,1]$,
+\[
+\psi_n(\lambda)
+=
+\lambda m_n + \frac{\lambda^2}{2}v_n + O_{P_{\theta_0}}(n^{-3/2}),
+\]
+where
+\[
+m_n:=\E_{\Pi_n}X_n,
+\qquad
+v_n:=\Var_{\Pi_n}(X_n).
+\]
+More explicitly, the remainder satisfies
+\[
+\E_{Z_{1:n}\mid \theta_0}\sup_{\lambda\in[0,1]}|\rho_n(\lambda)|
+\le
+C (1+\|u(\theta_0)\|^3)L(\theta_0)M(\theta_0)\,n^{-3/2},
+\]
+so the displayed $O(n^{-3/2})$ term is $L^1$-controlled rather than merely formal.
+Consequently,
+\[
+\psi_n'(1)-\psi_n(1)
+=
+\frac{1}{2}v_n + O_{L^1(P_{\theta_0})}(n^{-3/2}).
+\]
+
+Applying the same Taylor expansion inside the variance gives
+\[
+v_n
+=
+u(\theta_0)^\top \Var_{\Pi_n}(\Theta)\,u(\theta_0)
++ O_{L^1(P_{\theta_0})}(n^{-3/2}).
+\]
+Combining the last two displays gives
+\[
+D_n(Z_{1:n})
+=
+\frac{1}{2}\,
+u(\theta_0)^\top \Var_{\Pi_n}(\Theta)\,u(\theta_0)
++ O_{L^1(P_{\theta_0})}(n^{-3/2}).
+\]
+
+Now average over $\theta_0\sim\pi_{\te}$ and the data. The integrability condition in Assumption~\ref{ass:bvm}(1) makes the $n^{-3/2}$ remainder uniformly integrable after averaging over $\theta_0$, so its contribution is $o(n^{-1})$. Assumption~\ref{ass:bvm}(2) then yields
+\[
+D_n
+=
+\frac{1}{2n}\,
+\E_{\theta\sim\pi_{\te}}
+\bigl[
+u(\theta)^\top I(\theta)^{-1}u(\theta)
+\bigr]
++ o(n^{-1}).
+\]
+Theorem~\ref{thm:exact} then gives
+\[
+\Delta_n
+=
+D_n-D_{n+1}
+=
+\frac{1}{2n(n+1)}\,
+\E_{\theta\sim\pi_{\te}}
+\bigl[
+u(\theta)^\top I(\theta)^{-1}u(\theta)
+\bigr]
++ o(n^{-2}).
+\qedhere
+\]
+\end{proof}
+
+\subsection{Proof of Theorem~\ref{thm:beta}}
+\label{app:beta-proofs}
+
+We use the shorthand
+\[
+p_n(s) := \frac{c+s}{c+d+n},
+\qquad
+q_n(s) := \frac{a+s}{a+b+n},
+\qquad
+r_n(\theta) := \E_{S\sim \Bin(n,\theta)}[\klb(p_n(S),q_n(S))].
+\]
+
+\begin{lemma}[Integral representation]
+\label{lem:beta-integral}
+For every $n\ge 0$,
+\[
+\Delta_n
+=
+\frac{1}{B(c,d)}
+\int_0^1
+\theta^{c-1}(1-\theta)^{d-1}
+r_n(\theta)\,\dd\theta.
 \]
 \end{lemma}
 
 \begin{proof}
-Let $\gamma=\log(w_{(1)}/w_{(2)})$. By definition, for every $j\ge 2$,
+Under the deployment prior $\theta\sim \BetaDist(c,d)$, the sufficient statistic $S_n$ has Beta--Binomial distribution:
 \[
-w_{(j)}\le w_{(2)} = e^{-\gamma} w_{(1)}.
-\]
-Hence
-\[
-1=\sum_{j=1}^M w_{(j)}
-\le
-w_{(1)} + (M-1)e^{-\gamma}w_{(1)}
+\Pbb(S_n=s)
 =
-w_{(1)}\bigl(1+(M-1)e^{-\gamma}\bigr).
-\]
-Rearranging yields the claim. Combined with Lemma~\ref{lem:compression}, this gives the hard-selection penalty bound stated in the main text.
-\end{proof}
-
-\section{Proof of Theorem~\ref{thm:merge-stability}}
-\label{app:proof-merge}
-
-\begin{proof}
-Define the quadratic surrogates
-\[
-Q_j(\theta):=c_j + \frac{1}{2}(\theta-\theta_j)^\top H(\theta-\theta_j),
-\qquad
-Q_w(\theta):=\sum_{j=1}^M w_j(d_n)Q_j(\theta).
-\]
-Because $\sum_j w_j(d_n)=1$, expanding the quadratic terms yields
-\[
-Q_w(\theta)
-=
-\mathrm{const}
-+
-\frac{1}{2}\left(\theta-\sum_{j=1}^M w_j(d_n)\theta_j\right)^\top
-H
-\left(\theta-\sum_{j=1}^M w_j(d_n)\theta_j\right).
-\]
-Therefore the minimizer of $Q_w$ over $U$ is
-\[
-\bar\theta_w(d_n):=\sum_{j=1}^M w_j(d_n)\theta_j.
-\]
-Since $|r_j(\theta)|\le \varepsilon_{\mathrm{quad}}$ for every $j$ and every $\theta\in U$, the weighted remainder also satisfies
-\[
-\left|L_{w(d_n)}(\theta)-Q_w(\theta)\right|
-\le
-\varepsilon_{\mathrm{quad}}
-\qquad
-\text{for all }\theta\in U.
-\]
-Hence
-\[
-L_{w(d_n)}(\theta_\alpha)-L_{w(d_n)}(\theta_w^\star)
-\le
-Q_w(\theta_\alpha)-Q_w(\theta_w^\star)+2\varepsilon_{\mathrm{quad}}
-\le
-Q_w(\theta_\alpha)-Q_w(\bar\theta_w)+2\varepsilon_{\mathrm{quad}}.
-\]
-The quadratic form for $Q_w$ gives
-\[
-Q_w(\theta_\alpha)-Q_w(\bar\theta_w)
-=
-\frac{1}{2}(\theta_\alpha-\bar\theta_w)^\top H(\theta_\alpha-\bar\theta_w)
-\le
-\frac{\lambda_{\max}(H)}{2}\|\theta_\alpha-\bar\theta_w\|^2.
-\]
-Finally,
-\[
-\theta_\alpha-\bar\theta_w
-=
-\sum_{j=1}^M (\alpha_j-w_j(d_n))\theta_j
-=
-\sum_{j=1}^M (\alpha_j-w_j(d_n))(\theta_j-\theta_0),
-\]
-because $\sum_j(\alpha_j-w_j(d_n))=0$. Using $\|\theta_j-\theta_0\|\le R$,
-\[
-\|\theta_\alpha-\bar\theta_w\|
-\le
-\sum_{j=1}^M |\alpha_j-w_j(d_n)|\,\|\theta_j-\theta_0\|
-\le
-R\|\alpha-w(d_n)\|_1.
-\]
-Substituting this into the previous display yields
-\[
-L_{w(d_n)}(\theta_\alpha)-L_{w(d_n)}(\theta_w^\star)
-\le
-\frac{\lambda_{\max}(H)}{2}R^2\|\alpha-w(d_n)\|_1^2+2\varepsilon_{\mathrm{quad}}.
-\]
-If $\varepsilon_{\mathrm{quad}}=0$ and $\alpha=w(d_n)$, then $\theta_\alpha=\bar\theta_w$ and the upper bound is zero, so the merge is an exact minimizer.
-\end{proof}
-
-\section{Fisher and Task-Vector Refinements}
-\label{app:proof-fisher}
-
-\begin{proposition}[Fisher/Hessian-weighted merge]
-\label{prop:fisher-merge}
-If the specialist objectives admit local quadratic approximations
-\[
-L_{\pi_j}(\theta)
-\approx
-c_j + \frac{1}{2}(\theta-\theta_j)^\top H_j(\theta-\theta_j),
-\]
-then the local minimizer of the support-adapted mixed objective is
-\[
-\theta^\star(d_n)
-\approx
-\left(\sum_{j=1}^M w_j(d_n)H_j\right)^{-1}
-\left(\sum_{j=1}^M w_j(d_n)H_j\theta_j\right).
-\]
-\end{proposition}
-
-\begin{proof}
-Substitute the quadratic expansions into $\sum_j w_j(d_n)L_{\pi_j}(\theta)$ and collect the terms that depend on $\theta$:
-\[
-\frac{1}{2}\theta^\top\left(\sum_j w_j H_j\right)\theta
--
-\theta^\top\left(\sum_j w_j H_j\theta_j\right)
-+ \text{const}.
-\]
-Differentiating with respect to $\theta$ and setting the gradient to zero gives
-\[
-\left(\sum_j w_j H_j\right)\theta
-=
-\sum_j w_j H_j\theta_j,
-\]
-which yields the stated expression whenever the weighted curvature matrix is invertible.
-\end{proof}
-
-\subsection{Weighted Task Vectors}
-\label{app:proof-task}
-
-\begin{proposition}[Weighted task vectors recover the first-order mixed update]
-\label{prop:task-vector}
-Suppose every specialist is obtained by fine-tuning a shared base checkpoint $\theta_0$ and that its displacement admits the decomposition
-\[
-\theta_j=\theta_0+\Delta_j,
-\qquad
-\Delta_j = -\eta P \nabla L_{\pi_j}(\theta_0) + r_j,
-\]
-for a common step size $\eta>0$, preconditioner $P$, and residual $r_j$. Then for every weight vector $\alpha\in\Delta_M$,
-\[
-\left\|
-\sum_{j=1}^M \alpha_j \Delta_j
-+
-\eta P \nabla L_{\pi_\alpha}(\theta_0)
-\right\|
-\le
-\sum_{j=1}^M \alpha_j \|r_j\|,
-\qquad
-L_{\pi_\alpha}:=\sum_{j=1}^M \alpha_j L_{\pi_j}.
-\]
-\end{proposition}
-
-\begin{proof}
-By linearity of the mixed objective,
-\[
-\nabla L_{\pi_\alpha}(\theta_0)=\sum_{j=1}^M \alpha_j \nabla L_{\pi_j}(\theta_0).
+\binom{n}{s}
+\frac{B(c+s,d+n-s)}{B(c,d)}.
 \]
 Therefore
 \[
-\sum_j \alpha_j \Delta_j
+\Delta_n
 =
--\eta P\sum_j \alpha_j \nabla L_{\pi_j}(\theta_0)
-+
-\sum_j \alpha_j r_j
-=
--\eta P \nabla L_{\pi_\alpha}(\theta_0)
-+
-\sum_j \alpha_j r_j.
+\sum_{s=0}^n \Pbb(S_n=s)\,\klb(p_n(s),q_n(s)).
 \]
-Take norms and use the triangle inequality.
+Expanding the Beta--Binomial law as a Beta mixture of Binomials yields the integral representation.
+\end{proof}
+
+\begin{lemma}[Pointwise upper bound near the left boundary]
+\label{lem:left-upper}
+Assume $a,b,c,d>0$. There exists a constant $C>0$ such that for all $n\ge 1$ and $\theta\in[0,1]$,
+\[
+r_n(\theta) \le \frac{C}{n(1+n\theta)}.
+\]
+\end{lemma}
+
+\begin{proof}
+For Bernoulli KL,
+\[
+\klb(u,v) \le \frac{(u-v)^2}{v(1-v)}
+\qquad
+u,v\in(0,1).
+\]
+Now
+\[
+p_n(s)-q_n(s)
+=
+\frac{(c-a)n + (a+b-c-d)s + cb-ad}
+{(n+c+d)(n+a+b)},
+\]
+so $|p_n(s)-q_n(s)|\le C_1/n$ uniformly in $s\in\{0,\dots,n\}$. Also
+\[
+q_n(s)=\frac{a+s}{a+b+n}\ge \frac{a+s}{n+a+b},
+\qquad
+1-q_n(s)\ge \frac{b+n-s}{n+a+b}\ge \frac{b}{n+a+b}.
+\]
+Hence
+\[
+\klb(p_n(s),q_n(s))
+\le
+\frac{C_2}{n(a+s)}.
+\]
+Taking the expectation with respect to $S\sim \Bin(n,\theta)$ gives
+\[
+r_n(\theta)\le \frac{C_2}{n}\E\frac{1}{a+S}.
+\]
+Because $(a+s)^{-1}\le C_3(1+s)^{-1}$ for $a>0$, it suffices to bound $\E[(1+S)^{-1}]$. A standard binomial identity gives
+\[
+\E\frac{1}{1+S}
+=
+\frac{1-(1-\theta)^{n+1}}{(n+1)\theta}
+\le
+\frac{C_4}{1+n\theta},
+\]
+with the convention that the left-hand side equals $1$ at $\theta=0$. Combining the estimates proves the lemma.
+\end{proof}
+
+\begin{lemma}[Pointwise lower bound near the left boundary]
+\label{lem:left-lower}
+Assume $a\neq c$ and $d>0$. Then there exist constants $\theta_0\in(0,1/4)$, $n_0\ge 1$, and $c_0>0$ such that for all $n\ge n_0$ and all $\theta\in[8/n,\theta_0]$,
+\[
+r_n(\theta) \ge \frac{c_0}{n^2\theta}.
+\]
+\end{lemma}
+
+\begin{proof}
+Let
+\[
+A:=c-a,
+\qquad
+B:=a+b-c-d,
+\qquad
+C:=cb-ad.
+\]
+Choose $\theta_0>0$ such that $|B|\theta_0 \le |A|/8$ and $(2+\theta_0)\theta_0\le 1/2$. For $\theta\in[8/n,\theta_0]$, define
+\[
+E_\theta := \left\{\,|S-n\theta|\le \frac{n\theta}{2}\,\right\},
+\qquad S\sim \Bin(n,\theta).
+\]
+Since $\Var(S)=n\theta(1-\theta)\le n\theta$, Chebyshev's inequality yields
+\[
+\Pbb(E_\theta^c)
+\le
+\frac{4\Var(S)}{n^2\theta^2}
+\le
+\frac{4}{n\theta}
+\le
+\frac{1}{2},
+\]
+so $\Pbb(E_\theta)\ge 1/2$.
+
+On $E_\theta$, we have $s\in[n\theta/2,3n\theta/2]$, hence
+\[
+|A|n-|B|s-|C|
+\ge
+|A|n - \frac{3}{2}|B|n\theta - |C|
+\ge
+\frac{|A|}{2}n
+\]
+for all $n\ge n_0$ sufficiently large. Therefore
+\[
+|p_n(s)-q_n(s)|
+\ge
+\frac{|A|}{4n}
+\qquad\text{on }E_\theta.
+\]
+Also, on $E_\theta$ and for $n\ge n_0$,
+\[
+p_n(s)\le \frac{c+3n\theta/2}{n+c+d}\le 2\theta,
+\qquad
+q_n(s)\le \frac{a+3n\theta/2}{n+a+b}\le 2\theta.
+\]
+Because $\theta\le\theta_0<1/4$, both probabilities are at most $1/2$. For fixed $v\in(0,1)$, the function $u\mapsto \klb(u,v)$ has second derivative
+\[
+\frac{1}{u(1-u)}.
+\]
+On the interval $u\in[0,2\theta]$ with $\theta\le 1/4$, this derivative is at least $(2\theta)^{-1}$. Since $\klb(v,v)=0$ and the first derivative at $u=v$ is zero, Taylor's theorem gives
+\[
+\klb(u,v)\ge \frac{(u-v)^2}{4\theta}
+\qquad\text{whenever }u,v\in[0,2\theta].
+\]
+Applying this with $u=p_n(s)$ and $v=q_n(s)$ on $E_\theta$,
+\[
+\klb(p_n(s),q_n(s))
+\ge
+\frac{A^2}{64\,n^2\theta}.
+\]
+Taking expectations and using $\Pbb(E_\theta)\ge 1/2$ proves the lemma.
+\end{proof}
+
+\begin{proof}
+The exact predictive formula and the Beta--Binomial representation are immediate from conjugacy and Lemma~\ref{lem:beta-integral}.
+
+For part (1), the Bernoulli model has Fisher information
+\[
+I(\theta)=\frac{1}{\theta(1-\theta)}.
+\]
+When $c,d>1$, the deployment prior is interior enough for the regular benchmark from Section~\ref{sec:regular} to apply, with
+\[
+u(\theta)
+=
+\frac{c-a}{\theta}
+- \frac{d-b}{1-\theta}.
+\]
+Therefore
+\[
+u(\theta)^2 I(\theta)^{-1}
+=
+\frac{(c-a)^2(1-\theta)}{\theta}
++
+\frac{(d-b)^2\theta}{1-\theta}
+-2(c-a)(d-b).
+\]
+Under $\theta\sim\BetaDist(c,d)$,
+\[
+\E\frac{1-\theta}{\theta}=\frac{d}{c-1},
+\qquad
+\E\frac{\theta}{1-\theta}=\frac{c}{d-1},
+\]
+which yields the constant $C_{a,b,c,d}$ and the expansion
+\[
+\Delta_n = \frac{C_{a,b,c,d}}{2n^2}+o(n^{-2}).
+\]
+
+For part (2), assume $0<c<1<d$ and $a\neq c$. By Lemma~\ref{lem:left-upper},
+\[
+\Delta_n
+\le
+\frac{C}{B(c,d)}
+\int_0^1
+\frac{\theta^{c-1}(1-\theta)^{d-1}}{n(1+n\theta)}
+\dd\theta.
+\]
+Split the integral at $\theta=1/n$. Using $(1-\theta)^{d-1}\le 1$,
+\begin{align*}
+\Delta_n
+&\le
+\frac{C}{n}\int_0^{1/n}\theta^{c-1}\dd\theta
++
+\frac{C}{n^2}\int_{1/n}^{1}\theta^{c-2}\dd\theta \\
+&\le
+C' n^{-(1+c)}.
+\end{align*}
+For the lower bound, Lemma~\ref{lem:left-lower} and Lemma~\ref{lem:beta-integral} imply
+\[
+\Delta_n
+\ge
+\frac{c_0(1-\theta_0)^{d-1}}{B(c,d)}
+\frac{1}{n^2}
+\int_{8/n}^{\theta_0}\theta^{c-2}\dd\theta.
+\]
+Since $0<c<1$,
+\[
+\int_{8/n}^{\theta_0}\theta^{c-2}\dd\theta
+\asymp n^{1-c},
+\]
+so $\Delta_n\ge c' n^{-(1+c)}$. This proves part (2).
+
+For part (3), the same upper bound with $c=1$ gives
+\[
+\Delta_n
+\le
+\frac{C}{n}\int_0^{1/n}\dd\theta
++
+\frac{C}{n^2}\int_{1/n}^{1}\frac{\dd\theta}{\theta}
+\le
+C' \frac{\log n}{n^2}.
+\]
+The lower bound again uses Lemma~\ref{lem:left-lower}:
+\[
+\Delta_n
+\ge
+\frac{c_0(1-\theta_0)^{d-1}}{B(1,d)}
+\frac{1}{n^2}
+\int_{8/n}^{\theta_0}\frac{\dd\theta}{\theta}
+\ge
+c' \frac{\log n}{n^2}.
+\]
+
+The right-boundary statements and the symmetric critical case follow by applying the previous arguments to the transformed variables $Y_i' := 1-Y_i$. Under this transformation, success probability $1-\theta$ has training prior $\BetaDist(b,a)$ and deployment prior $\BetaDist(d,c)$, so the right-boundary statements are exactly the left-boundary statements with $(a,b,c,d)$ replaced by $(b,a,d,c)$.
+\end{proof}
+
+\subsection{Proof of Corollary~\ref{cor:beta-matched}}
+\begin{proof}
+We prove part~(1); part~(2) follows by the same symmetry argument used at the end of the proof of Theorem~\ref{thm:beta}.
+
+Assume $a=c$ and $d>1$. Then for every $s$,
+\[
+p_n(s)-q_n(s)
+=
+\frac{(b-d)(c+s)}{(n+c+d)(n+c+b)}
+=
+h_n q_n(s),
+\qquad
+h_n:=\frac{b-d}{n+c+d}.
+\]
+Fix $\theta\in(0,1)$ and let $S\sim \Bin(n,\theta)$. Since $q_n(S)\to \theta$ in probability and $h_n=(b-d)n^{-1}+O(n^{-2})$, a second-order Taylor expansion of $\klb(u,v)$ in the first argument around $u=v=q_n(S)$ gives
+\[
+n^2 \klb(p_n(S),q_n(S))
+\;\longrightarrow\;
+\frac{(d-b)^2}{2}\frac{\theta}{1-\theta}
+\qquad\text{in probability.}
+\]
+To pass to expectations, use $\klb(u,v)\le (u-v)^2/(v(1-v))$. Because $a=c$,
+\[
+n^2 \klb(p_n(s),q_n(s))
+\le
+C\,\frac{c+s}{n+b-s}.
+\]
+Let $T:=n-S\sim \Bin(n,1-\theta)$. Since $b>0$,
+\[
+\frac{c+S}{n+b-S}
+\le
+C\,\frac{n+c}{1+T}.
+\]
+The binomial identity from Lemma~\ref{lem:left-upper} applied to $T$ yields
+\[
+\E\frac{1}{1+T}
+=
+\frac{1-\theta^{n+1}}{(n+1)(1-\theta)}
+\le
+\frac{1}{(n+1)(1-\theta)}.
+\]
+Hence
+\[
+n^2 r_n(\theta)\le \frac{C'}{1-\theta}.
+\]
+To see uniform integrability for each fixed $\theta<1$, let
+\[
+A_n:=\left\{\,T\ge \frac{n(1-\theta)}{2}\,\right\}.
+\]
+On $A_n$, the bound above is at most $C_\theta:=2C(1+c)/(1-\theta)$. On $A_n^c$, the same bound is at most $C(n+c)$, while a Chernoff bound gives $\Pbb(A_n^c)\le e^{-c_\theta' n}$ for some $c_\theta'>0$. Hence the family $n^2\klb(p_n(S),q_n(S))$ is uniformly integrable, so
+\[
+n^2 r_n(\theta)
+\longrightarrow
+\frac{(d-b)^2}{2}\frac{\theta}{1-\theta}.
+\]
+Now Lemma~\ref{lem:beta-integral} and dominated convergence give
+\begin{align*}
+\lim_{n\to\infty} n^2\Delta_n
+&=
+\frac{(d-b)^2}{2B(c,d)}
+\int_0^1 \theta^{c}(1-\theta)^{d-2}\,\dd\theta \\
+&=
+\frac{(d-b)^2}{2}\frac{B(c+1,d-1)}{B(c,d)}
+=
+\frac{c(d-b)^2}{2(d-1)}.
+\end{align*}
+This proves part~(1).
+\end{proof}
+
+\begin{lemma}[Mixture pointwise upper bound]
+\label{lem:mix-upper}
+Fix deployment parameters $c,d>0$ and a finite training mixture
+\[
+\pi_\lambda=\sum_{j=1}^M \lambda_j \BetaDist(a_j,b_j)
+\]
+with all $\lambda_j,a_j,b_j>0$. Let
+\[
+q_n^\lambda(1\mid s)
+:=
+\Pbb_{\pi_\lambda}(Y_{n+1}=1\mid S_n=s).
+\]
+Then there exists a constant $C>0$ such that for all $n\ge 1$ and $\theta\in[0,1]$,
+\[
+r_n^\lambda(\theta)
+:=
+\E_{S\sim \Bin(n,\theta)}
+\Bigl[
+\klb\bigl(p_n(S),q_n^\lambda(1\mid S)\bigr)
+\Bigr]
+\le
+\frac{C}{n(1+n\theta)}.
+\]
+\end{lemma}
+
+\begin{proof}
+For each component $j$, let
+\[
+q_{n,j}(s):=\frac{a_j+s}{a_j+b_j+n}.
+\]
+Conditioned on $S_n=s$, the mixture predictive is a convex combination
+\[
+q_n^\lambda(1\mid s)=\sum_{j=1}^M w_{n,j}(s)\,q_{n,j}(s)
+\]
+for posterior family weights $w_{n,j}(s)\ge 0$ summing to $1$. Therefore, with
+\[
+a_{\min}:=\min_j a_j,
+\qquad
+b_{\min}:=\min_j b_j,
+\qquad
+C_0:=\max_j(a_j+b_j),
+\]
+we have
+\[
+q_n^\lambda(1\mid s)\ge \frac{a_{\min}+s}{n+C_0},
+\qquad
+1-q_n^\lambda(1\mid s)\ge \frac{b_{\min}}{n+C_0}.
+\]
+Also, for every $j$,
+\[
+p_n(s)-q_{n,j}(s)
+=
+\frac{(c-a_j)n + (a_j+b_j-c-d)s + cb_j-da_j}
+{(n+c+d)(n+a_j+b_j)},
+\]
+so $|p_n(s)-q_{n,j}(s)|\le C_1/n$ uniformly in $s$. Since $q_n^\lambda(1\mid s)$ is a convex combination of the $q_{n,j}(s)$, the same bound holds with $q_{n,j}$ replaced by $q_n^\lambda$.
+
+Using $\klb(u,v)\le (u-v)^2/[v(1-v)]$ for Bernoulli KL,
+\[
+\klb\bigl(p_n(s),q_n^\lambda(1\mid s)\bigr)
+\le
+\frac{C_2}{n(a_{\min}+s)}.
+\]
+Take expectation with respect to $S\sim \Bin(n,\theta)$ and use the same binomial reciprocal bound as in Lemma~\ref{lem:left-upper} to get
+\[
+r_n^\lambda(\theta)\le \frac{C}{n(1+n\theta)}.
+\qedhere
+\]
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{thm:beta-mix}}
+
+\begin{proof}
+	Write
+	\[
+W_{n,j}(s)
+:=
+\lambda_j \binom{n}{s}\frac{B(a_j+s,b_j+n-s)}{B(a_j,b_j)}.
+\]
+Then
+\[
+q_n^\lambda(1\mid s)
+=
+\frac{\sum_{j=1}^M W_{n,j}(s)\,\frac{a_j+s}{a_j+b_j+n}}
+{\sum_{j=1}^M W_{n,j}(s)}.
+\]
+
+For $s=0$, the common binomial factor is $1$ and
+\[
+W_{n,j}(0)
+=
+\lambda_j \frac{\Gamma(a_j+b_j)}{\Gamma(b_j)}
+\frac{\Gamma(b_j+n)}{\Gamma(a_j+b_j+n)}.
+\]
+The Gamma-ratio expansion gives
+\[
+\frac{\Gamma(b_j+n)}{\Gamma(a_j+b_j+n)}
+=
+n^{-a_j}\bigl(1+O(n^{-1})\bigr).
+\]
+Therefore
+\[
+\sum_{j=1}^M W_{n,j}(0)
+=
+n^{-a_\star}\Bigl(C_\star + O(n^{-\delta})\Bigr),
+\]
+where
+\[
+C_\star
+:=
+\sum_{j:\,a_j=a_\star}
+\lambda_j\frac{\Gamma(a_j+b_j)}{\Gamma(b_j)}
+>0,
+\]
+and likewise
+\[
+\sum_{j=1}^M W_{n,j}(0)\,\frac{a_j}{a_j+b_j+n}
+=
+n^{-a_\star-1}
+\Bigl(a_\star C_\star + O(n^{-\delta})\Bigr).
+\]
+Dividing the two expansions yields
+\[
+q_n^\lambda(1\mid S_n=0)
+=
+\frac{a_\star}{n}+O(n^{-1-\delta}).
+\]
+
+Now assume deployment is $\BetaDist(c,d)$ with $0<c<1<d$ and $a_\star\neq c$. Let
+\[
+L(c,a_\star):=c\log\frac{c}{a_\star}+a_\star-c>0.
+\]
+Since
+\[
+q_n^{\te}(1\mid S_n=0)=\frac{c}{n+c+d}=\frac{c}{n}+O(n^{-2}),
+\]
+a first-order small-probability expansion of Bernoulli KL gives
+\[
+\klb\bigl(q_n^{\te}(1\mid 0),q_n^\lambda(1\mid 0)\bigr)
+=
+\frac{L(c,a_\star)}{n}+O(n^{-1-\delta}).
+\]
+Under deployment, the zero-count probability is
+\[
+\Pbb_{\te}(S_n=0)
+=
+\frac{B(c,d+n)}{B(c,d)}
+\asymp n^{-c}.
+\]
+Hence
+\[
+\Delta_n
+\ge
+\Pbb_{\te}(S_n=0)\,
+\klb\bigl(q_n^{\te}(1\mid 0),q_n^\lambda(1\mid 0)\bigr)
+\ge
+c_1 n^{-(1+c)}
+\]
+for some $c_1>0$ and all large $n$.
+
+For the upper bound, Lemma~\ref{lem:beta-integral} remains valid with $r_n$ replaced by
+\[
+r_n^\lambda(\theta)
+:=
+\E_{S\sim \Bin(n,\theta)}
+\Bigl[
+\klb\bigl(p_n(S),q_n^\lambda(1\mid S)\bigr)
+\Bigr].
+\]
+Applying Lemma~\ref{lem:mix-upper},
+\[
+\Delta_n
+\le
+\frac{C}{B(c,d)}
+\int_0^1
+\frac{\theta^{c-1}(1-\theta)^{d-1}}{n(1+n\theta)}\,\dd\theta.
+\]
+The same split at $\theta=1/n$ as in the proof of Theorem~\ref{thm:beta}(2) yields
+\[
+\Delta_n\le C' n^{-(1+c)}.
+\]
+Combining lower and upper bounds proves
+\[
+\Delta_n(\pi_{\te},\pi_\lambda)\asymp n^{-(1+c)}.
+\]
+
+	The right-boundary statement follows by replacing $Y_i$ with $1-Y_i$, which swaps $(a_j,b_j)$ with $(b_j,a_j)$ and $(c,d)$ with $(d,c)$.
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{prop:fixed-count}}
+
+\begin{proof}
+For fixed $s$, the Beta--Binomial probability satisfies
+\[
+\Pbb_{\te}(S_n=s)
+=
+\binom{n}{s}\frac{B(c+s,d+n-s)}{B(c,d)}
+\sim
+\frac{\Gamma(c+d)\Gamma(c+s)}{\Gamma(c)\Gamma(d)\,s!}\,n^{-c}.
+\]
+Also,
+\[
+q_n^{\te}(1\mid S_n=s)=\frac{c+s}{c+d+n}=\frac{c+s}{n}+O(n^{-2}).
+\]
+Set
+\[
+p_n:=q_n^{\te}(1\mid S_n=s),
+\qquad
+r_n:=\hat q_n(1\mid S_n=s)=\frac{\beta_s}{n}+O(n^{-1-\delta}).
+\]
+The same small-probability expansion used in the proof of Theorem~\ref{thm:boundary-general} yields
+\[
+\klb(p_n,r_n)
+=
+\frac{L(c+s,\beta_s)}{n}+o(n^{-1}),
+\qquad
+L(\alpha,\beta):=\alpha\log\frac{\alpha}{\beta}+\beta-\alpha.
+\]
+Since $\beta_s\neq c+s$, strict convexity implies $L(c+s,\beta_s)>0$. Therefore
+\[
+\Pbb_{\te}(S_n=s)\,
+\klb\bigl(
+q_n^{\te}(1\mid S_n=s),
+\hat q_n(1\mid S_n=s)
+\bigr)
+=
+\Theta(n^{-c})\Theta(n^{-1})
+=
+\Theta(n^{-(1+c)}).
+\]
+Finally,
+\[
+\Delta_n(\hat q_n)
+\ge
+\Pbb_{\te}(S_n=s)\,
+\klb\bigl(
+q_n^{\te}(1\mid S_n=s),
+\hat q_n(1\mid S_n=s)
+\bigr),
+\]
+so the claimed lower bound follows.
+\end{proof}
+
+\subsection{Proof of Corollary~\ref{cor:beta-shared}}
+\begin{proof}
+For each expert $j$, define
+\[
+\Delta_n^{(j)}
+:=
+\E_{S_n\sim \BetaBin(n,c,d)}
+\left[
+\klb\!\left(
+\frac{c+S_n}{c+d+n},
+\frac{c+S_n}{c+b_j+n}
+\right)
+\right].
+\]
+Corollary~\ref{cor:beta-matched} gives
+\[
+\Delta_n^{(j)}=O(n^{-2})
+\]
+for every fixed $j$.
+
+For a realized count $S_n=s$, Bernoulli KL is convex in its second argument, hence
+\[
+\klb\!\left(
+\frac{c+s}{c+d+n},
+\hat q_n(1\mid s)
+\right)
+\le
+\sum_{j=1}^J w_{n,j}(s)\,
+\klb\!\left(
+\frac{c+s}{c+d+n},
+\frac{c+s}{c+b_j+n}
+\right).
+\]
+Take expectation over $S_n\sim \BetaBin(n,c,d)$ to get
+\begin{align*}
+\Delta_n(\hat q_n)
+&\le
+\sum_{j=1}^J
+\E\!\left[
+w_{n,j}(S_n)\,
+\klb\!\left(
+\frac{c+S_n}{c+d+n},
+\frac{c+S_n}{c+b_j+n}
+\right)
+\right] \\
+&\le
+\sum_{j=1}^J \Delta_n^{(j)}
+=
+O(n^{-2}),
+\end{align*}
+because $J$ is finite.
+\end{proof}
+
+\subsection{Proof of Theorem~\ref{thm:boundary-general}}
+
+\begin{proof}
+The deployment zero-count probability is
+\[
+\Pbb_{\te}(S_n=0)
+=
+\int_0^1 (1-\theta)^n \theta^{c-1}h(\theta)\,\dd\theta.
+\]
+With the change of variables $x=n\theta$,
+\[
+\Pbb_{\te}(S_n=0)
+=
+n^{-c}
+\int_0^n
+\left(1-\frac{x}{n}\right)^n
+x^{c-1} h(x/n)\,\dd x.
+\]
+Since
+\[
+0\le \left(1-\frac{x}{n}\right)^n \ind\{x\le n\}\le e^{-x},
+\]
+and $h(x/n)\to h(0)$ pointwise while remaining bounded on $[0,1]$, dominated convergence yields
+\[
+\Pbb_{\te}(S_n=0)\sim h(0)\Gamma(c)\,n^{-c}.
+\]
+
+Likewise,
+\[
+\E_{\te}[\theta\,\ind\{S_n=0\}]
+=
+\int_0^1 (1-\theta)^n \theta^c h(\theta)\,\dd\theta
+\sim
+h(0)\Gamma(c+1)\,n^{-(c+1)}.
+\]
+Therefore the deployment posterior predictive at zero counts satisfies
+\[
+q_n^{\te}(1\mid S_n=0)
+=
+\frac{\E_{\te}[\theta\,\ind\{S_n=0\}]}{\Pbb_{\te}(S_n=0)}
+=
+\frac{c}{n}+o(n^{-1}).
+\]
+
+Set
+\[
+p_n:=q_n^{\te}(1\mid S_n=0),
+\qquad
+r_n:=\hat q_n(1\mid S_n=0).
+\]
+By assumption,
+\[
+p_n=\frac{c}{n}+o(n^{-1}),
+\qquad
+r_n=\frac{\alpha}{n}+O(n^{-1-\delta}).
+\]
+Using
+\[
+\klb(p,r)=p\log\frac{p}{r}+(1-p)\log\frac{1-p}{1-r},
+\]
+the first term obeys
+\[
+p_n\log\frac{p_n}{r_n}
+=
+\frac{c\log(c/\alpha)}{n}+o(n^{-1}),
+\]
+while the second satisfies
+\[
+(1-p_n)\log\frac{1-p_n}{1-r_n}
+=
+\frac{\alpha-c}{n}+o(n^{-1}),
+\]
+because $p_n,r_n=O(n^{-1})$. Hence
+\[
+\klb(p_n,r_n)
+=
+\frac{L(c,\alpha)}{n}+o(n^{-1}),
+\qquad
+L(c,\alpha):=c\log\frac{c}{\alpha}+\alpha-c.
+\]
+Since $\alpha\neq c$, strict convexity of $x\mapsto c\log(c/x)+x-c$ implies $L(c,\alpha)>0$.
+
+Finally, lower-bound the full regret by the zero-count event:
+\[
+\Delta_n(\hat q_n)
+\ge
+\Pbb_{\te}(S_n=0)\,
+\klb\bigl(
+q_n^{\te}(1\mid S_n=0),
+\hat q_n(1\mid S_n=0)
+\bigr).
+\]
+Combining the two asymptotics yields
+\[
+\Delta_n(\hat q_n)\ge C n^{-(1+c)}
+\]
+for some $C>0$ and all large $n$.
+\end{proof}
+
+\subsection{Proof of Corollary~\ref{cor:observable-exponent}}
+
+\begin{proof}
+If $\Pbb_{\te}(S_n=0)\sim C n^{-c}$ with $C>0$, then
+\[
+\log \Pbb_{\te}(S_n=0)
+=
+\log C - c\log n + o(1).
+\]
+Divide by $\log n$ and let $n\to\infty$.
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{prop:visible}}
+
+\begin{proof}
+Condition on $(O_n,U_n)$. Since $q_U(\cdot\mid O_n,U_n)=P(Y_{n+1}\in\cdot\mid O_n,U_n)$,
+\begin{align*}
+\E\!\left[
+-\log r(Y_{n+1}\mid O_n,U_n)
++\log q_U(Y_{n+1}\mid O_n,U_n)
+\;\middle|\;
+O_n,U_n
+\right]
+&=
+\KL\bigl(
+q_U(\cdot\mid O_n,U_n)
+\;\|\;
+r(\cdot\mid O_n,U_n)
+\bigr).
+\end{align*}
+Averaging yields
+\[
+R_U(r)-R_U(q_U)
+=
+\E\!\left[
+\KL\bigl(
+q_U(\cdot\mid O_n,U_n)
+\;\|\;
+r(\cdot\mid O_n,U_n)
+\bigr)
+\right].
+\]
+Likewise,
+\[
+R_U(q_U)-R_U(q_{\mathrm{aware}}^U)
+=
+H(Y_{n+1}\mid O_n,U_n)-H(Y_{n+1}\mid O_n,U_n,F)
+=
+\I(F;Y_{n+1}\mid O_n,U_n).
+\]
+Adding the two displays proves the first identity. For the second identity,
+\[
+R(q_{\mathrm{coll}})-R_U(q_U)
+=
+H(Y_{n+1}\mid O_n)-H(Y_{n+1}\mid O_n,U_n)
+=
+\I(U_n;Y_{n+1}\mid O_n).
+\qedhere
+\]
+\end{proof}
+
+\subsection{Proof of Corollary~\ref{cor:prompt-metadata}}
+
+\begin{proof}
+If $U_n=\phi(O_n)$ almost surely, then conditioning on $O_n$ already conditions on $U_n$, so
+\[
+\I(U_n;Y_{n+1}\mid O_n)=0.
+\]
+Apply Proposition~\ref{prop:visible}.
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{thm:small}}
+\label{app:local-proofs}
+
+\begin{proof}
+For a fixed context $z_{1:n}$, let
+\[
+M_n(z_{1:n},\varepsilon)
+:=
+\E_{\pi_0(\cdot\mid z_{1:n})} e^{\varepsilon\psi(t)}.
+\]
+Bayes' rule gives
+\[
+\frac{\dd \pi_\varepsilon(\cdot\mid z_{1:n})}{\dd \pi_0(\cdot\mid z_{1:n})}(t)
+=
+\frac{e^{\varepsilon\psi(t)}}{M_n(z_{1:n},\varepsilon)}.
+\]
+Hence the pointwise posterior KL equals
+\begin{align*}
+d_n(z_{1:n},\varepsilon)
+&:=
+\KL\bigl(
+\pi_\varepsilon(\cdot\mid z_{1:n})
+\;\|\;
+\pi_0(\cdot\mid z_{1:n})
+\bigr) \\
+&=
+\E_{\pi_\varepsilon(\cdot\mid z_{1:n})}
+\left[
+\varepsilon\psi(t)-\log M_n(z_{1:n},\varepsilon)
+\right] \\
+&=
+\varepsilon \partial_\varepsilon \log M_n(z_{1:n},\varepsilon)
+-\log M_n(z_{1:n},\varepsilon).
+\end{align*}
+Because $\psi$ is bounded, the logarithmic moment generating function is analytic near $0$, and
+\[
+\log M_n(z_{1:n},\varepsilon)
+=
+\varepsilon \mu_n(z_{1:n})
++
+\frac{\varepsilon^2}{2}\sigma_n^2(z_{1:n})
++ O(\varepsilon^3),
+\]
+where
+\[
+\mu_n(z_{1:n})
+:=
+\E_{\pi_0(\cdot\mid z_{1:n})}\psi(t),
+\qquad
+\sigma_n^2(z_{1:n})
+:=
+\Var_{\pi_0(\cdot\mid z_{1:n})}(\psi).
+\]
+Differentiating and substituting,
+\[
+d_n(z_{1:n},\varepsilon)
+=
+\frac{\varepsilon^2}{2}\sigma_n^2(z_{1:n})
++ O(\varepsilon^3).
+\]
+Because $|\psi|\le B:=\|\psi\|_\infty$,
+\[
+0\le d_n(z_{1:n},\varepsilon)\le 2B|\varepsilon|
+\]
+for all $z_{1:n}$ and, by the previous expansion, in fact
+\[
+\sup_{z_{1:n}} d_n(z_{1:n},\varepsilon)\le C\varepsilon^2
+\]
+for sufficiently small $|\varepsilon|$, with $C$ independent of $n$.
+
+Now compare the $n$-sample laws. Bayes' rule gives
+\[
+\frac{m_\varepsilon^n(z_{1:n})}{m_0^n(z_{1:n})}
+=
+M_n(z_{1:n},\varepsilon)e^{-A(\varepsilon)}.
+\]
+Since $|\mu_n(z_{1:n})|\le B$ and $\log M_n(z_{1:n},\varepsilon)=\varepsilon\mu_n(z_{1:n})+O(\varepsilon^2)$ while $A(\varepsilon)=O(\varepsilon^2)$,
+\[
+\sup_{z_{1:n}}
+\left|
+\frac{m_\varepsilon^n(z_{1:n})}{m_0^n(z_{1:n})}-1
+\right|
+\le
+C'|\varepsilon|
+\]
+for sufficiently small $|\varepsilon|$, with $C'$ independent of $n$. Therefore
+\[
+\left|
+\E_{m_\varepsilon^n} d_n(Z_{1:n},\varepsilon)
+-
+\E_{m_0^n} d_n(Z_{1:n},\varepsilon)
+\right|
+\le
+\sup d_n \,
+\E_{m_0^n}
+\left|
+\frac{m_\varepsilon^n}{m_0^n}-1
+\right|
+=
+O(\varepsilon^3).
+\]
+
+Taking the expectation under $m_0^n$ yields
+\[
+d_n^{(0)}(\varepsilon)
+:=
+\E_{m_0^n}d_n(Z_{1:n},\varepsilon)
+=
+\frac{\varepsilon^2}{2}V_n + O(\varepsilon^3).
+\]
+Combining the last two displays with
+\[
+D_n(\varepsilon)
+:=
+\E_{m_\varepsilon^n}d_n(Z_{1:n},\varepsilon)
+\]
+gives
+\[
+D_n(\varepsilon)=\frac{\varepsilon^2}{2}V_n + O(\varepsilon^3).
+\]
+Theorem~\ref{thm:exact} applied to $(\pi_\varepsilon,\pi_0)$ gives
+\[
+\Delta_n(\varepsilon)=D_n(\varepsilon)-D_{n+1}(\varepsilon)
+=
+\frac{\varepsilon^2}{2}(V_n-V_{n+1}) + O(\varepsilon^3).
+\]
+
+For the variance identity, use the law of total variance:
+\[
+\Var(\psi\mid Z_{1:n})
+=
+\E[\Var(\psi\mid Z_{1:n+1})\mid Z_{1:n}]
++
+\Var(\E[\psi\mid Z_{1:n+1}] \mid Z_{1:n}).
+\]
+Taking expectations and identifying $\mu_n=\E[\psi\mid Z_{1:n}]$ gives
+\[
+V_n - V_{n+1}
+=
+\E\bigl[(\mu_{n+1}-\mu_n)^2\bigr].
+\qedhere
+\]
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{thm:transfer}}
+\label{app:learned-proofs}
+
+\begin{proof}
+Add and subtract the training-prior oracle risk:
+\begin{align*}
+\mathcal R_n(\widehat q_n)-\mathcal R_n(q_n^{\te})
+&=
+\bigl(\mathcal R_n(q_n^{\tr})-\mathcal R_n(q_n^{\te})\bigr) \\
+&\qquad +
+\E_{m_{\te}^{n+1}}
+\left[
+\log
+\frac{q_n^{\tr}(Z_{n+1}\mid Z_{1:n})}
+{\widehat q_n(Z_{n+1}\mid Z_{1:n})}
+\right].
+\end{align*}
+The first bracket equals $\Delta_n$ by definition.
+
+Fix a context $z_{1:n}$ and abbreviate
+\[
+P:=q_n^{\te}(\cdot\mid z_{1:n}),
+\qquad
+Q:=q_n^{\tr}(\cdot\mid z_{1:n}),
+\qquad
+R:=\widehat q_n(\cdot\mid z_{1:n}).
+\]
+By the variational inequality
+\[
+\E_P f \le \KL(P\,\|\,Q)+\log \E_Q e^f,
+\]
+applied to $f=\log(Q/R)$, we get
+\[
+\E_P \log\frac{Q}{R}
+\le
+\KL(P\,\|\,Q)
++
+\log \E_Q\frac{Q}{R}
+=
+\KL(P\,\|\,Q) + \Dtwo(Q\,\|\,R).
+\]
+Average this inequality over $z_{1:n}\sim m_{\te}^n$. The left-hand side is exactly the amortization term above, while the averaged KL term is $\Delta_n$. Therefore
+\[
+\mathcal R_n(\widehat q_n)-\mathcal R_n(q_n^{\te})
+\le
+2\Delta_n + \E_{m_{\te}^n}[G_n].
+\]
+
+For the context transfer bound, apply the same variational inequality again with
+\[
+P=m_{\te}^n,
+\qquad
+Q=m_{\tr}^n,
+\qquad
+f=\eta G_n.
+\]
+This yields, for every $\eta>0$,
+\[
+\eta \E_{m_{\te}^n}[G_n]
+\le
+K_n + \log \E_{m_{\tr}^n} e^{\eta G_n},
+\]
+which is the claimed inequality after dividing by $\eta$.
+\end{proof}
+
+\subsection{Proof of Corollary~\ref{cor:transfer-subgamma}}
+
+\begin{proof}
+If $G_n-\bar G_n^{\tr}$ is sub-gamma $(v_n,c_n)$ under $m_{\tr}^n$, then
+\[
+\log \E_{m_{\tr}^n} e^{\eta G_n}
+\le
+\eta \bar G_n^{\tr} + \frac{\eta^2 v_n}{2(1-c_n\eta)}
+\qquad
+(0<\eta<1/c_n).
+\]
+Substitute this into the previous display and optimize the resulting standard sub-gamma bound over $\eta$ to obtain
+\[
+\E_{m_{\te}^n}[G_n]
+\le
+\bar G_n^{\tr} + \sqrt{2v_nK_n} + c_nK_n.
+\]
+\end{proof}
+
+\subsection{Proof of Corollary~\ref{cor:transfer-uniform}}
+
+\begin{proof}
+Start from the decomposition displayed in Appendix~\ref{app:transfer}:
+\[
+\mathcal R_n(\widehat q_n)-\mathcal R_n(q_n^{\te})
+=
+\Delta_n
++
+\E_{m_{\te}^{n+1}}
+\left[
+\log
+\frac{q_n^{\tr}(Z_{n+1}\mid Z_{1:n})}
+{\widehat q_n(Z_{n+1}\mid Z_{1:n})}
+\right].
+\]
+Bound the second term above by the uniform log-approximation error:
+\[
+\sup_{z_{1:n+1}}
+\left|
+\log \widehat q_n(z_{n+1}\mid z_{1:n})
+- \log q_n^{\tr}(z_{n+1}\mid z_{1:n})
+\right|
+\le
+\varepsilon_n.
+\]
+Hence
+\[
+\left|
+\log
+\frac{q_n^{\tr}(Z_{n+1}\mid Z_{1:n})}
+{\widehat q_n(Z_{n+1}\mid Z_{1:n})}
+\right|
+\le
+\varepsilon_n
+\]
+pointwise, so the expectation in the preceding decomposition is at most $\varepsilon_n$. Substituting this bound proves the claim.
+\end{proof}
+
+\subsection{Proof of Theorem~\ref{thm:active-gini}}
+
+\begin{proof}
+Let
+\[
+\phi(t)
+:=
+-\frac{1+t}{2}\log\frac{1+t}{2}
+-\frac{1-t}{2}\log\frac{1-t}{2},
+\qquad
+t\in[-1,1].
+\]
+Conditioned on $(D_n,X_*)$, the collapsed predictive mean is
+\[
+\mu_n=\delta\sum_{j=1}^d \pi_n(j)X_{*j},
+\]
+so the conditional entropy of $Y_*$ under the collapsed predictor is $\phi(\mu_n)$. Conditioned on $(D_n,X_*,M)$, the predictive mean is $\delta X_{*M}$, whose magnitude is always $\delta$, hence the family-aware entropy is $\phi(\delta)$. Therefore
+\[
+R_n=\E[\phi(\mu_n)]-\phi(\delta).
+\]
+Now
+\[
+\phi''(t)=-\frac{1}{1-t^2}.
+\]
+For $|t|\le \delta\le 1/2$,
+\[
+-\frac{4}{3}\le \phi''(t)\le -1.
+\]
+Since $\phi$ is even, a second-order Taylor expansion on $[0,\delta]$ gives
+\[
+\frac{1}{2}(\delta^2-u^2)
+\le
+\phi(u)-\phi(\delta)
+\le
+\frac{2}{3}(\delta^2-u^2).
+\]
+Applying this with $u=|\mu_n|$ and taking expectations,
+\[
+\frac{1}{2}\bigl(\delta^2-\E[\mu_n^2]\bigr)
+\le
+R_n
+\le
+\frac{2}{3}\bigl(\delta^2-\E[\mu_n^2]\bigr).
+\]
+Conditioning on $D_n$ and using the independence and zero mean of the coordinates of $X_*$,
+\[
+\E[\mu_n^2\mid D_n]
+=
+\delta^2 \sum_{j=1}^d \pi_n(j)^2.
+\]
+Hence
+\[
+\delta^2-\E[\mu_n^2\mid D_n]
+=
+\delta^2\left(1-\sum_{j=1}^d \pi_n(j)^2\right)
+=
+\delta^2 G_n.
+\]
+Average over $D_n$ to conclude.
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{prop:active-id}}
+
+\begin{proof}
+Let $p_{\max}:=\max_j \pi_n(j)$. Since
+\[
+\sum_{j=1}^d \pi_n(j)^2 \le p_{\max}\sum_{j=1}^d \pi_n(j)=p_{\max},
+\]
+we have
+\[
+G_n\ge 1-p_{\max}.
+\]
+Also $\sum_j \pi_n(j)^2 \ge p_{\max}^2$, so
+\[
+G_n\le 1-p_{\max}^2=(1-p_{\max})(1+p_{\max})\le 2(1-p_{\max}).
+\]
+Taking expectations gives
+\[
+e_n \le \E[G_n]\le 2e_n.
+\]
+Combine this with Theorem~\ref{thm:active-gini}.
+\end{proof}
+
+\subsection{Proof of Theorem~\ref{thm:active-context}}
+
+\begin{proof}
+For the upper bound, define empirical correlations
+\[
+C_j := \frac{1}{n}\sum_{i=1}^n Y_i X_{ij},
+\qquad
+\widehat M := \arg\max_j C_j.
+\]
+If $M=m$, then $\E[Y_iX_{im}\mid M=m]=\delta$, while for $j\neq m$,
+\[
+\E[Y_iX_{ij}\mid M=m]=0.
+\]
+Hoeffding's inequality yields
+\[
+\Pbb(C_m\le \delta/2\mid M=m)\le e^{-n\delta^2/2},
+\qquad
+\Pbb(C_j\ge \delta/2\mid M=m)\le e^{-n\delta^2/2}.
+\]
+By a union bound,
+\[
+\Pbb(\widehat M\neq M)\le d e^{-n\delta^2/2}.
+\]
+The Bayes classifier for $M$ has error at most that of $\widehat M$, so $e_n\le d e^{-n\delta^2/2}$. Proposition~\ref{prop:active-id} gives the claimed upper bound.
+
+For the lower bound, let $P_j$ denote the single-example law of $(X,Y)$ under active feature $j$. If $j\neq k$, then conditional on $X$, the only time the label laws differ is when $X_j=-X_k$, which happens with probability $1/2$. In that case the Bernoulli parameters are $(1+\delta)/2$ and $(1-\delta)/2$. Therefore
+\[
+\KL(P_j\,\|\,P_k)
+=
+\frac{1}{2}\delta \log\frac{1+\delta}{1-\delta}
+\le
+2\delta^2,
+\]
+where the inequality uses $\log\frac{1+x}{1-x}\le 4x$ for $x\in[0,1/2]$.
+Thus the $n$-sample laws satisfy
+\[
+\KL(P_j^n\,\|\,P_k^n)\le 2n\delta^2.
+\]
+Fano's inequality for $d$ equiprobable hypotheses gives
+\[
+e_n
+\ge
+1-\frac{\I(M;D_n)+\log 2}{\log d}
+\]
+Moreover,
+\[
+\I(M;D_n)
+\le
+\frac{1}{d^2}\sum_{j,k=1}^d \KL(P_j^n\,\|\,P_k^n)
+\le
+2n\delta^2,
+\]
+so
+\[
+e_n
+\ge
+1-\frac{2n\delta^2+\log 2}{\log d}.
+\]
+If
+\[
+n \le \frac{\log(d/4)}{4\delta^2},
+\]
+then $e_n\ge 1/2$. Proposition~\ref{prop:active-id} yields
+\[
+R_n \ge \frac{\delta^2}{4}.
+\]
+This proves the lower bound.
+\end{proof}
+
+\subsection{Proof of Corollary~\ref{cor:active-candidates}}
+
+\begin{proof}
+Condition on the side information that specifies a candidate set $A$ containing the true family and satisfying $|A|\le s$. Conditional on this event, the model is exactly the same active-feature model with family index restricted to $A$. Apply Theorem~\ref{thm:active-context} with $d$ replaced by $|A|$, then use $|A|\le s$.
 \end{proof}
 
 \begin{thebibliography}{99}
-
-\bibitem{ainsworth2022git}
-Samuel~K. Ainsworth, Jonathan Hayase, and Siddhartha Srinivasa.
-\newblock Git re-basin: Merging models modulo permutation symmetries.
-\newblock {\em arXiv preprint arXiv:2209.04836}, 2022.
 
 \bibitem{amari1993}
 Shun-ichi Amari.
 \newblock A universal theorem on learning curves.
 \newblock {\em Neural Networks}, 6(2):161--166, 1993.
 
+\bibitem{agrawal2025}
+Abhinav Agrawal and Justin Domke.
+\newblock Understanding the difficulties of posterior predictive estimation.
+\newblock In {\em Proceedings of the 42nd International Conference on Machine Learning}, 2025.
+
 \bibitem{clarke1990}
 Berkeley~S. Clarke and Andrew~R. Barron.
 \newblock Information-theoretic asymptotics of {B}ayes methods.
 \newblock {\em IEEE Transactions on Information Theory}, 36(3):453--471, 1990.
-
-\bibitem{entezari2022}
-Rahim Entezari, Hanie Sedghi, Olivier Saukh, and Ludwig Schmidt.
-\newblock The role of permutation invariance in linear mode connectivity of neural networks.
-\newblock {\em arXiv preprint arXiv:2110.06296}, 2022.
 
 \bibitem{feder2021}
 Meir Feder and Yury Polyanskiy.
@@ -844,20 +2906,20 @@ Noah Hollmann, Samuel Muller, Lennart Purucker, Arjun Krishnakumar, Max Korfer, 
 \newblock Accurate predictions on small data with a tabular foundation model.
 \newblock {\em Nature}, 637:319--326, 2025.
 
-\bibitem{ilharco2022task}
-Gabriel Ilharco, Marco T\'ulio Ribeiro, Mitchell Wortsman, Suchin Gururangan, Ludwig Schmidt, Hannaneh Hajishirzi, and Ali Farhadi.
-\newblock Editing models with task arithmetic.
-\newblock {\em arXiv preprint arXiv:2212.04089}, 2022.
-
 \bibitem{jacobs1991}
 Robert~A. Jacobs, Michael~I. Jordan, Steven~J. Nowlan, and Geoffrey~E. Hinton.
 \newblock Adaptive mixtures of local experts.
 \newblock {\em Neural Computation}, 3(1):79--87, 1991.
 
-\bibitem{matena2022fisher}
-Michael~S. Matena and Colin Raffel.
-\newblock Merging models with {F}isher-weighted averaging.
-\newblock In {\em Advances in Neural Information Processing Systems}, 2022.
+\bibitem{margossian2024}
+Charles~C. Margossian and David~M. Blei.
+\newblock Amortized variational inference: When and why?
+\newblock In {\em Proceedings of the 40th Conference on Uncertainty in Artificial Intelligence}, 2024.
+
+\bibitem{morningstar2022}
+Warren~R. Morningstar, Alexander~A. Alemi, and Joshua~V. Dillon.
+\newblock {PACm-Bayes}: Narrowing the empirical risk gap in the misspecified Bayesian regime.
+\newblock In {\em Proceedings of the 25th International Conference on Artificial Intelligence and Statistics}, 2022.
 
 \bibitem{muller2022}
 Samuel Muller, Noah Hollmann, Sebastian Pineda-Arango, and Frank Hutter.
@@ -874,21 +2936,6 @@ Thomas Nagler.
 \newblock Statistical foundations of prior-data fitted networks.
 \newblock In {\em Proceedings of the 40th International Conference on Machine Learning}, 2023.
 
-\bibitem{qu2026tabiclv2}
-Jingang Qu, David Holzm\"uller, Ga\"el Varoquaux, and Marine Le Morvan.
-\newblock {TabICLv2}: A better, faster, scalable, and open tabular foundation model.
-\newblock {\em arXiv preprint arXiv:2602.11139}, 2026.
-
-\bibitem{wortsman2022}
-Mitchell Wortsman, Gabriel Ilharco, Samir~Yitzhak Gadre, Rebecca Roelofs, Rafael Gontijo Lopes, Ari Morcos, Hongseok Namkoong, Ali Farhadi, Ludwig Schmidt, and Vaishaal Shankar.
-\newblock Model soups: Averaging weights of multiple fine-tuned models improves accuracy without increasing inference time.
-\newblock In {\em Proceedings of the 39th International Conference on Machine Learning}, pages 23965--23998. PMLR, 2022.
-
-\bibitem{xu2025mixturepfn}
-Derek Xu, Olcay Cirit, Reza Asadi, Yizhou Sun, and Wei Wang.
-\newblock Mixture of in-context prompters for tabular {PFN}s.
-\newblock In {\em International Conference on Learning Representations}, 2025.
-
 \bibitem{zhang2025}
 Xiyuan Zhang, Danielle Maddix, Junming Yin, Nick Erickson, Abdul Fatir Ansari, Boran Han, Shuai Zhang, Leman Akoglu, Christos Faloutsos, Michael Mahoney, Cuixiong Hu, Huzefa Rangwala, George Karypis, and Bernie Wang.
 \newblock {MITRA}: Mixed synthetic priors for enhancing tabular foundation models.
@@ -899,10 +2946,20 @@ L\'eo Grinsztajn, Klemens Fl\"oge, Oscar Key, Felix Birkel, Philipp Jund, Brenda
 \newblock {TabPFN-2.5}: Advancing the state of the art in tabular foundation models.
 \newblock {\em arXiv preprint arXiv:2511.08667}, 2025.
 
-\bibitem[Prior Labs(2025)]{priorlabs2025ensembles}
-Prior Labs.
-\newblock Post-hoc ensembles for {A}uto{T}ab{PFN}.
-\newblock \url{https://docs.priorlabs.ai/extensions/post-hoc-ensembles}, 2025.
+\bibitem{qu2026tabiclv2}
+Jingang Qu, David Holzm\"uller, Ga\"el Varoquaux, and Marine Le Morvan.
+\newblock {TabICLv2}: A better, faster, scalable, and open tabular foundation model.
+\newblock {\em arXiv preprint arXiv:2602.11139}, 2026.
+
+\bibitem{liao2026fewshot}
+Jia-Wei Liao, Kuan-Yu Chen, Yu-Chen Den, and Tien-Hao Chang.
+\newblock Few-shot cross-table data mixture in tabular in-context learning: Benefits, failure modes, and alignment.
+\newblock In {\em ICLR 2026 Workshop on Data-FM}, 2026.
+
+\bibitem{xu2025mixturepfn}
+Derek Xu, Olcay Cirit, Reza Asadi, Yizhou Sun, and Wei Wang.
+\newblock Mixture of in-context prompters for tabular {PFN}s.
+\newblock {\em arXiv preprint arXiv:2405.16156}, 2024.
 
 \end{thebibliography}
 
