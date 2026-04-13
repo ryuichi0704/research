@@ -220,18 +220,6 @@ def conditional_small_count_table(
                 "metric": "brier",
                 "value": float(brier_risk(q_nat, prior_mean)),
             },
-            {
-                "predictor": "Balanced + true prevalence token",
-                "positive_count": int(s),
-                "metric": "log_loss",
-                "value": beta_expected_binary_entropy(post_a, post_b),
-            },
-            {
-                "predictor": "Balanced + true prevalence token",
-                "positive_count": int(s),
-                "metric": "brier",
-                "value": beta_expected_bernoulli_variance(post_a, post_b),
-            },
         ]
         rows.extend(exact_rows)
 
@@ -240,7 +228,7 @@ def conditional_small_count_table(
         noisy_prediction = token_model.predict(z)
         rows.append(
             {
-                "predictor": "Balanced + noisy prevalence token",
+                "predictor": "Balanced + estimated prevalence feature",
                 "positive_count": int(s),
                 "metric": "log_loss",
                 "value": float(np.mean(cross_entropy(theta, noisy_prediction))),
@@ -248,7 +236,7 @@ def conditional_small_count_table(
         )
         rows.append(
             {
-                "predictor": "Balanced + noisy prevalence token",
+                "predictor": "Balanced + estimated prevalence feature",
                 "positive_count": int(s),
                 "metric": "brier",
                 "value": float(np.mean(brier_risk(theta, noisy_prediction))),
@@ -270,7 +258,6 @@ def sample_prevalence_predictions(
     s = rng.binomial(n=n, p=theta)
     natural_prediction = (c + s) / (c + d + n)
     balanced_prediction = np.full(num_samples, beta_mean(c, d), dtype=float)
-    true_token_prediction = theta.copy()
     noisy_prediction = token_model.predict(token_model.sample_token(theta, rng))
 
     frames = [
@@ -293,15 +280,7 @@ def sample_prevalence_predictions(
         pd.DataFrame(
             {
                 "support_size": n,
-                "predictor": "Balanced + true prevalence token",
-                "theta": theta,
-                "prediction": true_token_prediction,
-            }
-        ),
-        pd.DataFrame(
-            {
-                "support_size": n,
-                "predictor": "Balanced + noisy prevalence token",
+                "predictor": "Balanced + estimated prevalence feature",
                 "theta": theta,
                 "prediction": noisy_prediction,
             }
@@ -390,3 +369,58 @@ def family_a_balanced_log_loss_gap() -> float:
         0.5 * (cross_entropy(q_x1_full, q_x1_bal) - cross_entropy(q_x1_full, q_x1_full))
         + 0.5 * (cross_entropy(q_x2_full, q_x2_bal) - cross_entropy(q_x2_full, q_x2_full))
     )
+
+
+def prompt_case_study_table(
+    prior: BetaPrior,
+    task_theta: float,
+    prompt_size: int,
+    natural_positive_count: int,
+    balanced_positive_count: int,
+) -> pd.DataFrame:
+    if not 0.0 < task_theta < 1.0:
+        raise ValueError("task_theta must lie in (0, 1).")
+    if prompt_size <= 0:
+        raise ValueError("prompt_size must be positive.")
+    if natural_positive_count < 0 or natural_positive_count > prompt_size:
+        raise ValueError("natural_positive_count must lie in [0, prompt_size].")
+    if balanced_positive_count < 0 or balanced_positive_count > prompt_size:
+        raise ValueError("balanced_positive_count must lie in [0, prompt_size].")
+
+    prior_mean = beta_mean(*prior)
+    natural_prediction = natural_predictive_mean(prior=prior, s=natural_positive_count, n=prompt_size)
+
+    rows = [
+        {
+            "scenario": "Natural prompt",
+            "positive_count": int(natural_positive_count),
+            "negative_count": int(prompt_size - natural_positive_count),
+            "prompt_positive_rate": float(natural_positive_count / prompt_size),
+            "predicted_prevalence": float(natural_prediction),
+            "next_log_loss": float(cross_entropy(task_theta, natural_prediction)),
+            "next_brier": float(brier_risk(task_theta, natural_prediction)),
+        },
+        {
+            "scenario": "Balanced 1:1 prompt",
+            "positive_count": int(balanced_positive_count),
+            "negative_count": int(prompt_size - balanced_positive_count),
+            "prompt_positive_rate": float(balanced_positive_count / prompt_size),
+            "predicted_prevalence": float(prior_mean),
+            "next_log_loss": float(cross_entropy(task_theta, prior_mean)),
+            "next_brier": float(brier_risk(task_theta, prior_mean)),
+        },
+    ]
+
+    case_df = pd.DataFrame(rows)
+    case_df["task_theta"] = float(task_theta)
+    case_df["prompt_size"] = int(prompt_size)
+    case_df["library_mean"] = float(prior_mean)
+    case_df["prevalence_error"] = case_df["predicted_prevalence"] - task_theta
+    case_df["prevalence_ratio_to_truth"] = case_df["predicted_prevalence"] / task_theta
+    natural_log_loss = float(case_df.loc[case_df["scenario"] == "Natural prompt", "next_log_loss"].iloc[0])
+    case_df["excess_log_loss_over_natural"] = case_df["next_log_loss"] - natural_log_loss
+    case_df["count_label"] = case_df.apply(
+        lambda row: f"{int(row['negative_count'])} neg / {int(row['positive_count'])} pos",
+        axis=1,
+    )
+    return case_df

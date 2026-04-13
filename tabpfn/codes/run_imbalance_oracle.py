@@ -29,9 +29,9 @@ from core_imbalance import (
     natural_expected_metrics,
     noisy_prevalence_token_metrics,
     prevalence_calibration_table,
+    prompt_case_study_table,
     ranking_counterexample_table,
     sample_prevalence_predictions,
-    true_prevalence_token_metrics,
 )
 
 
@@ -39,13 +39,16 @@ PNG_DPI = 220
 PALETTE = {
     "Natural prompt": "#4C78A8",
     "Balanced 1:1 prompt": "#E45756",
-    "Balanced + true prevalence token": "#54A24B",
-    "Balanced + noisy prevalence token": "#B279A2",
+    "Balanced + estimated prevalence feature": "#54A24B",
 }
 PROMPT_STYLE = {
     "Full prompt": ("#4C78A8", "o"),
     "Balanced prompt": ("#E45756", "s"),
 }
+CASE_STUDY_ORDER = [
+    "Natural prompt",
+    "Balanced 1:1 prompt",
+]
 
 
 def parse_support_sizes(value: str) -> list[int]:
@@ -87,13 +90,13 @@ def parse_args() -> argparse.Namespace:
         "--noisy-token-sigma",
         type=float,
         default=1.0,
-        help="Standard deviation of the noisy prevalence token on the logit scale.",
+        help="Standard deviation of the external prevalence estimate on the logit scale.",
     )
     parser.add_argument(
         "--num-token-samples",
         type=int,
         default=50000,
-        help="Monte Carlo sample count for the noisy-token metrics.",
+        help="Monte Carlo sample count for the estimated-prevalence metrics.",
     )
     parser.add_argument(
         "--calibration-samples",
@@ -124,6 +127,30 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="Random seed for Monte Carlo components.",
+    )
+    parser.add_argument(
+        "--case-study-task-theta",
+        type=float,
+        default=0.001,
+        help="Task prevalence used in the fixed prompt-construction case study.",
+    )
+    parser.add_argument(
+        "--case-study-prompt-size",
+        type=int,
+        default=10000,
+        help="Total prompt size used in the fixed prompt-construction case study.",
+    )
+    parser.add_argument(
+        "--case-study-natural-positives",
+        type=int,
+        default=10,
+        help="Natural positive count used in the fixed prompt-construction case study.",
+    )
+    parser.add_argument(
+        "--case-study-balanced-positives",
+        type=int,
+        default=5000,
+        help="Balanced positive count used in the fixed prompt-construction case study.",
     )
     return parser.parse_args()
 
@@ -202,6 +229,104 @@ def plot_prevalence_curves(output_dir: Path, metrics_df: pd.DataFrame, prior: tu
     save_figure(fig, output_dir, "figure4_balancing_prevalence_curves")
 
 
+def plot_prompt_case_study(
+    output_dir: Path,
+    case_df: pd.DataFrame,
+    prior: tuple[float, float],
+) -> None:
+    case_plot_df = case_df.copy()
+    case_plot_df["scenario"] = pd.Categorical(
+        case_plot_df["scenario"],
+        categories=CASE_STUDY_ORDER,
+        ordered=True,
+    )
+    case_plot_df = case_plot_df.sort_values("scenario").reset_index(drop=True)
+    x = np.arange(len(case_plot_df))
+    colors = [PALETTE[scenario] for scenario in case_plot_df["scenario"]]
+
+    fig, axes = plt.subplots(1, 3, figsize=(16.8, 5.8))
+    prompt_size = int(case_plot_df["prompt_size"].iloc[0])
+    scenario_short = {
+        "Natural prompt": "Natural",
+        "Balanced 1:1 prompt": "Balanced",
+    }
+    tick_labels = [
+        f"{scenario_short[row.scenario]}\n{int(row.negative_count)}:{int(row.positive_count)}"
+        for row in case_plot_df.itertuples()
+    ]
+
+    axes[0].bar(x, case_plot_df["prompt_positive_rate"], color=colors, edgecolor="white", linewidth=1.0)
+    axes[0].axhline(
+        case_plot_df["task_theta"].iloc[0],
+        color="#333333",
+        linestyle="--",
+        linewidth=1.1,
+        alpha=0.9,
+    )
+    axes[0].set_yscale("log", base=10)
+    axes[0].set_ylim(7e-4, 0.7)
+    axes[0].set_ylabel("Positive fraction shown in prompt")
+    axes[0].set_xlabel("Prompt construction")
+    axes[0].set_title(f"Same {prompt_size:,}-example budget, very different class ratios")
+
+    axes[1].bar(x, case_plot_df["predicted_prevalence"], color=colors, edgecolor="white", linewidth=1.0)
+    axes[1].axhline(
+        case_plot_df["task_theta"].iloc[0],
+        color="#333333",
+        linestyle="--",
+        linewidth=1.1,
+        alpha=0.9,
+    )
+    axes[1].set_yscale("log", base=10)
+    axes[1].set_ylim(8e-4, 1.15e-2)
+    axes[1].set_ylabel(r"Predicted next-label prevalence $\hat q(1)$")
+    axes[1].set_xlabel("Prompt construction")
+    axes[1].set_title("Balancing inflates the rare-event rate")
+
+    axes[2].bar(x, case_plot_df["next_log_loss"], color=colors, edgecolor="white", linewidth=1.0)
+    axes[2].set_ylabel("Expected next-label log loss")
+    axes[2].set_xlabel("Prompt construction")
+    axes[2].set_title("Balancing increases per-query loss")
+    for ax in axes:
+        ax.set_xticks(x, tick_labels)
+
+    for idx, row in enumerate(case_plot_df.itertuples()):
+        axes[1].text(
+            idx,
+            row.predicted_prevalence * 1.24,
+            f"{row.prevalence_ratio_to_truth:.1f}x true",
+            ha="center",
+            va="bottom",
+            fontsize=8.6,
+        )
+        delta_vs_natural = row.excess_log_loss_over_natural
+        if np.isclose(delta_vs_natural, 0.0):
+            label = "baseline"
+        elif delta_vs_natural > 0.0:
+            pct = 100.0 * delta_vs_natural / case_plot_df["next_log_loss"].iloc[0]
+            label = rf"+{pct:.0f}\%"
+        else:
+            pct = 100.0 * delta_vs_natural / case_plot_df["next_log_loss"].iloc[0]
+            label = rf"{pct:.0f}\%"
+        axes[2].text(
+            idx,
+            row.next_log_loss + max(case_plot_df["next_log_loss"]) * 0.03,
+            label,
+            ha="center",
+            va="bottom",
+            fontsize=8.6,
+        )
+
+    c, d = prior
+    task_theta = case_plot_df["task_theta"].iloc[0]
+    fig.suptitle(
+        rf"TalkingData-like case study: same rare task ($\theta={task_theta:.4f}$), same prompt budget "
+        rf"($n={prompt_size}$), library mean $={c/(c+d):.4f}$",
+        y=1.04,
+    )
+    save_figure(fig, output_dir, "figure5_talkingdata_like_prompt_case_study")
+
+
 def build_small_count_excess_table(small_count_df: pd.DataFrame) -> pd.DataFrame:
     natural_baseline = (
         small_count_df[small_count_df["predictor"] == "Natural prompt"][["positive_count", "metric", "value"]]
@@ -249,7 +374,7 @@ def plot_small_count(output_dir: Path, small_count_df: pd.DataFrame, prior: tupl
         rf"Small-count strata at $n={n}$ under $\theta \sim \operatorname{{Beta}}({c:g},{d:g})$",
         y=1.03,
     )
-    save_figure(fig, output_dir, "figure5_balancing_small_count")
+    save_figure(fig, output_dir, "figure_appendix_balancing_small_count")
 
 
 def plot_ranking_counterexample(output_dir: Path, ranking_df: pd.DataFrame) -> None:
@@ -345,8 +470,7 @@ def build_prevalence_metrics(
         exact_metrics = {
             "Natural prompt": natural_expected_metrics(prior=prior, n=support_size),
             "Balanced 1:1 prompt": balanced_expected_metrics(prior=prior),
-            "Balanced + true prevalence token": true_prevalence_token_metrics(prior=prior),
-            "Balanced + noisy prevalence token": noisy_metrics,
+            "Balanced + estimated prevalence feature": noisy_metrics,
         }
         for predictor, metric_dict in exact_metrics.items():
             for metric_name, value in metric_dict.items():
@@ -389,6 +513,7 @@ def build_calibration_table(
 def build_summary_table(
     metrics_df: pd.DataFrame,
     calibration_df: pd.DataFrame,
+    case_study_df: pd.DataFrame,
     small_count_df: pd.DataFrame,
     small_count_excess_df: pd.DataFrame,
     ranking_df: pd.DataFrame,
@@ -426,6 +551,44 @@ def build_summary_table(
                 "predictor": row.predictor,
                 "metric": "weighted_abs_gap",
                 "value": float(row.weighted_abs_gap),
+            }
+        )
+
+    for row in case_study_df.itertuples():
+        rows.append(
+            {
+                "experiment": "exp8_talkingdata_like_case_study",
+                "slice": row.scenario,
+                "predictor": row.scenario,
+                "metric": "prompt_positive_rate",
+                "value": float(row.prompt_positive_rate),
+            }
+        )
+        rows.append(
+            {
+                "experiment": "exp8_talkingdata_like_case_study",
+                "slice": row.scenario,
+                "predictor": row.scenario,
+                "metric": "predicted_prevalence",
+                "value": float(row.predicted_prevalence),
+            }
+        )
+        rows.append(
+            {
+                "experiment": "exp8_talkingdata_like_case_study",
+                "slice": row.scenario,
+                "predictor": row.scenario,
+                "metric": "next_log_loss",
+                "value": float(row.next_log_loss),
+            }
+        )
+        rows.append(
+            {
+                "experiment": "exp8_talkingdata_like_case_study",
+                "slice": row.scenario,
+                "predictor": row.scenario,
+                "metric": "excess_log_loss_over_natural",
+                "value": float(row.excess_log_loss_over_natural),
             }
         )
 
@@ -500,6 +663,13 @@ def main() -> None:
         num_bins=args.calibration_bins,
         rng=rng,
     )
+    case_study_df = prompt_case_study_table(
+        prior=prior,
+        task_theta=args.case_study_task_theta,
+        prompt_size=args.case_study_prompt_size,
+        natural_positive_count=args.case_study_natural_positives,
+        balanced_positive_count=args.case_study_balanced_positives,
+    )
     small_count_df = conditional_small_count_table(
         prior=prior,
         n=args.small_count_n,
@@ -513,6 +683,7 @@ def main() -> None:
     summary_df = build_summary_table(
         metrics_df=prevalence_metrics_df,
         calibration_df=calibration_df,
+        case_study_df=case_study_df,
         small_count_df=small_count_df,
         small_count_excess_df=small_count_excess_df,
         ranking_df=ranking_df,
@@ -520,12 +691,14 @@ def main() -> None:
 
     prevalence_metrics_df.to_csv(output_dir / "experiment5_balancing_prevalence_curves.csv", index=False)
     calibration_df.to_csv(output_dir / "experiment5_balancing_prevalence_calibration.csv", index=False)
+    case_study_df.to_csv(output_dir / "experiment8_talkingdata_like_prompt_case_study.csv", index=False)
     small_count_df.to_csv(output_dir / "experiment6_balancing_small_count.csv", index=False)
     small_count_excess_df.to_csv(output_dir / "experiment6_balancing_small_count_excess.csv", index=False)
     ranking_df.to_csv(output_dir / "experiment7_balancing_ranking.csv", index=False)
     summary_df.to_csv(output_dir / "summary_imbalance_oracle.csv", index=False)
 
     plot_prevalence_curves(output_dir=output_dir, metrics_df=prevalence_metrics_df, prior=prior)
+    plot_prompt_case_study(output_dir=output_dir, case_df=case_study_df, prior=prior)
     plot_small_count(output_dir=output_dir, small_count_df=small_count_df, prior=prior, n=args.small_count_n)
     plot_ranking_counterexample(output_dir=output_dir, ranking_df=ranking_df)
 

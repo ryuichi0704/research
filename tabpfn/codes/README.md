@@ -80,10 +80,12 @@ codes/results/closed_form/
 Expected artifacts:
 
 - `figure4_balancing_prevalence_curves.png` and `.pdf`
-- `figure5_balancing_small_count.png` and `.pdf`
+- `figure5_talkingdata_like_prompt_case_study.png` and `.pdf`
 - `figure6_balancing_ranking_reversal.png` and `.pdf`
+- `figure_appendix_balancing_small_count.png` and `.pdf`
 - `experiment5_balancing_prevalence_curves.csv`
 - `experiment5_balancing_prevalence_calibration.csv`
+- `experiment8_talkingdata_like_prompt_case_study.csv`
 - `experiment6_balancing_small_count.csv`
 - `experiment6_balancing_small_count_excess.csv`
 - `experiment7_balancing_ranking.csv`
@@ -92,13 +94,16 @@ Expected artifacts:
 Figure mapping:
 
 - `figure4_balancing_prevalence_curves`
-  - natural prompts improve with support size, balanced prompts stay prevalence-blind, and prevalence tokens recover the signal
-- `figure5_balancing_small_count`
-  - excess risk over the natural prompt is largest on rare small-count strata
+  - natural prompts improve with support size, balanced prompts stay prevalence-blind, and an estimated prevalence side feature partially recovers the signal
+- `figure5_talkingdata_like_prompt_case_study`
+  - same rare task, same 10k-example budget, but case-control balancing inflates the apparent prevalence and hurts next-label log loss
 - `figure6_balancing_ranking_reversal`
   - the exact case-control aliasing counterexample from the imbalance section, with a visible ranking reversal under family `A`
+- `figure_appendix_balancing_small_count`
+  - diagnostic excess-risk view showing which natural-count strata are most affected by deleting count evidence
 
 ## Notes
 
 - `run_imbalance_oracle.py` records prevalence RMSE and prevalence-calibration tables because ordinary outcome calibration is largely trivial for these oracle predictors.
+- In these oracle experiments, an "estimated prevalence feature" means an external scalar side feature with noise, which can be passed to TabPFN as an extra constant column shared by all rows in the episode.
 - All outputs are deterministic except for the noisy-token Monte Carlo terms, which are controlled by the script seed.
