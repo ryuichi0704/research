@@ -69,7 +69,7 @@
 \maketitle
 
 \begin{abstract}
-PFNs are pretrained on synthetic task libraries, so deployment robustness is a prior-design problem. We argue that the central question is not merely whether to mix broadly, but which family distinctions are safe to collapse. Broad mixtures hedge deployment uncertainty, yet in rare-event boundary regimes collapsing across mismatched families can change the one-step predictive tail law. We first give a minimal oracle split/merge calculus: among prompt-only predictors the collapsed predictive is Bayes-optimal, and the irreducible price of hiding family structure is the prompt-conditioned predictive distinctiveness $\I(F;Y\mid O)$, equivalently a generalized Jensen--Shannon divergence between family predictives after the prompt. Bucket refinement gains exactly the conditional mutual information it reveals, while practical bucketed PFNs trade router cross-entropy against within-bucket expert KL. We then prove a sharp boundary theory. In Beta--Bernoulli tasks, collapsed mixtures inherit the most singular boundary component, fixed-count mismatches already force the slow $n^{-(1+c)}$ law, and matched boundary profiles restore the regular $n^{-2}$ regime. A regular-variation extension shows that this is a general rare-event phenomenon, and zero-count slopes provide an operational diagnostic for boundary-aware bucketing. Exact closed-form experiments verify the phase transition and the benefit of preserving shared-profile buckets. The resulting design rule is asymmetric: mix broadly for coverage, but in rare-event regimes route across boundary profiles rather than collapsing them.
+PFNs are pretrained on synthetic task libraries, so deployment robustness is a prior-design problem. We argue that the central question is not merely whether to mix broadly, but which family distinctions are safe to collapse. Broad mixtures hedge deployment uncertainty, yet in rare-event boundary regimes collapsing across mismatched families can change the one-step predictive tail law. We first give a minimal oracle split/merge calculus: among prompt-only predictors the collapsed predictive is Bayes-optimal, and the irreducible price of hiding family structure is the prompt-conditioned predictive distinctiveness $\I(F;Y\mid O)$, equivalently a generalized Jensen--Shannon divergence between family predictives after the prompt. Bucket refinement gains exactly the conditional mutual information it reveals, while practical bucketed PFNs trade router cross-entropy against within-bucket expert KL. We then prove a sharp boundary theory. In Beta--Bernoulli tasks, collapsed mixtures inherit the most singular boundary component, fixed-count mismatches already force the slow $n^{-(1+c)}$ law, and matched boundary profiles restore the regular $n^{-2}$ regime. A regular-variation extension shows that this is a general rare-event phenomenon, and zero-count slopes provide an operational diagnostic for boundary-aware bucketing. Finally, we formalize class balancing as a PFN-specific prompt intervention: any prompt transformation incurs exactly the predictive information it deletes, so hiding original class-count statistics has an irreducible Bayes cost; in the canonical Beta--Bernoulli prevalence model, a perfectly balanced prompt is asymptotically no more informative about prevalence than no prompt at all; and a minimal case-control aliasing construction shows that balanced prompts can induce query-dependent score distortions and even ranking reversals that no threshold shift can repair. Exact closed-form experiments verify the phase transition and the benefit of preserving shared-profile buckets. The resulting design rule is asymmetric: mix broadly for coverage, route across boundary profiles in rare-event regimes, and do not balance away the prevalence evidence that identifies those profiles.
 \end{abstract}
 
 \section{Introduction}
@@ -82,6 +82,8 @@ That distinction matters because global mixing and local collapse are different 
 
 Our main answer is sharp and asymmetric. In regular identifiable regimes, prior mismatch repairs quickly and the one-step oracle gap has the benign $n^{-2}$ tail. In rare-event boundary regimes, the story changes qualitatively: collapsing across mismatched families can preserve the wrong small-count boundary profile and thereby the wrong one-step tail law, even when the cumulative hedge budget remains small. This failure mode, not the generic statement that ``broad mixtures are good,'' is the paper's main technical contribution.
 
+Class imbalance is a particularly important stress test of that distinction. In ordinary supervised learning, label balancing is often framed as a loss-design or retrospective-sampling issue. For PFNs, the prompt itself is the inference object. Replacing a naturally sampled prompt by a $1{:}1$ case-control prompt therefore changes the observation channel seen by the oracle, potentially deleting exactly the prevalence evidence that identifies the latent family. We will show that this loss is measurable, irreducible at the oracle level, and not generally recoverable by threshold tuning alone. In the simplest Beta--Bernoulli prevalence model, perfect balancing is even stronger: it makes arbitrarily long prompts asymptotically useless for learning the task base rate.
+
 Our contribution has two layers, in deliberate order. First and most importantly, we characterize the rare-event failure mode. In Beta--Bernoulli tasks, we show that collapsed mixtures inherit the most singular boundary component, that mismatched fixed-count profiles already force the slow $n^{-(1+c)}$ regime, that matched profiles restore the regular $n^{-2}$ tail, and that these phenomena extend beyond conjugacy through boundary regular variation. This yields an operational rule: in rare-event regimes, route by boundary profile rather than by unconditional family diversity alone. Second, we give a minimal oracle design calculus for the surrounding decisions: broad mixtures hedge globally, prompt-conditioned predictive distinctiveness $\I(F;Y\mid O)$ is the irreducible local price of hiding family structure, bucket refinement gains exactly the predictive information it reveals, and practical specialization trades router error against within-bucket expert mismatch.
 
 At a high level, the paper answers three design questions.
@@ -91,7 +93,7 @@ At a high level, the paper answers three design questions.
 \item \textbf{How should these claims be validated empirically?} We provide exact closed-form validations of the hedge, boundary-failure, and phase-transition claims, and we spell out a learned-PFN benchmark protocol whose primary diagnostics are rare-event calibration quantities rather than average accuracy alone.
 \end{enumerate}
 
-The oracle calculus surrounding the second question relies on classical sequential log-loss identities under misspecification \citep{clarke1990,amari1993,feder2021,morningstar2022,margossian2024,agrawal2025}, but the rare-event boundary theory is new. Throughout, we work at the oracle level first and use exact closed-form validations to isolate prior-design effects before finite-capacity or optimization issues enter. The roadmap is correspondingly simple: Section~\ref{sec:oracle-design} gives only the minimal split/merge calculus needed later, Section~\ref{sec:rare-events} contains the paper's main rare-event failure results, and Section~\ref{sec:experiments} validates those claims and specifies the learned-PFN benchmark suggested by the theory.
+The oracle calculus surrounding the second question relies on classical sequential log-loss identities under misspecification \citep{clarke1990,amari1993,feder2021,morningstar2022,margossian2024,agrawal2025}, but the rare-event boundary theory is new. Throughout, we work at the oracle level first and use exact closed-form validations to isolate prior-design effects before finite-capacity or optimization issues enter. The roadmap is correspondingly simple: Section~\ref{sec:oracle-design} gives only the minimal split/merge calculus needed later, Section~\ref{sec:rare-events} contains the paper's main rare-event failure results, Section~\ref{sec:imbalance} studies class imbalance as a prompt-intervention problem, and Section~\ref{sec:experiments} validates the rare-event theory and specifies the learned-PFN benchmark suggested by it.
 
 \section{Related Work}
 \label{sec:related}
@@ -105,6 +107,8 @@ At a more abstract statistical level, the prompt-only collapse result is closely
 Our routed-library discussion is also complementary to classical mixture-of-experts work \citep{jacobs1991}, which studies how experts and gates partition inputs. We do not analyze the representational advantages of any specific routing architecture. Instead we isolate a PFN-specific statistical question: when does keeping a synthetic family bucket explicit reduce approximation difficulty enough to justify router error and expert specialization?
 
 Methodologically, our paper is closest to sequential log-loss prediction under misspecification \citep{clarke1990,amari1993,feder2021,morningstar2022,agrawal2025}. We use those identities as scaffolding, but the emphasis here is different. The first layer of results is a PFN-specific synthesis of misspecified-Bayes accounting for mixed prior libraries. The new technical ingredients beyond that scaffolding are a prompt-conditioned interpretation of collapse cost for PFN family libraries, a practical bucketed-expert tradeoff, and a boundary-profile analysis that explains rare-event failure modes of collapsed mixtures.
+
+Class imbalance introduces a related but distinct issue. In ordinary logistic case-control analysis, retrospective sampling can sometimes be handled by an intercept correction while preserving odds-ratio parameters \citep{prentice1979}. Our point is different. A PFN does not merely optimize on a rebalanced dataset once; it performs inference directly from the provided prompt. Therefore a label-balanced prompt is an inference-time transformation of the observable experiment. The right question is not only whether a downstream threshold can be recalibrated, but whether the transformed prompt still contains the family information needed for the correct posterior predictive.
 
 \section{Problem Setup}
 \label{sec:setup}
@@ -732,6 +736,127 @@ Hence the dangerous boundary exponent is estimable from prior-predictive simulat
 
 Corollary~\ref{cor:observable-exponent} is what makes boundary-aware routing operational. A practitioner need not inspect latent parameters: one can simulate tasks from each synthetic family, estimate the log-log slope of zero-count events, bucket families by that observable slope, and keep those buckets explicit. But the exponent is only the first diagnostic. In practice one should also inspect the small-count curves $n\,\hat q_n(1\mid S_n=s)$ for $s=0,1,2,\dots$, since families with the same exponent can still disagree in boundary profile. The resulting rule is asymmetric: mix within shared-profile buckets, but do not collapse across mismatched boundary profiles.
 
+\section{Class Imbalance as a Prompt-Intervention Problem}
+\label{sec:imbalance}
+
+Class imbalance raises a PFN-specific question not resolved by the boundary asymptotics alone. In ordinary supervised learning, label balancing is often analyzed as a retrospective sampling design, and recent TabPFN model reports confirm that threshold tuning can materially improve F1 on imbalanced benchmarks \citep[Fig.~17]{grinsztajn2025tabpfn25}. The oracle question, however, is sharper: if a PFN uses the prompt itself as evidence about the latent task, what happens when we replace the natural i.i.d. prompt by a label-balanced one? The answer is that balancing is not just a downstream threshold choice; it is a transformation of the observable sigma-field. Any deleted prompt statistic creates an irreducible Bayes penalty, and when the deleted statistic is the original prevalence count, the resulting error can be qualitatively different from the usual intercept-only case-control correction.
+
+Let
+\[
+O_n := (Z_{1:n},X_{n+1})
+\]
+be the full prompt, and let $\widetilde O_n$ be any randomized transformation of $O_n$ satisfying the Markov condition
+\[
+Y_{n+1} \to O_n \to \widetilde O_n.
+\]
+Write the Bayes-optimal predictors based on the full and transformed prompts as
+\[
+q_O(y\mid O_n):=\Pbb(Y_{n+1}=y\mid O_n),
+\qquad
+q_{\widetilde O}(y\mid \widetilde O_n):=\Pbb(Y_{n+1}=y\mid \widetilde O_n).
+\]
+
+\begin{proposition}[Prompt-transformation penalty]
+\label{prop:prompt-transform}
+Under the setup above,
+\[
+R(q_{\widetilde O})-R(q_O)
+=
+\I(Y_{n+1};O_n\mid \widetilde O_n).
+\]
+If moreover $O_n=(\widetilde O_n,C_n)$ almost surely for some deleted statistic $C_n$, then
+\[
+R(q_{\widetilde O})-R(q_O)
+=
+\I(Y_{n+1};C_n\mid \widetilde O_n).
+\]
+\end{proposition}
+
+Proposition~\ref{prop:prompt-transform} is the fundamental PFN asymmetry. For a conventional learner, rebalancing changes the optimization problem used to fit a predictor. For a PFN, rebalancing the context changes the information set available at inference time. If the deleted statistic $C_n$ is the natural class count $S_n$, then the exact price of balancing is the predictive information carried by those counts. This immediately connects class imbalance to the rare-event theory above: a perfectly balanced prompt with exactly $m$ positives and $m$ negatives has transformed count $\widetilde S_{2m}=m$ almost surely, so the zero-count law and the boundary-exponent diagnostic of Corollary~\ref{cor:observable-exponent} are literally unavailable from the balanced prompt alone.
+
+The next proposition isolates the pure prevalence effect before any feature-specific aliasing enters. In the canonical Beta--Bernoulli library, perfect class balancing does not merely slow prevalence learning; it destroys it. A balanced prompt of arbitrary size is no more informative about the task prevalence than an empty prompt.
+
+\begin{proposition}[Perfect balancing destroys asymptotic prevalence learning]
+\label{prop:balanced-useless}
+Consider the Beta--Bernoulli task library
+\[
+\theta \sim \BetaDist(c,d),
+\qquad
+Y_i\mid \theta \stackrel{i.i.d.}{\sim} \Ber(\theta),
+\]
+with natural prompt $O_{2m}:=Y_{1:2m}$ and perfectly balanced prompt $\widetilde O_m$ obtained by revealing only a random permutation of $m$ zeros and $m$ ones from the same task and no additional statistic about the original sampling process. Let
+\[
+q_{2m}^{\mathrm{nat}}(1\mid O_{2m}) := \Pbb(Y_{2m+1}=1\mid O_{2m}),
+\qquad
+q_m^{\mathrm{bal}}(1\mid \widetilde O_m) := \Pbb(Y_*=1\mid \widetilde O_m).
+\]
+Then:
+\begin{enumerate}[leftmargin=18pt]
+\item $\widetilde O_m \perp\!\!\!\perp \theta$, hence $q_m^{\mathrm{bal}}(1\mid \widetilde O_m)=c/(c+d)$ almost surely for every $m$;
+\item $q_{2m}^{\mathrm{nat}}(1\mid O_{2m})=(c+S_{2m})/(c+d+2m)$, where $S_{2m}=\sum_{i=1}^{2m}Y_i$, and $q_{2m}^{\mathrm{nat}}(1\mid O_{2m})\to \theta$ almost surely;
+\item if
+\[
+R_m^{\mathrm{bal}} := \E[-\log q_m^{\mathrm{bal}}(Y_*\mid \widetilde O_m)],
+\qquad
+R_{2m}^{\mathrm{nat}} := \E[-\log q_{2m}^{\mathrm{nat}}(Y_{2m+1}\mid O_{2m})],
+\]
+then $R_m^{\mathrm{bal}} = h(\bar \theta)$ for all $m$, $R_{2m}^{\mathrm{nat}}\to \E[h(\theta)]$, and therefore
+\[
+\lim_{m\to\infty}\bigl(R_m^{\mathrm{bal}} - R_{2m}^{\mathrm{nat}}\bigr)
+=
+h(\bar \theta)-\E[h(\theta)]
+=
+\I(\theta;Y),
+\qquad
+\bar \theta:=\frac{c}{c+d},
+\]
+where $h(p):=-p\log p -(1-p)\log(1-p)$.
+\end{enumerate}
+In particular, a perfectly balanced prompt is asymptotically no more informative about prevalence than seeing no prompt at all.
+\end{proposition}
+
+Proposition~\ref{prop:balanced-useless} is the cleanest version of the PFN imbalance pathology. The support size can grow without bound, but if the prompt is conditioned to contain exactly half positives, the oracle never learns the task's base rate from the prompt. This does not happen because the PFN is poorly calibrated; it happens because the observation design has removed the sufficient statistic.
+
+The next theorem shows that the problem is not merely asymptotic prevalence blindness or a calibration nuisance. Once balancing erases family evidence, the resulting distortion need not be an intercept shift and therefore need not be repairable by threshold adjustment.
+
+\begin{theorem}[Case-control aliasing can reverse rankings]
+\label{thm:balancing-counterexample}
+There exists a binary classification PFN library with two latent families $F\in\{A,B\}$, a full prompt $O=(U,C,X_*)$, and a balanced prompt $\widetilde O=(U,X_*)$ obtained by deleting a prevalence-coded statistic $C$, such that:
+\begin{enumerate}[leftmargin=18pt]
+\item $F$ is a priori uniform on $\{A,B\}$, $U$ is independent of $(F,Y_*)$ given $X_*$, and $C=\ind\{F=A\}$;
+\item $X_*$ is uniform on $\{x_1,x_2\}$ and the family-specific predictives are
+\[
+\Pbb(Y_*=1\mid X_*=x_1,F=A)=0.05,
+\qquad
+\Pbb(Y_*=1\mid X_*=x_2,F=A)=0.001,
+\]
+\[
+\Pbb(Y_*=1\mid X_*=x_1,F=B)=10^{-4},
+\qquad
+\Pbb(Y_*=1\mid X_*=x_2,F=B)=0.9;
+\]
+\item under the realized family $F=A$, the full-prompt Bayes predictor ranks $x_1$ above $x_2$, but the balanced-prompt Bayes predictor satisfies
+\[
+q_{\widetilde O}(1\mid x_1)=0.02505
+<
+0.4505=q_{\widetilde O}(1\mid x_2).
+\]
+\end{enumerate}
+Consequently, no global threshold, temperature scaling, or intercept shift applied to $q_{\widetilde O}$ can recover the family-$A$ Bayes ordering. Moreover,
+\[
+R_A(q_{\widetilde O})-R_A(q_O)
+=
+\frac{1}{2}\klb(0.05,0.02505)
++\frac{1}{2}\klb(0.001,0.4505)
+\approx 3.00\times 10^{-1},
+\]
+where $R_A$ denotes the log risk under family $A$ and $X_*$ uniform on $\{x_1,x_2\}$.
+\end{theorem}
+
+The theorem is intentionally minimal, but its meaning is broad. The full prompt carries family evidence through the deleted prevalence statistic $C$; the balanced prompt does not. Once that evidence is removed, the oracle is forced into a family mixture, and if the families disagree about the ranking of query patterns then no monotone post-processing of the mixed score can recover the correct ordering. This is the PFN-specific pathology that does not appear in the same form for a single fixed discriminative model with a known prior-shift correction: the prompt itself is part of the Bayesian evidence, so balancing can destroy the evidence needed to identify the right expert.
+
+For extreme fraud-style tables, this yields a concrete design implication. A $1{:}1$ prompt can be useful operationally only if the original prevalence information is preserved separately, for example as raw counts, a base-rate token, or a second natural-sampling prompt. Otherwise the model is asked to infer the deployment task from an observation design on which the rare-event statistics have already been conditioned away. From the perspective of Section~\ref{sec:rare-events}, this means that the very small-count events needed to detect the dangerous boundary profile have been deleted before the PFN even begins to infer.
+
 \section{Exact Validation and Learned-PFN Benchmark Protocol}
 \label{sec:experiments}
 
@@ -739,7 +864,7 @@ We validate the theory in the same order in which we want the reader to remember
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\linewidth]{codes/results/closed_form/figure2_boundary_failure_and_fix.pdf}
+\includegraphics[width=\linewidth]{codes/results/closed_form/figure2_boundary_failure_and_fix.png}
 \caption{Closed-form validation of the boundary-profile story on deployment prior $\BetaDist(0.5,4)$. Left: cumulative one-step gap for a strong single constituent prior $\BetaDist(0.5,3)$, a global collapsed mixture, and a boundary-aware bucket that mixes only the shared-$c=0.5$ component family. Right: oracle-centered small-count profile errors $n(\hat q-q_{\mathrm{oracle}})$ for $S_n\in\{0,1,2\}$. The bucketed library improves over both the global collapse and the strongest single constituent prior, cutting the exact oracle budget $K_{256}$ from $9.1\times 10^{-2}$ to $2.0\times 10^{-3}$, while the single $\BetaDist(0.5,3)$ prior remains at $2.1\times 10^{-2}$.}
 \label{fig:boundary-fix}
 \end{figure}
@@ -748,7 +873,7 @@ Figure~\ref{fig:boundary-fix} is the main practical MoE-style result. The global
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\linewidth]{codes/results/closed_form/figure3_phase_transition.pdf}
+\includegraphics[width=\linewidth]{codes/results/closed_form/figure3_phase_transition.png}
 \caption{Closed-form validation of the phase transition in Theorem~\ref{thm:beta}. The left panel shows the observed one-step gap for a fixed training prior $\BetaDist(1.5,4)$ as deployment moves from interior to critical and singular boundary regimes, together with anchored asymptotic reference slopes. The right panel shows the corresponding task-level prevalence priors $f_{\Theta}(\theta)$: as deployment mass shifts toward $\theta\approx 0$, the one-step tail law slows from the regular $n^{-2}$ regime toward the singular $n^{-(1+c)}$ law.}
 \label{fig:phase-transition}
 \end{figure}
@@ -792,7 +917,10 @@ We can now step back from the theorem chain and answer the motivating question d
 Proposition~\ref{thm:mixture} is the global argument for broad prior libraries: assigning each plausible family positive mass hedges deployment uncertainty. But coverage and merging are different decisions. The relevant object is observable predictive behavior after the prompt, not raw latent generator coordinates.
 
 \paragraph{2. In rare-event regimes, organize the library by boundary profile.}
-Theorem~\ref{thm:beta}, Proposition~\ref{thm:beta-mix}, Proposition~\ref{prop:fixed-count}, Theorem~\ref{thm:boundary-general}, and Corollary~\ref{cor:observable-exponent} together say that rare-event mismatch is about small-count boundary profiles, with the exponent as only the first observable summary. The practical rule is asymmetric: mix within shared-profile buckets, but route across mismatched profiles and validate rare-event tails explicitly rather than relying only on average synthetic loss.
+Theorem~\ref{thm:beta}, Proposition~\ref{thm:beta-mix}, Proposition~\ref{prop:fixed-count}, Theorem~\ref{thm:boundary-general}, Corollary~\ref{cor:observable-exponent}, and Section~\ref{sec:imbalance} together say that rare-event mismatch is about small-count boundary profiles, with the exponent as only the first observable summary. The practical rule is asymmetric: mix within shared-profile buckets, but route across mismatched profiles, preserve the natural prevalence evidence that identifies those profiles, and validate rare-event tails explicitly rather than relying only on average synthetic loss.
+
+\paragraph{2.5. Do not balance away prompt evidence.}
+Proposition~\ref{prop:prompt-transform} says that any prompt transformation incurs exactly the predictive information it deletes, Proposition~\ref{prop:balanced-useless} shows that a perfectly balanced prompt can be asymptotically no better than no prompt at all for prevalence learning, and Theorem~\ref{thm:balancing-counterexample} shows that label-balanced prompts can induce score distortions that are not mere intercept shifts. So for PFNs the relevant question is not ``should the loss be class-balanced?'' but ``which prompt statistics are safe to delete?'' In extreme imbalance settings, a $1{:}1$ prompt without an accompanying base-rate statistic can erase the very evidence needed to identify the correct latent family.
 
 \paragraph{3. Merge only when prompt-conditioned predictive distinctiveness is small.}
 Proposition~\ref{prop:prompt-opt}, Corollary~\ref{cor:js}, and Proposition~\ref{prop:refine} say that the right split/merge object is the prompt-conditioned generalized Jensen--Shannon divergence, not unconditional diversity. Families should be merged only when that prompt-conditioned geometry is small; otherwise the split buys exactly the conditional mutual information it reveals.
@@ -863,6 +991,137 @@ R(q_{\mathrm{coll}})=R_U(q_U).
 \]
 So prompt-derived metadata can help only through optimization or approximation, not by reducing Bayes risk.
 \end{corollary}
+
+\subsection{Proof of Proposition~\ref{prop:prompt-transform}}
+
+\begin{proof}
+By definition of Bayes risk,
+\[
+R(q_{\widetilde O})-R(q_O)
+=
+H(Y_{n+1}\mid \widetilde O_n)-H(Y_{n+1}\mid O_n)
+=
+\I(Y_{n+1};O_n\mid \widetilde O_n),
+\]
+because $Y_{n+1}\to O_n\to \widetilde O_n$ is a Markov chain. If $O_n=(\widetilde O_n,C_n)$ almost surely, then the chain rule gives
+\[
+\I(Y_{n+1};O_n\mid \widetilde O_n)
+=
+\I(Y_{n+1};\widetilde O_n,C_n\mid \widetilde O_n)
+=
+\I(Y_{n+1};C_n\mid \widetilde O_n),
+\]
+as claimed.
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{prop:balanced-useless}}
+
+\begin{proof}
+By construction $\widetilde O_m$ is a random permutation of exactly $m$ zeros and $m$ ones, so its law is the same for every $\theta$. Hence $\widetilde O_m \perp\!\!\!\perp \theta$, and
+\[
+q_m^{\mathrm{bal}}(1\mid \widetilde O_m)
+=
+\Pbb(Y_*=1\mid \widetilde O_m)
+=
+\Pbb(Y_*=1)
+=
+\E[\theta]
+=
+\frac{c}{c+d}.
+\]
+Under the natural prompt, conjugacy gives
+\[
+q_{2m}^{\mathrm{nat}}(1\mid O_{2m})
+=
+\E[\theta\mid O_{2m}]
+=
+\frac{c+S_{2m}}{c+d+2m}.
+\]
+Since $S_{2m}/(2m)\to \theta$ almost surely, it follows that $q_{2m}^{\mathrm{nat}}(1\mid O_{2m})\to \theta$ almost surely.
+
+For the balanced prompt risk, let $\bar \theta:=c/(c+d)$. Because $Y_*\mid \theta \sim \Ber(\theta)$,
+\[
+R_m^{\mathrm{bal}}
+=
+\E\bigl[-\theta\log \bar\theta -(1-\theta)\log(1-\bar\theta)\bigr]
+=
+h(\bar\theta).
+\]
+For the natural prompt, Bayes optimality gives
+\[
+R_{2m}^{\mathrm{nat}}
+=
+H(Y_{2m+1}\mid O_{2m})
+=
+\E\!\left[h\!\left(q_{2m}^{\mathrm{nat}}(1\mid O_{2m})\right)\right].
+\]
+Because $0\le h\le \log 2$ and $q_{2m}^{\mathrm{nat}}(1\mid O_{2m})\to \theta$ almost surely, bounded convergence yields
+\[
+R_{2m}^{\mathrm{nat}}\to \E[h(\theta)].
+\]
+Finally, for $Y\mid \theta\sim \Ber(\theta)$ and marginal $Y\sim \Ber(\bar \theta)$,
+\[
+\I(\theta;Y)
+=
+H(Y)-H(Y\mid \theta)
+=
+h(\bar\theta)-\E[h(\theta)].
+\]
+This proves the limit identity.
+\end{proof}
+
+\subsection{Proof of Theorem~\ref{thm:balancing-counterexample}}
+
+\begin{proof}
+Because $C=\ind\{F=A\}$ is part of the full prompt, the full-prompt Bayes predictor identifies the realized family exactly. Under the realized family $F=A$,
+\[
+q_O(1\mid x_1,F=A)=0.05,
+\qquad
+q_O(1\mid x_2,F=A)=0.001,
+\]
+so the full-prompt Bayes ordering is $x_1 \succ x_2$.
+
+By construction, the balanced prompt $\widetilde O=(U,X_*)$ omits $C$ and $U$ is conditionally independent of $F$, so the posterior on $F$ remains uniform:
+\[
+\Pbb(F=A\mid \widetilde O)=\Pbb(F=B\mid \widetilde O)=\frac{1}{2}.
+\]
+Hence the balanced-prompt Bayes predictor is the family average
+\[
+q_{\widetilde O}(1\mid x)
+=
+\frac{1}{2}\Pbb(Y_*=1\mid x,F=A)
++
+\frac{1}{2}\Pbb(Y_*=1\mid x,F=B).
+\]
+Therefore
+\[
+q_{\widetilde O}(1\mid x_1)
+=
+\frac{0.05+10^{-4}}{2}
+=
+0.02505,
+\]
+\[
+q_{\widetilde O}(1\mid x_2)
+=
+\frac{0.001+0.9}{2}
+=
+0.4505.
+\]
+So the balanced-prompt ordering is $x_2 \succ x_1$, the reverse of the full-prompt Bayes ordering under family $A$.
+
+Any global threshold, temperature scaling, or intercept shift is a monotone transformation of the score, so it cannot undo a strict ranking reversal. This proves the non-thresholdability claim.
+
+For the excess log risk under family $A$, condition on $X_*$ and average:
+\[
+R_A(q_{\widetilde O})-R_A(q_O)
+=
+\frac{1}{2}\klb(0.05,0.02505)
++
+\frac{1}{2}\klb(0.001,0.4505),
+\]
+which evaluates numerically to approximately $3.00\times 10^{-1}$.
+\end{proof}
 
 \section{Local Dangerous Directions}
 
@@ -2920,6 +3179,11 @@ Charles~C. Margossian and David~M. Blei.
 Warren~R. Morningstar, Alexander~A. Alemi, and Joshua~V. Dillon.
 \newblock {PACm-Bayes}: Narrowing the empirical risk gap in the misspecified Bayesian regime.
 \newblock In {\em Proceedings of the 25th International Conference on Artificial Intelligence and Statistics}, 2022.
+
+\bibitem{prentice1979}
+Ross~L. Prentice and Richard Pyke.
+\newblock Logistic disease incidence models and case-control studies.
+\newblock {\em Biometrika}, 66(3):403--411, 1979.
 
 \bibitem{muller2022}
 Samuel Muller, Noah Hollmann, Sebastian Pineda-Arango, and Frank Hutter.
