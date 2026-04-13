@@ -216,3 +216,5 @@ __marimo__/
 
 # tabpfn generated experiment artifacts
 tabpfn/codes/results/
+*.zip
+*.csv
