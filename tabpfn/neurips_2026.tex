@@ -60,7 +60,7 @@
 \newcommand{\klb}{\mathrm{kl}}
 \newcommand{\dd}{\,\mathrm{d}}
 
-\title{Boundary-Aware Synthetic Prior Libraries for PFNs}
+\title{Unsafe Collapse in PFN Prior Libraries}
 
 \author{Anonymous Authors}
 
@@ -69,44 +69,42 @@
 \maketitle
 
 \begin{abstract}
-PFNs are pretrained on synthetic task libraries, so deployment robustness is a prior-design problem. We argue that the central question is not merely whether to mix broadly, but which family distinctions are safe to collapse. Broad mixtures hedge deployment uncertainty, yet in rare-event boundary regimes collapsing across mismatched families can change the one-step predictive tail law. We first give a minimal oracle split/merge calculus: among prompt-only predictors the collapsed predictive is Bayes-optimal, and the irreducible price of hiding family structure is the prompt-conditioned predictive distinctiveness $\I(F;Y\mid O)$, equivalently a generalized Jensen--Shannon divergence between family predictives after the prompt. Bucket refinement gains exactly the conditional mutual information it reveals, while practical bucketed PFNs trade router cross-entropy against within-bucket expert KL. We then prove a sharp boundary theory. In Beta--Bernoulli tasks, collapsed mixtures inherit the most singular boundary component, fixed-count mismatches already force the slow $n^{-(1+c)}$ law, and matched boundary profiles restore the regular $n^{-2}$ regime. A regular-variation extension shows that this is a general rare-event phenomenon, and zero-count slopes provide an operational diagnostic for boundary-aware bucketing. Finally, we formalize class balancing as a PFN-specific prompt intervention: any prompt transformation incurs exactly the predictive information it deletes, so hiding original class-count statistics has an irreducible Bayes cost; in the canonical Beta--Bernoulli prevalence model, a perfectly balanced prompt is asymptotically no more informative about prevalence than no prompt at all; and a minimal case-control aliasing construction shows that balanced prompts can induce query-dependent score distortions and even ranking reversals that no threshold shift can repair. Exact closed-form experiments verify the phase transition and the benefit of preserving shared-profile buckets. The resulting design rule is asymmetric: mix broadly for coverage, route across boundary profiles in rare-event regimes, and do not balance away the prevalence evidence that identifies those profiles.
+PFNs make predictions through synthetic prior libraries rather than by retraining on each dataset. This turns library design into a statistical question: when is it safe to merge heterogeneous task families into one predictive rule? We show that broad mixing and family collapse are fundamentally different. Broad mixtures help hedge deployment uncertainty, but hiding family structure can create irreducible information loss even with Bayes-optimal inference. This problem becomes severe in rare-event prevalence regimes, where collapsed libraries inherit the wrong small-count behavior unless merged families share the same boundary profile. We further show that label balancing can cause the same failure by deleting prevalence information from the prompt: in canonical prevalence models, a perfectly balanced prompt can become uninformative for learning the base rate and can induce score distortions that threshold adjustment cannot repair. Exact closed-form validations support these predictions. The resulting rule is simple: mix broadly for coverage, but do not collapse boundary or prevalence information that remains predictive after the prompt.
 \end{abstract}
 
 \section{Introduction}
 
-Prior-data fitted networks (PFNs) learn predictive rules by pretraining on synthetic tasks rather than by fitting one dataset at a time \citep{muller2022,nagler2023}. Once PFNs are used as tabular foundation models, the central modeling choice becomes \emph{synthetic-prior design}: which task generators should be included, and how should they be combined? Recent systems increasingly rely on broad mixed libraries, shift-aware synthetic tasks, or specialized experts \citep{helli2024,zhang2025,xu2025mixturepfn,grinsztajn2025tabpfn25,qu2026tabiclv2}, but the design rule remains unclear.
+Prior-data fitted networks (PFNs) learn predictive rules by pretraining on synthetic tasks rather than by fitting one dataset at a time \citep{muller2022,nagler2023}. Once PFNs are used as tabular foundation models, deployment robustness is largely determined by the synthetic prior library: which task generators it contains, which distinctions it keeps explicit, and which it merges away. This paper argues for a single organizing theme. The main theoretical failure mode is not insufficient breadth, but \emph{unsafe collapse}: merging latent families whose differences remain predictive after conditioning on the prompt.
 
-This is a PFN-specific misspecification problem. An oracle PFN returns the Bayes posterior predictive under the training prior, so deployment error under prior shift splits into an irreducible synthetic-prior term and any additional neural amortization error. We therefore study oracle PFNs first. The key question is not whether broad synthetic libraries are useful; they are. The sharper question is which family distinctions can be safely \emph{collapsed} once those families have been placed into the same library.
+This is a PFN-specific misspecification problem. An oracle PFN returns the Bayes posterior predictive under the training prior, so deployment error under prior shift splits into an irreducible synthetic-prior term and any additional neural amortization error. We therefore study oracle PFNs first. The key question is not whether broad synthetic libraries are useful; they are. The sharper question is which family distinctions can be safely \emph{collapsed} once those families have been placed into the same library, and which collapses remain observably wrong even for an oracle.
 
-That distinction matters because global mixing and local collapse are different decisions. A broad mixture is a hedge device. Collapse is a visibility decision about whether family structure remains explicit after conditioning on the prompt. At the oracle level this creates a subtle negative result: among prompt-only predictors, the collapsed predictive is already Bayes-optimal. So routing cannot help merely by re-expressing hidden family labels. But this does \emph{not} make collapse harmless. It means that the design question is two-stage: hedge globally by covering plausible families, then decide which distinctions are too dangerous to hide.
+That distinction matters because global mixing and local collapse are different decisions. A broad mixture is a hedge device. Collapse is a visibility decision about whether family structure remains explicit after conditioning on the prompt. At the oracle level this creates a subtle negative result: among prompt-only predictors, the collapsed predictive is already Bayes-optimal. So unsafe collapse is not an optimization bug that disappears with a better amortizer of the same observation model. It is an information problem. If the prompt no longer reveals which family governs the predictive tail, the oracle itself pays a residual price. The design problem is therefore two-stage: hedge globally by covering plausible families, then decide which distinctions are too dangerous to hide.
 
-Our main answer is sharp and asymmetric. In regular identifiable regimes, prior mismatch repairs quickly and the one-step oracle gap has the benign $n^{-2}$ tail. In rare-event boundary regimes, the story changes qualitatively: collapsing across mismatched families can preserve the wrong small-count boundary profile and thereby the wrong one-step tail law, even when the cumulative hedge budget remains small. This failure mode, not the generic statement that ``broad mixtures are good,'' is the paper's main technical contribution.
+Our main answer is sharp and asymmetric. In regular identifiable regimes, prior mismatch repairs quickly and the one-step oracle gap has the benign $n^{-2}$ tail. In rare-event boundary regimes, the story changes qualitatively: unsafe collapse can preserve the wrong small-count boundary profile and thereby the wrong one-step tail law, even when the cumulative hedge budget remains small. This failure mode, not the generic statement that ``broad mixtures are good,'' is the paper's main technical contribution.
 
-Class imbalance is a particularly important stress test of that distinction. In ordinary supervised learning, label balancing is often framed as a loss-design or retrospective-sampling issue. For PFNs, the prompt itself is the inference object. Replacing a naturally sampled prompt by a $1{:}1$ case-control prompt therefore changes the observation channel seen by the oracle, potentially deleting exactly the prevalence evidence that identifies the latent family. We will show that this loss is measurable, irreducible at the oracle level, and not generally recoverable by threshold tuning alone. In the simplest Beta--Bernoulli prevalence model, perfect balancing is even stronger: it makes arbitrarily long prompts asymptotically useless for learning the task base rate.
+Class imbalance is a particularly important stress test of that distinction. In ordinary supervised learning, label balancing is often framed as a loss-design or retrospective-sampling issue. For PFNs, the prompt itself is the inference object. Replacing a naturally sampled prompt by a $1{:}1$ case-control prompt therefore changes the observation channel seen by the oracle and can amount to an unsafe collapse of prompt evidence, deleting exactly the prevalence information that identifies the latent family. We will show that this loss is measurable, irreducible at the oracle level, and not generally recoverable by threshold tuning alone. In the simplest Beta--Bernoulli prevalence model, perfect balancing is even stronger: it makes arbitrarily long prompts asymptotically useless for learning the task base rate.
 
-Our contribution has two layers, in deliberate order. First and most importantly, we characterize the rare-event failure mode. In Beta--Bernoulli tasks, we show that collapsed mixtures inherit the most singular boundary component, that mismatched fixed-count profiles already force the slow $n^{-(1+c)}$ regime, that matched profiles restore the regular $n^{-2}$ tail, and that these phenomena extend beyond conjugacy through boundary regular variation. This yields an operational rule: in rare-event regimes, route by boundary profile rather than by unconditional family diversity alone. Second, we give a minimal oracle design calculus for the surrounding decisions: broad mixtures hedge globally, prompt-conditioned predictive distinctiveness $\I(F;Y\mid O)$ is the irreducible local price of hiding family structure, bucket refinement gains exactly the predictive information it reveals, and practical specialization trades router error against within-bucket expert mismatch.
+Our contribution has two layers, in deliberate order. First and most importantly, we characterize the rare-event failure mode. In Beta--Bernoulli tasks, we show that collapsed mixtures inherit the most singular boundary component, that mismatched fixed-count profiles already force the slow $n^{-(1+c)}$ regime, that matched profiles restore the regular $n^{-2}$ tail, and that these phenomena extend beyond conjugacy through boundary regular variation. This yields an operational rule: in rare-event regimes, one should preserve boundary-profile distinctions rather than collapsing families by unconditional diversity alone. Second, we give a minimal oracle calculus for deciding when collapse is safe: broad mixtures hedge globally, and prompt-conditioned predictive distinctiveness $\I(F;Y\mid O)$ is the irreducible local price of hiding family structure.
 
 At a high level, the paper answers three design questions.
 \begin{enumerate}[leftmargin=18pt]
 \item \textbf{Which family distinctions are dangerous to collapse?} In rare-event regimes the dangerous object is the small-count boundary profile, of which the boundary exponent is only the first observable summary. Collapsing across mismatched profiles can change the predictive tail law from the regular $n^{-2}$ regime to the singular $n^{-(1+c)}$ regime.
-\item \textbf{What does the oracle split/merge calculus actually say?} Broad mixtures hedge deployment uncertainty, but the local price of hiding family structure is exactly $\I(F;Y\mid O)$. Bucket refinement gains the predictive information it reveals, and practical bucketing trades router cross-entropy against within-bucket expert KL.
-\item \textbf{How should these claims be validated empirically?} We provide exact closed-form validations of the hedge, boundary-failure, and phase-transition claims, and we spell out a learned-PFN benchmark protocol whose primary diagnostics are rare-event calibration quantities rather than average accuracy alone.
+\item \textbf{How should collapse cost be measured?} Broad mixtures hedge deployment uncertainty, but the local irreducible price of hiding family structure is exactly $\I(F;Y\mid O)$.
+\item \textbf{Why is class balancing special for PFNs?} Because the prompt is the inference object, balancing can collapse away prevalence evidence, making prompts asymptotically useless for base-rate learning and inducing score distortions that no threshold shift can repair.
 \end{enumerate}
 
-The oracle calculus surrounding the second question relies on classical sequential log-loss identities under misspecification \citep{clarke1990,amari1993,feder2021,morningstar2022,margossian2024,agrawal2025}, but the rare-event boundary theory is new. Throughout, we work at the oracle level first and use exact closed-form validations to isolate prior-design effects before finite-capacity or optimization issues enter. The roadmap is correspondingly simple: Section~\ref{sec:oracle-design} gives only the minimal split/merge calculus needed later, Section~\ref{sec:rare-events} contains the paper's main rare-event failure results, Section~\ref{sec:imbalance} studies class imbalance as a prompt-intervention problem, and Section~\ref{sec:experiments} validates the rare-event theory and specifies the learned-PFN benchmark suggested by it.
+The oracle calculus surrounding the second question relies on classical sequential log-loss identities under misspecification \citep{clarke1990,amari1993,feder2021,morningstar2022,margossian2024,agrawal2025}, but the rare-event boundary theory is new. Throughout, we work at the oracle level first and use exact closed-form validations to isolate unsafe-collapse effects before finite-capacity or optimization issues enter. The roadmap is correspondingly simple: Section~\ref{sec:oracle-design} gives only the minimal hedge-versus-collapse calculus needed later, Section~\ref{sec:rare-events} contains the paper's main rare-event failure results, Section~\ref{sec:imbalance} studies class imbalance as an unsafe prompt collapse, and Section~\ref{sec:experiments} validates the theory in closed form.
 
 \section{Related Work}
 \label{sec:related}
 
 Our starting point is the PFN view that pretraining learns a Bayes posterior predictive under a synthetic task prior \citep{muller2022,nagler2023,muller2025position}. This perspective explains why PFNs can be strong small-data predictors \citep{hollmann2025}, but it does not by itself answer how a tabular foundation model should organize a \emph{library} of heterogeneous synthetic families.
 
-On the systems side, recent tabular foundation models increasingly broaden or adapt their synthetic task libraries. Drift-Resilient TabPFN adds temporally structured priors for shift robustness \citep{helli2024}; MITRA emphasizes mixed synthetic priors and prior ``distinctiveness'' \citep{zhang2025}; TabPFN-2.5 and TabICLv2 continue the trend toward broader libraries and larger-scale tabular foundation models \citep{grinsztajn2025tabpfn25,qu2026tabiclv2}; and MixturePFN studies specialized experts and learned routing for tabular PFNs \citep{xu2025mixturepfn}. In MoE language, these systems differ mainly in how they choose expert-specific training distributions and how they route among them. Our paper is complementary to this empirical line: we do not propose a new architecture, but instead ask which family distinctions are intrinsically worth keeping explicit, which can be safely collapsed, and when explicit bucketing or routing is worth its complexity. In particular, our prompt-conditioned quantity $\E[\JS_{w(O)}(q_1,\dots,q_M)] = \I(F;Y\mid O)$ can be read as a theoretical sharpening of ``distinctiveness'' from an unconditional prior notion to an observable post-prompt predictive one.
+On the systems side, recent tabular foundation models increasingly broaden or adapt their synthetic task libraries. Drift-Resilient TabPFN adds temporally structured priors for shift robustness \citep{helli2024}; MITRA emphasizes mixed synthetic priors and prior ``distinctiveness'' \citep{zhang2025}; and TabPFN-2.5 and TabICLv2 continue the trend toward broader libraries and larger-scale tabular foundation models \citep{grinsztajn2025tabpfn25,qu2026tabiclv2}. Our paper is complementary to this empirical line: we do not propose a new architecture, but instead ask which family distinctions are intrinsically worth keeping explicit and which can be safely collapsed. In particular, our prompt-conditioned quantity $\E[\JS_{w(O)}(q_1,\dots,q_M)] = \I(F;Y\mid O)$ can be read as a theoretical sharpening of ``distinctiveness'' from an unconditional prior notion to an observable post-prompt predictive one.
 
 At a more abstract statistical level, the prompt-only collapse result is closely related to Bayesian model averaging under log loss \citep{hoeting1999}: when the latent model index is hidden, the model-averaged predictive is already Bayes-optimal among rules that only see the observable data. Our point is different. For PFNs, the deployment question is not whether averaging is Bayes-optimal, but how large the gap to a family-aware oracle can remain after the prompt and which family distinctions are still worth preserving explicitly. The quantity $\I(F;Y\mid O)$ answers exactly that post-prompt question.
 
-Our routed-library discussion is also complementary to classical mixture-of-experts work \citep{jacobs1991}, which studies how experts and gates partition inputs. We do not analyze the representational advantages of any specific routing architecture. Instead we isolate a PFN-specific statistical question: when does keeping a synthetic family bucket explicit reduce approximation difficulty enough to justify router error and expert specialization?
-
-Methodologically, our paper is closest to sequential log-loss prediction under misspecification \citep{clarke1990,amari1993,feder2021,morningstar2022,agrawal2025}. We use those identities as scaffolding, but the emphasis here is different. The first layer of results is a PFN-specific synthesis of misspecified-Bayes accounting for mixed prior libraries. The new technical ingredients beyond that scaffolding are a prompt-conditioned interpretation of collapse cost for PFN family libraries, a practical bucketed-expert tradeoff, and a boundary-profile analysis that explains rare-event failure modes of collapsed mixtures.
+Methodologically, our paper is closest to sequential log-loss prediction under misspecification \citep{clarke1990,amari1993,feder2021,morningstar2022,agrawal2025}. We use those identities as scaffolding, but the emphasis here is different. The first layer of results is a PFN-specific synthesis of misspecified-Bayes accounting for mixed prior libraries. The new technical ingredients beyond that scaffolding are a prompt-conditioned interpretation of collapse cost for PFN family libraries and a boundary-profile analysis that explains rare-event failure modes of collapsed mixtures.
 
 Class imbalance introduces a related but distinct issue. In ordinary logistic case-control analysis, retrospective sampling can sometimes be handled by an intercept correction while preserving odds-ratio parameters \citep{prentice1979}. Our point is different. A PFN does not merely optimize on a rebalanced dataset once; it performs inference directly from the provided prompt. Therefore a label-balanced prompt is an inference-time transformation of the observable experiment. The right question is not only whether a downstream threshold can be recalibrated, but whether the transformed prompt still contains the family information needed for the correct posterior predictive.
 
@@ -169,14 +167,14 @@ D_n
 \Bigr].
 \]
 
-\section{Minimal Oracle Design Calculus for Split/Merge Decisions}
+\section{Oracle Calculus for Hedge versus Collapse}
 \label{sec:oracle-design}
 
-This section provides only the oracle accounting needed for the main rare-event story. The purpose is to separate three decisions that are often conflated in PFN design: global coverage by broad mixtures, local collapse of family structure after conditioning on the prompt, and practical specialization by buckets or routed experts.
+This section provides only the oracle accounting needed for the main rare-event story. The purpose is to separate two decisions that are often conflated in PFN design: global coverage by broad mixtures and local collapse of family structure after conditioning on the prompt.
 
 \subsection{Minimal Oracle Accounting}
 
-Before asking which families should be merged or routed, we need to know what prior design should try to control. The answer is not a latent distance between generators, but an observable predictive mismatch after conditioning on the prompt.
+Before asking which families should be merged, we need to know what prior design should try to control. The answer is not a latent distance between generators, but an observable predictive mismatch after conditioning on the prompt.
 
 \begin{theorem}[Oracle accounting and budget]
 \label{thm:exact}
@@ -216,7 +214,7 @@ Theorem~\ref{thm:exact} is the accounting bridge to the rest of the paper.
 
 Only after this reduction does it make sense to ask how mixing hedges globally and when collapse hides distinctions that later matter.
 
-\subsection{Hedging, Safe Merging, and Routed Family Libraries}
+\subsection{Global Hedging versus Unsafe Collapse}
 
 TabPFN-style priors are often constructed as libraries of heterogeneous generator families. The first question is global: if deployment-family uncertainty is the main concern, why mix at all? The next proposition gives the clean hedge answer. The harder question comes immediately after: once a broad library exists, which distinctions may be safely collapsed, and which should remain explicit?
 
@@ -248,16 +246,14 @@ In particular, if deployment is concentrated on one base prior $\pi_j$, then
 
 The proposition yields the global hedge guarantee: if every plausible family receives positive mass, deployment cannot incur catastrophic oracle regret merely because the synthetic library emphasized the wrong family. But this says nothing about whether the family label should remain explicit after the prompt.
 
-The remaining identities are conceptually one split/merge calculus. We state them modularly because each piece is reused later, but the message is simple: the irreducible prompt-only price of hiding family structure is $\I(F;Y\mid O)$; refinement gains exactly the predictive information it reveals; and practical routing adds router error and within-bucket expert mismatch on top of that oracle floor. To study this, let $F\in\{1,\dots,M\}$ be the latent family label and $O_n:=(Z_{1:n},X_{n+1})$ in a supervised setting.
+The remaining identities are conceptually one split/merge calculus. We state them modularly because each piece is reused later, but the message is simple: the irreducible prompt-only price of hiding family structure is $\I(F;Y\mid O)$. To study this, let $F\in\{1,\dots,M\}$ be the latent family label and $O_n:=(Z_{1:n},X_{n+1})$ in a supervised setting.
 \[
 q_j(y\mid O_n):=\Pbb(Y_{n+1}=y\mid O_n,F=j),
 \qquad
 w_j(O_n):=\Pbb(F=j\mid O_n),
 \]
 \[
-q_{\mathrm{coll}}(y\mid O_n):=\sum_{j=1}^M w_j(O_n)\,q_j(y\mid O_n),
-\qquad
-\hat q(y\mid O_n):=\sum_{j=1}^M \hat w_j(O_n)\,q_j(y\mid O_n).
+q_{\mathrm{coll}}(y\mid O_n):=\sum_{j=1}^M w_j(O_n)\,q_j(y\mid O_n).
 \]
 \[
 q_{\mathrm{aware}}(y\mid O_n,F):=q_F(y\mid O_n),
@@ -314,172 +310,12 @@ R(q_{\mathrm{coll}})-R(q_{\mathrm{aware}})
 \]
 \end{corollary}
 
-Equivalently, among all predictors measurable with respect to $O_n$, the best achievable regret to the family-aware oracle is exactly $\I(F;Y_{n+1}\mid O_n)$, attained by $q_{\mathrm{coll}}$. Collapse should therefore be judged by \emph{prompt-conditioned predictive distinctiveness}, not by unconditional family diversity. This turns split/merge into a bucket-design problem. Let $C_n$ be a refinement of a bucket label $B_n$, meaning that $B_n=f(C_n)$ almost surely for some deterministic map $f$. Define the corresponding oracle predictives
-\[
-q_B(y\mid O_n,B_n):=\Pbb(Y_{n+1}=y\mid O_n,B_n),
-\qquad
-q_C(y\mid O_n,C_n):=\Pbb(Y_{n+1}=y\mid O_n,C_n),
-\]
-and their oracle risks
-\[
-R_B(q_B):=\E[-\log q_B(Y_{n+1}\mid O_n,B_n)],
-\qquad
-R_C(q_C):=\E[-\log q_C(Y_{n+1}\mid O_n,C_n)].
-\]
+Equivalently, among all predictors measurable with respect to $O_n$, the best achievable regret to the family-aware oracle is exactly $\I(F;Y_{n+1}\mid O_n)$, attained by $q_{\mathrm{coll}}$. Collapse should therefore be judged by \emph{prompt-conditioned predictive distinctiveness}, not by unconditional family diversity. The next section shows that rare-event boundary regimes are exactly where this distinctiveness can remain large for a long time.
 
-\begin{proposition}[Value of partition refinement]
-\label{prop:refine}
-If $B_n=f(C_n)$ almost surely, then
-\[
-R_B(q_B)-R_C(q_C)=\I(C_n;Y_{n+1}\mid O_n,B_n).
-\]
-Moreover, writing
-\[
-q_c(y\mid O_n):=\Pbb(Y_{n+1}=y\mid O_n,C_n=c),
-\]
-the refinement gain is the within-bucket generalized Jensen--Shannon divergence
-\[
-\I(C_n;Y_{n+1}\mid O_n,B_n)
-=
-\E\!\left[
-\sum_c \Pbb(C_n=c\mid O_n,B_n)\,
-\KL\bigl(
-q_c(\cdot\mid O_n)
-\;\|\;
-q_B(\cdot\mid O_n,B_n)
-\bigr)
-\right].
-\]
-\end{proposition}
-
-\begin{corollary}[Optimal family bucketing]
-\label{cor:bucket}
-Let $B_n=b(F)$ be any deterministic coarsening of the family label. Then
-\[
-\I(F;Y_{n+1}\mid O_n)
-=
-\I(B_n;Y_{n+1}\mid O_n)
-+
-\I(F;Y_{n+1}\mid O_n,B_n).
-\]
-Consequently, among all coarsenings with at most $K$ buckets, any bucketization minimizing the best achievable $K$-bucket regret is equivalently any maximizer of $\I(B_n;Y_{n+1}\mid O_n)$.
-\end{corollary}
-
-These identities imply the local split rule: refine a bucket only when the within-bucket prompt-conditioned JS remains appreciable. Synthetic family labels matter twice here: they are the right supervision signal for routers, and they specify which coarse family distinctions remain worth preserving after conditioning on the prompt. If the family label itself is not available at deployment, a router $\hat w(O_n)$ induces the predictor
-\[
-\hat q(y\mid O_n):=\sum_{j=1}^M \hat w_j(O_n)\,q_j(y\mid O_n).
-\]
-The next theorem specializes the prompt-only optimum to routed approximations.
-
-\begin{theorem}[Routed family libraries]
-\label{thm:router}
-For any measurable router $\hat w(O_n)$ taking values in the simplex,
-\[
-\begin{aligned}
-R(\hat q)-R(q_{\mathrm{aware}})
-&=
-\I(F;Y_{n+1}\mid O_n)
-+
-\E\!\left[
-\KL\bigl(
-q_{\mathrm{coll}}(\cdot\mid O_n)
-\;\|\;
-\hat q(\cdot\mid O_n)
-\bigr)
-\right] \\
-&\le
-\I(F;Y_{n+1}\mid O_n)
-+
-\E\!\left[
-\KL\bigl(
-w(O_n)
-\;\|\;
-\hat w(O_n)
-\bigr)
-\right].
-\end{aligned}
-\]
-\end{theorem}
-
-\begin{corollary}[Router cross-entropy identity]
-\label{cor:router-ce}
-\[
-\E[-\log \hat w_F(O_n)]
-=
-H(F\mid O_n)
-+
-\E\!\left[
-\KL\bigl(
-w(O_n)
-\;\|\;
-\hat w(O_n)
-\bigr)
-\right],
-\]
-\end{corollary}
-
-To connect this oracle story to an actual bucketed PFN, let $B_n=b(F)$ be a chosen family bucket, and write
-\[
-q_b(y\mid O_n):=\Pbb(Y_{n+1}=y\mid O_n,B_n=b),
-\qquad
-w_b(O_n):=\Pbb(B_n=b\mid O_n),
-\]
-\[
-w_B(O_n):=(w_b(O_n))_b,
-\qquad
-\tilde q(y\mid O_n):=\sum_b \hat w_b(O_n)\,\tilde q_b(y\mid O_n).
-\]
-The next proposition quantifies the practical trade-off created by keeping those buckets explicit.
-
-\begin{proposition}[Approximate bucketed experts]
-\label{prop:bucketed-approx}
-For any bucket label $B_n=b(F)$,
-\[
-R(\tilde q)-R(q_{\mathrm{aware}})
-=
-\I(F;Y_{n+1}\mid O_n)
-+
-\E\!\left[
-\KL\bigl(
-q_{\mathrm{coll}}(\cdot\mid O_n)
-\;\|\;
-\tilde q(\cdot\mid O_n)
-\bigr)
-\right].
-\]
-Moreover,
-\[
-\begin{aligned}
-R(\tilde q)-R(q_{\mathrm{aware}})
-&\le
-\I(F;Y_{n+1}\mid O_n) \\
-&\qquad +
-\E\!\left[
-\KL\bigl(
-w_B(O_n)
-\;\|\;
-\hat w(O_n)
-\bigr)
-\right] \\
-&\qquad +
-\E\!\left[
-\sum_b w_b(O_n)\,
-\KL\bigl(
-q_b(\cdot\mid O_n)
-\;\|\;
-\tilde q_b(\cdot\mid O_n)
-\bigr)
-\right].
-\end{aligned}
-\]
-\end{proposition}
-
-Taken together, Corollary~\ref{cor:bucket}, Corollary~\ref{cor:router-ce}, and Proposition~\ref{prop:bucketed-approx} yield the practical granularity rule. Family buckets should be chosen by \emph{retained predictive information}, router cross-entropy is the right supervision target for the hidden bucket label, and MoE-style specialization is justified only when the proposed partition preserves predictive information and reduces within-bucket mismatch enough to offset router error.
-
-\section{The Main Failure Mode: Rare-Event Boundary Profiles}
+\section{Unsafe Collapse in Rare-Event Boundary Regimes}
 \label{sec:rare-events}
 
-The previous section deliberately stayed at the level of generic oracle calculus. We now isolate the paper's main new phenomenon: a global mixture can be hedge-safe in cumulative KL and still be tail-wrong in rare-event boundary regimes. The issue is how quickly context repairs misspecification in concrete regimes. In regular identifiable problems the repair is fast and yields the benchmark $n^{-2}$ tail. In rare-event boundary regimes it can be much slower, producing the phase transitions that matter most for prior construction and, as we will show, a natural boundary-profile routing rule.
+The previous section deliberately stayed at the level of generic oracle calculus. We now isolate the paper's main new phenomenon: a global mixture can be hedge-safe in cumulative KL and still be tail-wrong in rare-event boundary regimes. The issue is how quickly context repairs misspecification in concrete regimes. In regular identifiable problems the repair is fast and yields the benchmark $n^{-2}$ tail. In rare-event boundary regimes it can be much slower, producing the phase transitions that matter most for prior construction.
 
 \subsection{Regular Benchmark: The Benign Case}
 \label{sec:regular}
@@ -521,7 +357,7 @@ Thus regular identifiable regimes provide the benign $n^{-2}$ tail law. The next
 
 \subsection{Beta--Bernoulli Boundary Profiles}
 
-The regular $n^{-2}$ law is not universal. It can fail when the deployment prior puts substantial mass near nearly deterministic tasks. This is exactly the kind of rare-event regime that mixed prior libraries often try to ``cover'' by adding extreme generators, and it is where unsafe family collapse becomes most consequential.
+The regular $n^{-2}$ law is not universal. It can fail when the deployment prior puts substantial mass near nearly deterministic tasks. This is exactly the kind of rare-event regime that mixed prior libraries often try to ``cover'' by adding extreme generators, and it is where unsafe family collapse becomes most consequential. It is also the canonical prevalence model for class imbalance: in the Bernoulli setting, rare-event boundary behavior is literally the regime in which positive labels are scarce.
 
 Consider the conjugate Beta--Bernoulli model. The training prior is
 \[
@@ -536,6 +372,8 @@ and within each task
 Y_i\mid \theta \stackrel{i.i.d.}{\sim} \Ber(\theta).
 \]
 Let $S_n:=\sum_{i=1}^n Y_i$.
+
+Here $S_n$ is exactly the number of positive labels in the prompt. Thus the left boundary $S_n\in\{0,1,2,\dots\}$ is simultaneously the rare-event regime of the theorem and the extreme class-imbalance regime of interest in practice.
 
 \begin{theorem}[Beta--Bernoulli phase transition]
 \label{thm:beta}
@@ -664,9 +502,9 @@ So the real rare-event object is a \emph{small-count boundary profile}
 \beta_s := \lim_{n\to\infty} n\,\hat q_n(1\mid S_n=s),
 \qquad s=0,1,2,\dots,
 \]
-when that limit exists. The exponent controls how often the dangerous small-count events occur, but the profile controls what the predictor does once they occur. In the Beta family, same-exponent buckets are safe precisely because they share the full fixed-count profile.
+when that limit exists. The exponent controls how often the dangerous small-count events occur, but the profile controls what the predictor does once they occur. In the Beta family, families with the same exponent are safe to merge precisely because they share the full fixed-count profile.
 
-\begin{corollary}[Shared-profile bucket guarantee]
+\begin{corollary}[Shared-profile merge guarantee]
 \label{cor:beta-shared}
 If deployment is $\BetaDist(c,d)$ with $0<c\le 1<d$ and experts have predictives
 \[
@@ -679,9 +517,9 @@ then any soft mixture
 still satisfies $\Delta_n(\hat q_n)=O(n^{-2})$.
 \end{corollary}
 
-So the design rule is asymmetric: route \emph{across} boundary exponents, but in the Beta family it is safe to merge or softly mix \emph{within} a shared profile bucket.
+So the design rule is asymmetric: do not collapse \emph{across} boundary exponents, but in the Beta family it is safe to merge or softly mix \emph{within} a shared-profile class.
 
-The Beta analysis is valuable because it is sharp and explicit, but the mechanism is broader than conjugacy. What really matters is the amount of deployment mass near the boundary.
+The Beta analysis is valuable because it is sharp and explicit, but the mechanism is broader than conjugacy. What really matters is the amount of deployment mass near the boundary. The next section returns to the same object from a different angle: instead of asking what a collapsed prior library predicts on naturally occurring small counts, we ask what happens when the practitioner \emph{edits those counts} by forcing a label-balanced prompt.
 
 \begin{theorem}[Boundary slowdown is a regular-variation phenomenon]
 \label{thm:boundary-general}
@@ -718,7 +556,7 @@ C\,n^{-(1+c)}
 for all large $n$.
 \end{theorem}
 
-Theorem~\ref{thm:boundary-general} shows that Proposition~\ref{thm:beta-mix} is not a Beta-specific curiosity. The danger comes from boundary regular variation, not from conjugacy, and the lower bound is already forced by the zero-count event alone. The practitioner-facing message is therefore sharper than ``add some rare-event tasks'': one must represent the relevant boundary profile, route mass away from mismatched exponents, and avoid collapsing buckets whose small-count asymptotics differ.
+Theorem~\ref{thm:boundary-general} shows that Proposition~\ref{thm:beta-mix} is not a Beta-specific curiosity. The danger comes from boundary regular variation, not from conjugacy, and the lower bound is already forced by the zero-count event alone. The practitioner-facing message is therefore sharper than ``add some rare-event tasks'': one must represent the relevant boundary profile and avoid collapsing families whose small-count asymptotics differ.
 
 \begin{corollary}[Observable boundary exponent]
 \label{cor:observable-exponent}
@@ -734,12 +572,12 @@ then
 Hence the dangerous boundary exponent is estimable from prior-predictive simulation alone.
 \end{corollary}
 
-Corollary~\ref{cor:observable-exponent} is what makes boundary-aware routing operational. A practitioner need not inspect latent parameters: one can simulate tasks from each synthetic family, estimate the log-log slope of zero-count events, bucket families by that observable slope, and keep those buckets explicit. But the exponent is only the first diagnostic. In practice one should also inspect the small-count curves $n\,\hat q_n(1\mid S_n=s)$ for $s=0,1,2,\dots$, since families with the same exponent can still disagree in boundary profile. The resulting rule is asymmetric: mix within shared-profile buckets, but do not collapse across mismatched boundary profiles.
+Corollary~\ref{cor:observable-exponent} gives an operational diagnostic for unsafe collapse. A practitioner need not inspect latent parameters: one can simulate tasks from each synthetic family, estimate the log-log slope of zero-count events, and use that observable slope to detect when a proposed collapse is mixing incompatible boundary behavior. But the exponent is only the first diagnostic. In practice one should also inspect the small-count curves $n\,\hat q_n(1\mid S_n=s)$ for $s=0,1,2,\dots$, since families with the same exponent can still disagree in boundary profile. The resulting rule is asymmetric: merge within shared-profile classes, but do not collapse across mismatched boundary profiles.
 
-\section{Class Imbalance as a Prompt-Intervention Problem}
+\section{Label Balancing as Unsafe Collapse of Prompt Evidence}
 \label{sec:imbalance}
 
-Class imbalance raises a PFN-specific question not resolved by the boundary asymptotics alone. In ordinary supervised learning, label balancing is often analyzed as a retrospective sampling design, and recent TabPFN model reports confirm that threshold tuning can materially improve F1 on imbalanced benchmarks \citep[Fig.~17]{grinsztajn2025tabpfn25}. The oracle question, however, is sharper: if a PFN uses the prompt itself as evidence about the latent task, what happens when we replace the natural i.i.d. prompt by a label-balanced one? The answer is that balancing is not just a downstream threshold choice; it is a transformation of the observable sigma-field. Any deleted prompt statistic creates an irreducible Bayes penalty, and when the deleted statistic is the original prevalence count, the resulting error can be qualitatively different from the usual intercept-only case-control correction.
+The previous section already identified the dangerous statistic in the canonical prevalence model: the small-count profile of $S_n=\sum_{i=1}^n Y_i$. Class imbalance enters here because, in that same Beta--Bernoulli model, an imbalanced prompt is precisely a prompt with boundary-level positive counts. In ordinary supervised learning, label balancing is often analyzed as a retrospective sampling design, and recent TabPFN model reports confirm that threshold tuning can materially improve F1 on imbalanced benchmarks \citep[Fig.~17]{grinsztajn2025tabpfn25}. The oracle question, however, is sharper: if a PFN uses the prompt itself as evidence about the latent task, what happens when we replace the natural i.i.d. prompt by a label-balanced one? The answer is that balancing is not just a downstream threshold choice; it intervenes on the very same count statistic that drives the boundary theory, and can therefore act as an unsafe collapse of the observable sigma-field. Any deleted prompt statistic creates an irreducible Bayes penalty, and when the deleted statistic is the original prevalence count, the resulting error can be qualitatively different from the usual intercept-only case-control correction.
 
 Let
 \[
@@ -857,19 +695,19 @@ The theorem is intentionally minimal, but its meaning is broad. The full prompt 
 
 For extreme fraud-style tables, this yields a concrete design implication. A $1{:}1$ prompt can be useful operationally only if the original prevalence information is preserved separately, for example as raw counts, a base-rate token, or a second natural-sampling prompt. Otherwise the model is asked to infer the deployment task from an observation design on which the rare-event statistics have already been conditioned away. From the perspective of Section~\ref{sec:rare-events}, this means that the very small-count events needed to detect the dangerous boundary profile have been deleted before the PFN even begins to infer.
 
-\section{Exact Validation and Learned-PFN Benchmark Protocol}
+\section{Exact Validation of Unsafe Collapse}
 \label{sec:experiments}
 
-We validate the theory in the same order in which we want the reader to remember it. First come the boundary-failure and boundary-repair ablations, because those are the paper's main substantive claims. We then show the phase transition directly, and only after that return to the global hedge sanity check. All reported curves are exact deterministic calculations from closed-form Beta--Binomial formulas or numerical summation, so there is no optimizer, seed, or sampling variance in these plots. They should therefore be read as theorem sanity checks and design ablations, not as substitutes for end-to-end learned-PFN benchmarks.
+We validate the theory in the same order in which we want the reader to remember it. First comes the boundary-profile collapse ablation, because that is the paper's main substantive claim. We then show the phase transition directly, and only after that return to the global hedge sanity check. All reported curves are exact deterministic calculations from closed-form Beta--Binomial formulas or numerical summation, so there is no optimizer, seed, or sampling variance in these plots. They should therefore be read as theorem sanity checks and design ablations.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{codes/results/closed_form/figure2_boundary_failure_and_fix.png}
-\caption{Closed-form validation of the boundary-profile story on deployment prior $\BetaDist(0.5,4)$. Left: cumulative one-step gap for a strong single constituent prior $\BetaDist(0.5,3)$, a global collapsed mixture, and a boundary-aware bucket that mixes only the shared-$c=0.5$ component family. Right: oracle-centered small-count profile errors $n(\hat q-q_{\mathrm{oracle}})$ for $S_n\in\{0,1,2\}$. The bucketed library improves over both the global collapse and the strongest single constituent prior, cutting the exact oracle budget $K_{256}$ from $9.1\times 10^{-2}$ to $2.0\times 10^{-3}$, while the single $\BetaDist(0.5,3)$ prior remains at $2.1\times 10^{-2}$.}
+\caption{Closed-form validation of the boundary-profile story on deployment prior $\BetaDist(0.5,4)$. Left: cumulative one-step gap for a strong single constituent prior $\BetaDist(0.5,3)$, a global collapsed mixture, and a profile-matched sublibrary that mixes only the shared-$c=0.5$ component family. Right: oracle-centered small-count profile errors $n(\hat q-q_{\mathrm{oracle}})$ for $S_n\in\{0,1,2\}$. Restricting collapse to the profile-matched sublibrary improves over both the global collapse and the strongest single constituent prior, cutting the exact oracle budget $K_{256}$ from $9.1\times 10^{-2}$ to $2.0\times 10^{-3}$, while the single $\BetaDist(0.5,3)$ prior remains at $2.1\times 10^{-2}$.}
 \label{fig:boundary-fix}
 \end{figure}
 
-Figure~\ref{fig:boundary-fix} is the main practical MoE-style result. The global collapsed mixture mixes the right rare-event family with the wrong boundary profile and therefore keeps a substantial small-count mismatch. A boundary-aware bucket, interpreted operationally as an expert-specific synthetic training distribution or specialized checkpoint, removes most of that mismatch and materially improves the one-step gap. Importantly, the bucketed predictor is not merely a matched single prior in disguise: it outperforms the strongest single constituent library component because it still hedges \emph{within} the shared-profile bucket.
+Figure~\ref{fig:boundary-fix} is the main structural ablation for the rare-event story. The global collapsed mixture mixes the right rare-event family with the wrong boundary profile and therefore keeps a substantial small-count mismatch. Restricting the collapse to a profile-matched sublibrary removes most of that mismatch and materially improves the one-step gap. Importantly, the profile-matched predictor is not merely a matched single prior in disguise: it outperforms the strongest single constituent library component because it still hedges \emph{within} the shared profile.
 
 \begin{figure}[t]
 \centering
@@ -887,56 +725,31 @@ Figure~\ref{fig:phase-transition} validates the rate-level rare-event theory. Th
 \label{fig:global-hedge}
 \end{figure}
 
-Figure~\ref{fig:global-hedge} plays a more limited role: it validates the global hedging claim. On three interior families, a broad mixture is not expected to beat the hindsight-matched specialist on its own family, but it is the best robust default when deployment is unknown. This is the role of Proposition~\ref{thm:mixture}: mixing is the right \emph{coverage} decision even before one decides what later deserves explicit buckets.
-
-The open empirical question is whether the same boundary-aware bucketings improve finite-capacity PFNs. The theory predicts that any learned gain should appear first in rare-event calibration diagnostics rather than in average accuracy alone. We therefore make the intended benchmark explicit already in this revision.
-
-\begin{table}[t]
-\centering
-\small
-\begin{tabular}{>{\raggedright\arraybackslash}p{0.19\linewidth} >{\raggedright\arraybackslash}p{0.31\linewidth} >{\raggedright\arraybackslash}p{0.40\linewidth}}
-\toprule
-System & Training library / specialization & Planned evaluation metrics \\
-\midrule
-Monolithic mixed-prior PFN & Single checkpoint trained on the globally collapsed mixed library & Log loss, Brier score, ECE, and zero-/small-count calibration curves $n\,\hat q_n(1\mid S_n=s)$ for $s\in\{0,1,2\}$ \\
-Boundary-aware bucket head & Shared backbone with an explicit boundary bucket head or bucket-specific head over shared-profile families & The same predictive metrics, plus bucket cross-entropy and within-bucket calibration diagnostics \\
-Routed specialists & Expert-specific checkpoints over boundary-profile buckets with a learned router & The same predictive metrics, plus router CE and ablations separating routing error from expert mismatch \\
-\bottomrule
-\end{tabular}
-\caption{Placeholder for the end-to-end learned-PFN benchmark motivated by the theory. The key falsifiable prediction is that boundary-aware specialization should help most on rare-event calibration diagnostics, not necessarily on average accuracy.}
-\label{tab:learned-placeholder}
-\end{table}
-
-Table~\ref{tab:learned-placeholder} is intentionally specific about what the later learned experiment should test. The comparison is not ``MoE versus non-MoE'' in the abstract, but \emph{global collapse versus boundary-aware specialization on the rare-event synthetic regimes singled out by the theory}. The primary diagnostics are log loss, Brier, ECE, and the boundary-profile curves $n\,\hat q_n(1\mid S_n=s)$, because those are exactly where the oracle results predict gains.
+Figure~\ref{fig:global-hedge} plays a more limited role: it validates the global hedging claim. On three interior families, a broad mixture is not expected to beat the hindsight-matched specialist on its own family, but it is the best robust default when deployment is unknown. This is the role of Proposition~\ref{thm:mixture}: mixing is the right \emph{coverage} decision even before one decides which family distinctions are unsafe to collapse.
 
 \section{Conclusion}
 
-We can now step back from the theorem chain and answer the motivating question directly: \emph{how should one design a mixed synthetic prior library for PFNs?} The main lesson is asymmetric. Broad mixtures are the right device for coverage, but they are not a license to collapse family structure. The central failure mode is rare-event boundary collapse: a library can be hedge-safe in cumulative KL and still be tail-wrong because its small-count boundary profile is wrong.
+We can now step back from the theorem chain and answer the motivating question directly: \emph{what makes a PFN prior library unsafe?} The main lesson is asymmetric. Broad mixtures are the right device for coverage, but they are not a license to collapse family structure. The central failure mode is unsafe collapse: a library can be hedge-safe in cumulative KL and still be tail-wrong because its small-count boundary profile is wrong.
 
-\paragraph{1. Cover first, but do not mistake coverage for safe collapse.}
+\paragraph{1. Cover first, but do not mistake coverage for safety.}
 Proposition~\ref{thm:mixture} is the global argument for broad prior libraries: assigning each plausible family positive mass hedges deployment uncertainty. But coverage and merging are different decisions. The relevant object is observable predictive behavior after the prompt, not raw latent generator coordinates.
 
-\paragraph{2. In rare-event regimes, organize the library by boundary profile.}
-Theorem~\ref{thm:beta}, Proposition~\ref{thm:beta-mix}, Proposition~\ref{prop:fixed-count}, Theorem~\ref{thm:boundary-general}, Corollary~\ref{cor:observable-exponent}, and Section~\ref{sec:imbalance} together say that rare-event mismatch is about small-count boundary profiles, with the exponent as only the first observable summary. The practical rule is asymmetric: mix within shared-profile buckets, but route across mismatched profiles, preserve the natural prevalence evidence that identifies those profiles, and validate rare-event tails explicitly rather than relying only on average synthetic loss.
+\paragraph{2. Unsafe collapse is organized by boundary profile.}
+Theorem~\ref{thm:beta}, Proposition~\ref{thm:beta-mix}, Proposition~\ref{prop:fixed-count}, Theorem~\ref{thm:boundary-general}, Corollary~\ref{cor:observable-exponent}, and Section~\ref{sec:imbalance} together say that rare-event mismatch is about small-count boundary profiles, with the exponent as only the first observable summary. The practical rule is asymmetric: merge within shared-profile classes, but do not collapse across mismatched profiles, preserve the natural prevalence evidence that identifies those profiles, and validate rare-event tails explicitly rather than relying only on average synthetic loss.
 
-\paragraph{2.5. Do not balance away prompt evidence.}
+\paragraph{3. Label balancing can be an unsafe prompt collapse.}
 Proposition~\ref{prop:prompt-transform} says that any prompt transformation incurs exactly the predictive information it deletes, Proposition~\ref{prop:balanced-useless} shows that a perfectly balanced prompt can be asymptotically no better than no prompt at all for prevalence learning, and Theorem~\ref{thm:balancing-counterexample} shows that label-balanced prompts can induce score distortions that are not mere intercept shifts. So for PFNs the relevant question is not ``should the loss be class-balanced?'' but ``which prompt statistics are safe to delete?'' In extreme imbalance settings, a $1{:}1$ prompt without an accompanying base-rate statistic can erase the very evidence needed to identify the correct latent family.
 
-\paragraph{3. Merge only when prompt-conditioned predictive distinctiveness is small.}
-Proposition~\ref{prop:prompt-opt}, Corollary~\ref{cor:js}, and Proposition~\ref{prop:refine} say that the right split/merge object is the prompt-conditioned generalized Jensen--Shannon divergence, not unconditional diversity. Families should be merged only when that prompt-conditioned geometry is small; otherwise the split buys exactly the conditional mutual information it reveals.
-
-\paragraph{4. Choose routing granularity by retained predictive information and router CE.}
-Proposition~\ref{prop:bucketed-approx} says that explicit bucketing helps only when the reduction in within-bucket expert KL outweighs the extra router error. This does not force a full mixture-of-experts PFN. The progression can be lightweight: auxiliary bucket heads first, bucket-specific heads next, and explicit routed experts only when router cross-entropy and within-bucket predictive distinctiveness both remain large.
+\paragraph{4. Merge only when prompt-conditioned predictive distinctiveness is small.}
+Proposition~\ref{prop:prompt-opt} and Corollary~\ref{cor:js} say that the right split/merge object is the prompt-conditioned generalized Jensen--Shannon divergence, not unconditional diversity. Families should be merged only when that prompt-conditioned geometry is small; otherwise the irreducible collapse cost remains visible after the prompt.
 
 \paragraph{Limitations.}
 
-This paper is theory-first. The sharpest results are oracle statements about what no architecture can undo unless the synthetic prior itself changes. In particular, Proposition~\ref{prop:prompt-opt} is a \emph{negative} result as much as a positive one: without extra visible information, routing cannot improve the prompt-only Bayes optimum. The routed-library and bucketed-expert results therefore explain when explicit family structure can help finite PFNs, but they do not prove that any one architecture dominates a monolithic PFN under realistic optimization and capacity constraints. The oracle identities in Section~\ref{sec:oracle-design} also do not by themselves provide an automatic estimator of $\I(F;Y\mid O)$ or a complete bucket-selection algorithm; they identify the target quantity rather than solve the full statistical estimation problem. Our empirical section now makes the intended learned-PFN benchmark explicit, but still reports only exact closed-form validations. Finally, the rare-event theory is sharpest in one-dimensional Bernoulli prevalence models, while the regular benchmark relies on a one-posterior quadratic-tilt regime made explicit in Appendix~\ref{app:regular-proofs}. The appendix contains complementary extensions, but they are not needed for the main boundary-profile spine.
+This paper is theory-first. The sharpest results are oracle statements about what no architecture can undo unless the synthetic prior itself changes. The oracle identities in Section~\ref{sec:oracle-design} identify the target quantity $\I(F;Y\mid O)$, but they do not by themselves provide an automatic estimator of it or a complete procedure for selecting among candidate family collapses. Our empirical section reports only exact closed-form validations. Finally, the rare-event theory is sharpest in one-dimensional Bernoulli prevalence models, while the regular benchmark relies on a one-posterior quadratic-tilt regime made explicit in Appendix~\ref{app:regular-proofs}.
 
 \paragraph{Discussion.}
 
-The message is deliberately simple. Mix broadly to hedge globally. Do not collapse across boundary profiles just because average synthetic loss looks benign. Merge only when the prompt-conditioned predictive geometry certifies that doing so is safe. And do not expect routing to beat the prompt-only Bayes optimum unless it exposes useful visible information or materially eases approximation in exactly those dangerous regimes.
-
-This also clarifies how to read routing proposals. The theory does not say that vanilla PFNs are intrinsically wrong; in the oracle limit they can implement soft routing implicitly, and without extra visible information they are already optimal among prompt-only predictors. What it does say is that bucketed heads or explicit experts become principled once the relevant family differences are both predictive and hard to approximate monolithically.
+The message is deliberately simple. Unsafe collapse, not insufficient library breadth, is the core PFN prior failure mode. Mix broadly to hedge globally. Do not collapse across boundary profiles just because average synthetic loss looks benign. Merge only when the prompt-conditioned predictive geometry certifies that doing so is safe. And do not balance away the prevalence evidence that identifies the dangerous rare-event regimes in the first place.
 
 \section*{Acknowledgments}
 
@@ -944,53 +757,7 @@ This submission is anonymized for review.
 
 \appendix
 
-\section{Deployment-Visible Side Information}
-
-The main text studies prompt-only collapse and bucketing. A nearby question is what additional deployment-visible side information can buy. Let $U_n$ denote such a side signal, and define
-\[
-R_U(r):=\E[-\log r(Y_{n+1}\mid O_n,U_n)],
-\]
-\[
-q_U(y\mid O_n,U_n):=\Pbb(Y_{n+1}=y\mid O_n,U_n),
-\]
-\[
-q_{\mathrm{aware}}^U(y\mid O_n,U_n,F):=\Pbb(Y_{n+1}=y\mid O_n,U_n,F).
-\]
-
-\begin{proposition}[Value of deployment-visible side information]
-\label{prop:visible}
-Let $U_n$ be any deployment-visible side information. For any predictive law $r(\cdot\mid O_n,U_n)$ measurable with respect to $(O_n,U_n)$,
-\[
-R_U(r)-R_U(q_{\mathrm{aware}}^U)
-=
-\I(F;Y_{n+1}\mid O_n,U_n)
-+
-\E\!\left[
-\KL\bigl(
-q_U(\cdot\mid O_n,U_n)
-\;\|\;
-r(\cdot\mid O_n,U_n)
-\bigr)
-\right].
-\]
-Moreover,
-\[
-R(q_{\mathrm{coll}})-R_U(q_U)
-=
-\I(U_n;Y_{n+1}\mid O_n).
-\]
-\end{proposition}
-
-\begin{corollary}[Prompt-derived tokens add no oracle information]
-\label{cor:prompt-metadata}
-If $U_n=\phi(O_n)$ almost surely for some measurable function $\phi$, then
-\[
-\I(U_n;Y_{n+1}\mid O_n)=0
-\qquad\text{and hence}\qquad
-R(q_{\mathrm{coll}})=R_U(q_U).
-\]
-So prompt-derived metadata can help only through optimization or approximation, not by reducing Bayes risk.
-\end{corollary}
+\section{Proofs}
 
 \subsection{Proof of Proposition~\ref{prop:prompt-transform}}
 
@@ -1122,243 +889,6 @@ R_A(q_{\widetilde O})-R_A(q_O)
 \]
 which evaluates numerically to approximately $3.00\times 10^{-1}$.
 \end{proof}
-
-\section{Local Dangerous Directions}
-
-Another complementary question is which infinitesimal prior perturbations remain dangerous after conditioning on the prompt. Fix a reference prior $\pi_0$ and a bounded measurable score function $\psi:\cT\to\Rbb$ satisfying $\E_{\pi_0}\psi=0$. Define the tilted prior
-\[
-\frac{\dd \pi_\varepsilon}{\dd \pi_0}(t)
-=
-\exp\{\varepsilon \psi(t)-A(\varepsilon)\},
-\qquad
-A(\varepsilon)
-:=
-\log \E_{\pi_0} e^{\varepsilon\psi(t)}.
-\]
-Let
-\[
-\mu_n := \E_{\pi_0}[\psi(t)\mid Z_{1:n}],
-\qquad
-V_n := \E_{m_0^n}\!\left[\Var_{\pi_0(\cdot\mid Z_{1:n})}(\psi)\right].
-\]
-
-\begin{proposition}[Local dangerous-direction expansion]
-\label{thm:small}
-For bounded $\psi$,
-\[
-\Delta_n(\varepsilon)
-=
-\frac{\varepsilon^2}{2}\bigl(V_n-V_{n+1}\bigr)
-+ O(\varepsilon^3)
-\qquad
-(\varepsilon\to 0),
-\]
-with a remainder uniform in $n$ for $|\varepsilon|$ in a fixed neighborhood of $0$. Moreover,
-\[
-V_n-V_{n+1}
-=
-\E\bigl[(\mu_{n+1}-\mu_n)^2\bigr].
-\]
-\end{proposition}
-
-\section{Change-of-Measure Transfer for Learned PFNs}
-\label{app:transfer}
-
-Returning to the supervised notation of Section~\ref{sec:oracle-design}, let $\widehat q_n$ be the predictive rule output by a learned PFN and define the deployment log risk
-\[
-\mathcal R_n(\widehat q_n)
-:=
-\E_{m_{\te}^{n+1}}
-\bigl[
--\log \widehat q_n(Z_{n+1}\mid Z_{1:n})
-\bigr].
-\]
-For every learned predictor $\widehat q_n$,
-\[
-\mathcal R_n(\widehat q_n)-\mathcal R_n(q_n^{\te})
-=
-\Delta_n
-+
-\E_{m_{\te}^{n+1}}
-\left[
-\log
-\frac{q_n^{\tr}(Z_{n+1}\mid Z_{1:n})}
-{\widehat q_n(Z_{n+1}\mid Z_{1:n})}
-\right].
-\]
-The first term is the irreducible oracle misspecification term analyzed in the main text. The second term is an amortization / architecture / optimization term. It need not be positive: a real PFN can occasionally outperform the exact $\pi_{\tr}$-Bayes predictor on deployment because the network extrapolates beyond the support of the training prior.
-
-Under the prompt-wise support condition
-\[
-q_n^{\tr}(\cdot\mid z_{1:n}) \ll \widehat q_n(\cdot\mid z_{1:n})
-\]
-for $m_{\te}^n$-almost every context $z_{1:n}$, define
-\[
-G_n(z_{1:n})
-:=
-\Dtwo\!\left(
-q_n^{\tr}(\cdot\mid z_{1:n})
-\;\|\;
-\widehat q_n(\cdot\mid z_{1:n})
-\right)
-=
-\log \int
-\frac{(q_n^{\tr}(z\mid z_{1:n}))^2}{\widehat q_n(z\mid z_{1:n})}\,\dd z.
-\]
-
-\begin{proposition}[Change-of-measure transfer for learned PFNs]
-\label{thm:transfer}
-Under the support condition above,
-\[
-\mathcal R_n(\widehat q_n)-\mathcal R_n(q_n^{\te})
-\le
-2\Delta_n + \E_{m_{\te}^{n}}[G_n(Z_{1:n})].
-\]
-For every $\eta>0$,
-\[
-\E_{m_{\te}^{n}}[G_n]
-\le
-\frac{K_n+\log \E_{m_{\tr}^{n}} e^{\eta G_n}}{\eta}.
-\]
-\end{proposition}
-
-Proposition~\ref{thm:transfer} is intentionally tail-sensitive. Under prior shift, rare prompts on which the learned PFN puts very little mass where the oracle puts moderate mass can dominate deployment behavior. A mean training KL can miss this effect, whereas the order-2 gap $G_n$ and its prompt-level concentration control it directly.
-
-\begin{corollary}[Sub-gamma prompt-tail transfer]
-\label{cor:transfer-subgamma}
-If $G_n-\bar G_n^{\tr}$ is sub-gamma with variance factor $v_n$ and scale $c_n$ under $m_{\tr}^{n}$, then
-\[
-\E_{m_{\te}^{n}}[G_n]
-\le
-\bar G_n^{\tr}
-+
-\sqrt{2v_nK_n}
-+
-c_nK_n.
-\]
-\end{corollary}
-
-\begin{corollary}[Uniform log-approximation consequence]
-\label{cor:transfer-uniform}
-If $\widehat q_n$ uniformly approximates the training-prior oracle in log probability, namely if
-\[
-\sup_{z_{1:n+1}}
-\left|
-\log \widehat q_n(z_{n+1}\mid z_{1:n})
-- \log q_n^{\tr}(z_{n+1}\mid z_{1:n})
-\right|
-\le \varepsilon_n,
-\]
-then
-\[
-\mathcal R_n(\widehat q_n)-\mathcal R_n(q_n^{\te})
-\le
-\Delta_n + \varepsilon_n.
-\]
-\end{corollary}
-
-\section{Active-Feature Family-Resolution Model}
-\label{app:active-feature}
-
-This appendix records a TabPFN-like family-resolution model complementary to the main oracle-misspecification results. The family label is an unknown active feature among $d$ candidates; the predictor must identify it from a short context.
-
-Fix $d\ge 2$ and $\delta\in(0,1/2]$. The latent family is
-\[
-M\in\{1,\dots,d\},
-\]
-drawn uniformly. The context and query features are i.i.d. Rademacher vectors
-\[
-X_i,X_* \in \{-1,+1\}^d,
-\]
-and labels satisfy
-\[
-\Pbb(Y_i=X_{iM}\mid X_i,M)=\frac{1+\delta}{2},
-\qquad
-\Pbb(Y_i=-X_{iM}\mid X_i,M)=\frac{1-\delta}{2}.
-\]
-The query label $Y_*$ follows the same rule. Let
-\[
-D_n:=((X_1,Y_1),\dots,(X_n,Y_n)),
-\qquad
-\pi_n(j):=\Pbb(M=j\mid D_n).
-\]
-The family-aware oracle predicts
-\[
-\Pbb(Y_*=y\mid X_*,D_n,M)=\frac{1+y\delta X_{*M}}{2},
-\]
-while the collapsed broad-prior predictor is
-\[
-q_n(y\mid D_n,X_*)=
-\sum_{j=1}^d \pi_n(j)\frac{1+y\delta X_{*j}}{2}.
-\]
-
-Define the collapse regret
-\[
-R_n
-:=
-\E[-\log q_n(Y_*\mid D_n,X_*)]
--
-\E[-\log \Pbb(Y_*\mid D_n,X_*,M)].
-\]
-
-\begin{theorem}[Regret and posterior feature ambiguity]
-\label{thm:active-gini}
-Let
-\[
-G_n := 1-\sum_{j=1}^d \pi_n(j)^2.
-\]
-Then
-\[
-\frac{\delta^2}{2}\E[G_n]
-\le
-R_n
-\le
-\frac{2\delta^2}{3}\E[G_n].
-\]
-\end{theorem}
-
-\begin{proposition}[Equivalence to feature identification error]
-\label{prop:active-id}
-Let
-\[
-e_n := 1-\E\bigl[\max_j \pi_n(j)\bigr],
-\]
-the Bayes error probability for identifying $M$ from the context. Then
-\[
-\frac{\delta^2}{2}e_n
-\le
-R_n
-\le
-\frac{4\delta^2}{3}e_n.
-\]
-\end{proposition}
-
-\begin{theorem}[Sharp context law]
-\label{thm:active-context}
-There exist universal constants $c_1,c_2,c_3,c_4>0$ such that
-\[
-R_n \le c_1\delta^2 d e^{-c_2 n\delta^2}
-\]
-for all $n\ge 1$, while if $d\ge 4$ and
-\[
-n \le c_3\frac{\log d}{\delta^2},
-\]
-then
-\[
-R_n \ge c_4\delta^2.
-\]
-Hence the context length needed to remove family ambiguity is
-\[
-\Theta\!\left(\frac{\log d}{\delta^2}\right).
-\]
-\end{theorem}
-
-\begin{corollary}[Candidate-set restriction]
-\label{cor:active-candidates}
-If side information restricts the true active feature to a candidate set of size at most $s$, then the law in Theorem~\ref{thm:active-context} holds with $d$ replaced by $s$.
-\end{corollary}
-
-\section{Proofs}
 
 \subsection{Proof of Theorem~\ref{thm:exact}}
 
@@ -1553,178 +1083,6 @@ q_{\mathrm{coll}}(\cdot\mid o)
 \JS_{w(o)}(q_1,\dots,q_M).
 \]
 Average over $O_n$ and invoke Proposition~\ref{prop:prompt-opt}.
-\end{proof}
-
-\subsection{Proof of Proposition~\ref{prop:refine}}
-
-\begin{proof}
-Because $B_n=f(C_n)$,
-\[
-R_B(q_B)-R_C(q_C)
-=
-H(Y_{n+1}\mid O_n,B_n)-H(Y_{n+1}\mid O_n,C_n)
-=
-\I(C_n;Y_{n+1}\mid O_n,B_n).
-\]
-Condition on $(O_n,B_n)$. The conditional law of $C_n$ is a mixture weight on the predictives $q_c(\cdot\mid O_n)$, and $q_B(\cdot\mid O_n,B_n)$ is the corresponding mixture predictive. Expanding the conditional mutual information by the mixture-entropy identity yields the within-bucket generalized Jensen--Shannon formula.
-\end{proof}
-
-\subsection{Proof of Corollary~\ref{cor:bucket}}
-
-\begin{proof}
-Because $B_n=b(F)$ is a deterministic function of $F$,
-\[
-\I(B_n;Y_{n+1}\mid O_n,F)=0.
-\]
-Applying the chain rule,
-\begin{align*}
-\I(F;Y_{n+1}\mid O_n)
-&=
-\I(B_n,F;Y_{n+1}\mid O_n) \\
-&=
-\I(B_n;Y_{n+1}\mid O_n)
-+
-\I(F;Y_{n+1}\mid O_n,B_n).
-\end{align*}
-Since the left-hand side is fixed once the library is fixed, maximizing the first term is equivalent to minimizing the second, which is exactly the best achievable regret to the family-aware oracle when only $(O_n,B_n)$ are visible.
-\end{proof}
-
-\subsection{Proof of Theorem~\ref{thm:router}}
-
-\begin{proof}
-Write $q_{\mathrm{aware}}(y\mid O_n,F)=q_F(y\mid O_n)$.
-Add and subtract the collapsed risk:
-\begin{align*}
-&\E[-\log \hat q(Y_{n+1}\mid O_n)]
--\E[-\log q_{\mathrm{aware}}(Y_{n+1}\mid O_n,F)] \\
-&=
-\Bigl(
-\E[-\log q_{\mathrm{coll}}(Y_{n+1}\mid O_n)]
--\E[-\log q_{\mathrm{aware}}(Y_{n+1}\mid O_n,F)]
-\Bigr) \\
-&\qquad +
-\Bigl(
-\E[-\log \hat q(Y_{n+1}\mid O_n)]
--\E[-\log q_{\mathrm{coll}}(Y_{n+1}\mid O_n)]
-\Bigr).
-\end{align*}
-The first bracket is the second display of Proposition~\ref{prop:prompt-opt}. For the second bracket, condition on $O_n$ to obtain
-\[
-\E\!\left[
--\log \hat q(Y_{n+1}\mid O_n)
-+\log q_{\mathrm{coll}}(Y_{n+1}\mid O_n)
-\;\middle|\;
-O_n
-\right]
-=
-\KL\bigl(
-q_{\mathrm{coll}}(\cdot\mid O_n)
-\;\|\;
-\hat q(\cdot\mid O_n)
-\bigr).
-\]
-Averaging over $O_n$ proves the exact decomposition.
-
-For the upper bound, fix a realized context $O_n=o$ and define the Markov kernel
-\[
-T_o(y\mid j):=q_j(y\mid o).
-\]
-Then
-\[
-q_{\mathrm{coll}}(\cdot\mid o)=w(o)T_o,
-\qquad
-\hat q(\cdot\mid o)=\hat w(o)T_o.
-\]
-By data processing,
-\[
-\KL\bigl(
-q_{\mathrm{coll}}(\cdot\mid o)
-\;\|\;
-\hat q(\cdot\mid o)
-\bigr)
-\le
-\KL\bigl(
-w(o)
-\;\|\;
-\hat w(o)
-\bigr).
-\]
-Average this inequality over $O_n$.
-\end{proof}
-
-\subsection{Proof of Corollary~\ref{cor:router-ce}}
-
-\begin{proof}
-Condition on $O_n$. Since $F\mid O_n$ has law $w(O_n)$,
-\begin{align*}
-\E[-\log \hat w_F(O_n)\mid O_n]
-&=
-\sum_{j=1}^M w_j(O_n)\log\frac{1}{\hat w_j(O_n)} \\
-&=
-H(F\mid O_n)
-+
-\KL\bigl(
-w(O_n)
-\;\|\;
-\hat w(O_n)
-\bigr).
-\end{align*}
-Average over $O_n$.
-\end{proof}
-
-\subsection{Proof of Proposition~\ref{prop:bucketed-approx}}
-
-\begin{proof}
-The exact decomposition
-\[
-R(\tilde q)-R(q_{\mathrm{aware}})
-=
-\I(F;Y_{n+1}\mid O_n)
-+
-\E\!\left[
-\KL\bigl(
-q_{\mathrm{coll}}(\cdot\mid O_n)
-\;\|\;
-\tilde q(\cdot\mid O_n)
-\bigr)
-\right]
-\]
-is Proposition~\ref{prop:prompt-opt} applied to the $O_n$-measurable predictor $\tilde q$.
-
-For the upper bound, fix a realized context $O_n=o$ and define
-\[
-P_o(b,y):=w_b(o)\,q_b(y\mid o),
-\qquad
-Q_o(b,y):=\hat w_b(o)\,\tilde q_b(y\mid o).
-\]
-Marginalizing over $b$ gives $q_{\mathrm{coll}}(\cdot\mid o)$ from $P_o$ and $\tilde q(\cdot\mid o)$ from $Q_o$. Therefore, by data processing,
-\[
-\KL\bigl(
-q_{\mathrm{coll}}(\cdot\mid o)
-\;\|\;
-\tilde q(\cdot\mid o)
-\bigr)
-\le
-\KL(P_o\,\|\,Q_o).
-\]
-The chain rule for KL yields
-\[
-\KL(P_o\,\|\,Q_o)
-=
-\KL\bigl(
-w_B(o)
-\;\|\;
-\hat w(o)
-\bigr)
-+
-\sum_b w_b(o)\,
-\KL\bigl(
-q_b(\cdot\mid o)
-\;\|\;
-\tilde q_b(\cdot\mid o)
-\bigr).
-\]
-Average over $O_n$ and combine with the exact decomposition.
 \end{proof}
 
 \subsection{Proof of Proposition~\ref{prop:regular}}
@@ -2644,490 +2002,6 @@ If $\Pbb_{\te}(S_n=0)\sim C n^{-c}$ with $C>0$, then
 Divide by $\log n$ and let $n\to\infty$.
 \end{proof}
 
-\subsection{Proof of Proposition~\ref{prop:visible}}
-
-\begin{proof}
-Condition on $(O_n,U_n)$. Since $q_U(\cdot\mid O_n,U_n)=P(Y_{n+1}\in\cdot\mid O_n,U_n)$,
-\begin{align*}
-\E\!\left[
--\log r(Y_{n+1}\mid O_n,U_n)
-+\log q_U(Y_{n+1}\mid O_n,U_n)
-\;\middle|\;
-O_n,U_n
-\right]
-&=
-\KL\bigl(
-q_U(\cdot\mid O_n,U_n)
-\;\|\;
-r(\cdot\mid O_n,U_n)
-\bigr).
-\end{align*}
-Averaging yields
-\[
-R_U(r)-R_U(q_U)
-=
-\E\!\left[
-\KL\bigl(
-q_U(\cdot\mid O_n,U_n)
-\;\|\;
-r(\cdot\mid O_n,U_n)
-\bigr)
-\right].
-\]
-Likewise,
-\[
-R_U(q_U)-R_U(q_{\mathrm{aware}}^U)
-=
-H(Y_{n+1}\mid O_n,U_n)-H(Y_{n+1}\mid O_n,U_n,F)
-=
-\I(F;Y_{n+1}\mid O_n,U_n).
-\]
-Adding the two displays proves the first identity. For the second identity,
-\[
-R(q_{\mathrm{coll}})-R_U(q_U)
-=
-H(Y_{n+1}\mid O_n)-H(Y_{n+1}\mid O_n,U_n)
-=
-\I(U_n;Y_{n+1}\mid O_n).
-\qedhere
-\]
-\end{proof}
-
-\subsection{Proof of Corollary~\ref{cor:prompt-metadata}}
-
-\begin{proof}
-If $U_n=\phi(O_n)$ almost surely, then conditioning on $O_n$ already conditions on $U_n$, so
-\[
-\I(U_n;Y_{n+1}\mid O_n)=0.
-\]
-Apply Proposition~\ref{prop:visible}.
-\end{proof}
-
-\subsection{Proof of Proposition~\ref{thm:small}}
-\label{app:local-proofs}
-
-\begin{proof}
-For a fixed context $z_{1:n}$, let
-\[
-M_n(z_{1:n},\varepsilon)
-:=
-\E_{\pi_0(\cdot\mid z_{1:n})} e^{\varepsilon\psi(t)}.
-\]
-Bayes' rule gives
-\[
-\frac{\dd \pi_\varepsilon(\cdot\mid z_{1:n})}{\dd \pi_0(\cdot\mid z_{1:n})}(t)
-=
-\frac{e^{\varepsilon\psi(t)}}{M_n(z_{1:n},\varepsilon)}.
-\]
-Hence the pointwise posterior KL equals
-\begin{align*}
-d_n(z_{1:n},\varepsilon)
-&:=
-\KL\bigl(
-\pi_\varepsilon(\cdot\mid z_{1:n})
-\;\|\;
-\pi_0(\cdot\mid z_{1:n})
-\bigr) \\
-&=
-\E_{\pi_\varepsilon(\cdot\mid z_{1:n})}
-\left[
-\varepsilon\psi(t)-\log M_n(z_{1:n},\varepsilon)
-\right] \\
-&=
-\varepsilon \partial_\varepsilon \log M_n(z_{1:n},\varepsilon)
--\log M_n(z_{1:n},\varepsilon).
-\end{align*}
-Because $\psi$ is bounded, the logarithmic moment generating function is analytic near $0$, and
-\[
-\log M_n(z_{1:n},\varepsilon)
-=
-\varepsilon \mu_n(z_{1:n})
-+
-\frac{\varepsilon^2}{2}\sigma_n^2(z_{1:n})
-+ O(\varepsilon^3),
-\]
-where
-\[
-\mu_n(z_{1:n})
-:=
-\E_{\pi_0(\cdot\mid z_{1:n})}\psi(t),
-\qquad
-\sigma_n^2(z_{1:n})
-:=
-\Var_{\pi_0(\cdot\mid z_{1:n})}(\psi).
-\]
-Differentiating and substituting,
-\[
-d_n(z_{1:n},\varepsilon)
-=
-\frac{\varepsilon^2}{2}\sigma_n^2(z_{1:n})
-+ O(\varepsilon^3).
-\]
-Because $|\psi|\le B:=\|\psi\|_\infty$,
-\[
-0\le d_n(z_{1:n},\varepsilon)\le 2B|\varepsilon|
-\]
-for all $z_{1:n}$ and, by the previous expansion, in fact
-\[
-\sup_{z_{1:n}} d_n(z_{1:n},\varepsilon)\le C\varepsilon^2
-\]
-for sufficiently small $|\varepsilon|$, with $C$ independent of $n$.
-
-Now compare the $n$-sample laws. Bayes' rule gives
-\[
-\frac{m_\varepsilon^n(z_{1:n})}{m_0^n(z_{1:n})}
-=
-M_n(z_{1:n},\varepsilon)e^{-A(\varepsilon)}.
-\]
-Since $|\mu_n(z_{1:n})|\le B$ and $\log M_n(z_{1:n},\varepsilon)=\varepsilon\mu_n(z_{1:n})+O(\varepsilon^2)$ while $A(\varepsilon)=O(\varepsilon^2)$,
-\[
-\sup_{z_{1:n}}
-\left|
-\frac{m_\varepsilon^n(z_{1:n})}{m_0^n(z_{1:n})}-1
-\right|
-\le
-C'|\varepsilon|
-\]
-for sufficiently small $|\varepsilon|$, with $C'$ independent of $n$. Therefore
-\[
-\left|
-\E_{m_\varepsilon^n} d_n(Z_{1:n},\varepsilon)
--
-\E_{m_0^n} d_n(Z_{1:n},\varepsilon)
-\right|
-\le
-\sup d_n \,
-\E_{m_0^n}
-\left|
-\frac{m_\varepsilon^n}{m_0^n}-1
-\right|
-=
-O(\varepsilon^3).
-\]
-
-Taking the expectation under $m_0^n$ yields
-\[
-d_n^{(0)}(\varepsilon)
-:=
-\E_{m_0^n}d_n(Z_{1:n},\varepsilon)
-=
-\frac{\varepsilon^2}{2}V_n + O(\varepsilon^3).
-\]
-Combining the last two displays with
-\[
-D_n(\varepsilon)
-:=
-\E_{m_\varepsilon^n}d_n(Z_{1:n},\varepsilon)
-\]
-gives
-\[
-D_n(\varepsilon)=\frac{\varepsilon^2}{2}V_n + O(\varepsilon^3).
-\]
-Theorem~\ref{thm:exact} applied to $(\pi_\varepsilon,\pi_0)$ gives
-\[
-\Delta_n(\varepsilon)=D_n(\varepsilon)-D_{n+1}(\varepsilon)
-=
-\frac{\varepsilon^2}{2}(V_n-V_{n+1}) + O(\varepsilon^3).
-\]
-
-For the variance identity, use the law of total variance:
-\[
-\Var(\psi\mid Z_{1:n})
-=
-\E[\Var(\psi\mid Z_{1:n+1})\mid Z_{1:n}]
-+
-\Var(\E[\psi\mid Z_{1:n+1}] \mid Z_{1:n}).
-\]
-Taking expectations and identifying $\mu_n=\E[\psi\mid Z_{1:n}]$ gives
-\[
-V_n - V_{n+1}
-=
-\E\bigl[(\mu_{n+1}-\mu_n)^2\bigr].
-\qedhere
-\]
-\end{proof}
-
-\subsection{Proof of Proposition~\ref{thm:transfer}}
-\label{app:learned-proofs}
-
-\begin{proof}
-Add and subtract the training-prior oracle risk:
-\begin{align*}
-\mathcal R_n(\widehat q_n)-\mathcal R_n(q_n^{\te})
-&=
-\bigl(\mathcal R_n(q_n^{\tr})-\mathcal R_n(q_n^{\te})\bigr) \\
-&\qquad +
-\E_{m_{\te}^{n+1}}
-\left[
-\log
-\frac{q_n^{\tr}(Z_{n+1}\mid Z_{1:n})}
-{\widehat q_n(Z_{n+1}\mid Z_{1:n})}
-\right].
-\end{align*}
-The first bracket equals $\Delta_n$ by definition.
-
-Fix a context $z_{1:n}$ and abbreviate
-\[
-P:=q_n^{\te}(\cdot\mid z_{1:n}),
-\qquad
-Q:=q_n^{\tr}(\cdot\mid z_{1:n}),
-\qquad
-R:=\widehat q_n(\cdot\mid z_{1:n}).
-\]
-By the variational inequality
-\[
-\E_P f \le \KL(P\,\|\,Q)+\log \E_Q e^f,
-\]
-applied to $f=\log(Q/R)$, we get
-\[
-\E_P \log\frac{Q}{R}
-\le
-\KL(P\,\|\,Q)
-+
-\log \E_Q\frac{Q}{R}
-=
-\KL(P\,\|\,Q) + \Dtwo(Q\,\|\,R).
-\]
-Average this inequality over $z_{1:n}\sim m_{\te}^n$. The left-hand side is exactly the amortization term above, while the averaged KL term is $\Delta_n$. Therefore
-\[
-\mathcal R_n(\widehat q_n)-\mathcal R_n(q_n^{\te})
-\le
-2\Delta_n + \E_{m_{\te}^n}[G_n].
-\]
-
-For the context transfer bound, apply the same variational inequality again with
-\[
-P=m_{\te}^n,
-\qquad
-Q=m_{\tr}^n,
-\qquad
-f=\eta G_n.
-\]
-This yields, for every $\eta>0$,
-\[
-\eta \E_{m_{\te}^n}[G_n]
-\le
-K_n + \log \E_{m_{\tr}^n} e^{\eta G_n},
-\]
-which is the claimed inequality after dividing by $\eta$.
-\end{proof}
-
-\subsection{Proof of Corollary~\ref{cor:transfer-subgamma}}
-
-\begin{proof}
-If $G_n-\bar G_n^{\tr}$ is sub-gamma $(v_n,c_n)$ under $m_{\tr}^n$, then
-\[
-\log \E_{m_{\tr}^n} e^{\eta G_n}
-\le
-\eta \bar G_n^{\tr} + \frac{\eta^2 v_n}{2(1-c_n\eta)}
-\qquad
-(0<\eta<1/c_n).
-\]
-Substitute this into the previous display and optimize the resulting standard sub-gamma bound over $\eta$ to obtain
-\[
-\E_{m_{\te}^n}[G_n]
-\le
-\bar G_n^{\tr} + \sqrt{2v_nK_n} + c_nK_n.
-\]
-\end{proof}
-
-\subsection{Proof of Corollary~\ref{cor:transfer-uniform}}
-
-\begin{proof}
-Start from the decomposition displayed in Appendix~\ref{app:transfer}:
-\[
-\mathcal R_n(\widehat q_n)-\mathcal R_n(q_n^{\te})
-=
-\Delta_n
-+
-\E_{m_{\te}^{n+1}}
-\left[
-\log
-\frac{q_n^{\tr}(Z_{n+1}\mid Z_{1:n})}
-{\widehat q_n(Z_{n+1}\mid Z_{1:n})}
-\right].
-\]
-Bound the second term above by the uniform log-approximation error:
-\[
-\sup_{z_{1:n+1}}
-\left|
-\log \widehat q_n(z_{n+1}\mid z_{1:n})
-- \log q_n^{\tr}(z_{n+1}\mid z_{1:n})
-\right|
-\le
-\varepsilon_n.
-\]
-Hence
-\[
-\left|
-\log
-\frac{q_n^{\tr}(Z_{n+1}\mid Z_{1:n})}
-{\widehat q_n(Z_{n+1}\mid Z_{1:n})}
-\right|
-\le
-\varepsilon_n
-\]
-pointwise, so the expectation in the preceding decomposition is at most $\varepsilon_n$. Substituting this bound proves the claim.
-\end{proof}
-
-\subsection{Proof of Theorem~\ref{thm:active-gini}}
-
-\begin{proof}
-Let
-\[
-\phi(t)
-:=
--\frac{1+t}{2}\log\frac{1+t}{2}
--\frac{1-t}{2}\log\frac{1-t}{2},
-\qquad
-t\in[-1,1].
-\]
-Conditioned on $(D_n,X_*)$, the collapsed predictive mean is
-\[
-\mu_n=\delta\sum_{j=1}^d \pi_n(j)X_{*j},
-\]
-so the conditional entropy of $Y_*$ under the collapsed predictor is $\phi(\mu_n)$. Conditioned on $(D_n,X_*,M)$, the predictive mean is $\delta X_{*M}$, whose magnitude is always $\delta$, hence the family-aware entropy is $\phi(\delta)$. Therefore
-\[
-R_n=\E[\phi(\mu_n)]-\phi(\delta).
-\]
-Now
-\[
-\phi''(t)=-\frac{1}{1-t^2}.
-\]
-For $|t|\le \delta\le 1/2$,
-\[
--\frac{4}{3}\le \phi''(t)\le -1.
-\]
-Since $\phi$ is even, a second-order Taylor expansion on $[0,\delta]$ gives
-\[
-\frac{1}{2}(\delta^2-u^2)
-\le
-\phi(u)-\phi(\delta)
-\le
-\frac{2}{3}(\delta^2-u^2).
-\]
-Applying this with $u=|\mu_n|$ and taking expectations,
-\[
-\frac{1}{2}\bigl(\delta^2-\E[\mu_n^2]\bigr)
-\le
-R_n
-\le
-\frac{2}{3}\bigl(\delta^2-\E[\mu_n^2]\bigr).
-\]
-Conditioning on $D_n$ and using the independence and zero mean of the coordinates of $X_*$,
-\[
-\E[\mu_n^2\mid D_n]
-=
-\delta^2 \sum_{j=1}^d \pi_n(j)^2.
-\]
-Hence
-\[
-\delta^2-\E[\mu_n^2\mid D_n]
-=
-\delta^2\left(1-\sum_{j=1}^d \pi_n(j)^2\right)
-=
-\delta^2 G_n.
-\]
-Average over $D_n$ to conclude.
-\end{proof}
-
-\subsection{Proof of Proposition~\ref{prop:active-id}}
-
-\begin{proof}
-Let $p_{\max}:=\max_j \pi_n(j)$. Since
-\[
-\sum_{j=1}^d \pi_n(j)^2 \le p_{\max}\sum_{j=1}^d \pi_n(j)=p_{\max},
-\]
-we have
-\[
-G_n\ge 1-p_{\max}.
-\]
-Also $\sum_j \pi_n(j)^2 \ge p_{\max}^2$, so
-\[
-G_n\le 1-p_{\max}^2=(1-p_{\max})(1+p_{\max})\le 2(1-p_{\max}).
-\]
-Taking expectations gives
-\[
-e_n \le \E[G_n]\le 2e_n.
-\]
-Combine this with Theorem~\ref{thm:active-gini}.
-\end{proof}
-
-\subsection{Proof of Theorem~\ref{thm:active-context}}
-
-\begin{proof}
-For the upper bound, define empirical correlations
-\[
-C_j := \frac{1}{n}\sum_{i=1}^n Y_i X_{ij},
-\qquad
-\widehat M := \arg\max_j C_j.
-\]
-If $M=m$, then $\E[Y_iX_{im}\mid M=m]=\delta$, while for $j\neq m$,
-\[
-\E[Y_iX_{ij}\mid M=m]=0.
-\]
-Hoeffding's inequality yields
-\[
-\Pbb(C_m\le \delta/2\mid M=m)\le e^{-n\delta^2/2},
-\qquad
-\Pbb(C_j\ge \delta/2\mid M=m)\le e^{-n\delta^2/2}.
-\]
-By a union bound,
-\[
-\Pbb(\widehat M\neq M)\le d e^{-n\delta^2/2}.
-\]
-The Bayes classifier for $M$ has error at most that of $\widehat M$, so $e_n\le d e^{-n\delta^2/2}$. Proposition~\ref{prop:active-id} gives the claimed upper bound.
-
-For the lower bound, let $P_j$ denote the single-example law of $(X,Y)$ under active feature $j$. If $j\neq k$, then conditional on $X$, the only time the label laws differ is when $X_j=-X_k$, which happens with probability $1/2$. In that case the Bernoulli parameters are $(1+\delta)/2$ and $(1-\delta)/2$. Therefore
-\[
-\KL(P_j\,\|\,P_k)
-=
-\frac{1}{2}\delta \log\frac{1+\delta}{1-\delta}
-\le
-2\delta^2,
-\]
-where the inequality uses $\log\frac{1+x}{1-x}\le 4x$ for $x\in[0,1/2]$.
-Thus the $n$-sample laws satisfy
-\[
-\KL(P_j^n\,\|\,P_k^n)\le 2n\delta^2.
-\]
-Fano's inequality for $d$ equiprobable hypotheses gives
-\[
-e_n
-\ge
-1-\frac{\I(M;D_n)+\log 2}{\log d}
-\]
-Moreover,
-\[
-\I(M;D_n)
-\le
-\frac{1}{d^2}\sum_{j,k=1}^d \KL(P_j^n\,\|\,P_k^n)
-\le
-2n\delta^2,
-\]
-so
-\[
-e_n
-\ge
-1-\frac{2n\delta^2+\log 2}{\log d}.
-\]
-If
-\[
-n \le \frac{\log(d/4)}{4\delta^2},
-\]
-then $e_n\ge 1/2$. Proposition~\ref{prop:active-id} yields
-\[
-R_n \ge \frac{\delta^2}{4}.
-\]
-This proves the lower bound.
-\end{proof}
-
-\subsection{Proof of Corollary~\ref{cor:active-candidates}}
-
-\begin{proof}
-Condition on the side information that specifies a candidate set $A$ containing the true family and satisfying $|A|\le s$. Conditional on this event, the model is exactly the same active-feature model with family index restricted to $A$. Apply Theorem~\ref{thm:active-context} with $d$ replaced by $|A|$, then use $|A|\le s$.
-\end{proof}
-
 \begin{thebibliography}{99}
 
 \bibitem{amari1993}
@@ -3164,11 +2038,6 @@ Jennifer~A. Hoeting, David Madigan, Adrian~E. Raftery, and Chris~T. Volinsky.
 Noah Hollmann, Samuel Muller, Lennart Purucker, Arjun Krishnakumar, Max Korfer, Shi Bin Hoo, Robin Tibor Schirrmeister, and Frank Hutter.
 \newblock Accurate predictions on small data with a tabular foundation model.
 \newblock {\em Nature}, 637:319--326, 2025.
-
-\bibitem{jacobs1991}
-Robert~A. Jacobs, Michael~I. Jordan, Steven~J. Nowlan, and Geoffrey~E. Hinton.
-\newblock Adaptive mixtures of local experts.
-\newblock {\em Neural Computation}, 3(1):79--87, 1991.
 
 \bibitem{margossian2024}
 Charles~C. Margossian and David~M. Blei.
@@ -3219,11 +2088,6 @@ Jingang Qu, David Holzm\"uller, Ga\"el Varoquaux, and Marine Le Morvan.
 Jia-Wei Liao, Kuan-Yu Chen, Yu-Chen Den, and Tien-Hao Chang.
 \newblock Few-shot cross-table data mixture in tabular in-context learning: Benefits, failure modes, and alignment.
 \newblock In {\em ICLR 2026 Workshop on Data-FM}, 2026.
-
-\bibitem{xu2025mixturepfn}
-Derek Xu, Olcay Cirit, Reza Asadi, Yizhou Sun, and Wei Wang.
-\newblock Mixture of in-context prompters for tabular {PFN}s.
-\newblock {\em arXiv preprint arXiv:2405.16156}, 2024.
 
 \end{thebibliography}
 

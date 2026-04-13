@@ -1,13 +1,16 @@
 # Numerical Experiments
 
-This directory contains two experiment layers for the `neurips_2026.tex` draft.
+This directory currently contains two self-contained oracle experiment runners for the `neurips_2026.tex` draft.
 
 - `run_closed_form.py`
-  - main-text experiments using exact Bayes predictors in Beta-Bernoulli toy worlds
-- `run_learned_tfm.py`
-  - appendix corroboration using `NanoTabPFNModel` from [TFM-Playground](https://github.com/automl/TFM-Playground/)
-- `test_closed_form.py`
-  - lightweight regression checks for the closed-form utilities
+  - main rare-event and library-collapse validations from exact Beta-Bernoulli calculations
+- `run_imbalance_oracle.py`
+  - TabPFN-free imbalance validations for prompt balancing, prevalence recovery, and ranking reversal
+
+Shared utilities live in:
+
+- `core_closed_form.py`
+- `core_imbalance.py`
 
 ## Setup
 
@@ -17,14 +20,13 @@ Install the standard dependencies:
 pip install -r codes/requirements.txt
 ```
 
-The closed-form experiments are fully self-contained once those packages are installed.
+Both runners are fully self-contained once those packages are installed.
 
 ## Run The Main Closed-Form Experiments
 
 From the repository root:
 
 ```bash
-python codes/test_closed_form.py
 python codes/run_closed_form.py
 ```
 
@@ -42,7 +44,7 @@ Expected artifacts:
 - `summary_closed_form.csv`
 - detailed per-experiment CSV files
 
-### Figure mapping
+Figure mapping:
 
 - `figure1_global_hedge`
   - broad mixtures hedge OOD family shift
@@ -51,51 +53,52 @@ Expected artifacts:
 - `figure3_phase_transition`
   - validates the phase-transition rate law by sweeping across interior, critical, and singular boundary regimes
 
-## Run The Optional Learned Corroboration
+## Run The Imbalance Oracle Experiments
 
-The learned appendix experiment uses TFM-Playground as an optional backend.
-
-Official repository:
-
-- [automl/TFM-Playground](https://github.com/automl/TFM-Playground/)
-
-Install it separately, for example:
+From the repository root:
 
 ```bash
-git clone https://github.com/automl/TFM-Playground.git
-cd TFM-Playground
-pip install -e .
-cd ..
+python codes/run_imbalance_oracle.py
 ```
 
-Then run:
+Useful options:
 
 ```bash
-python codes/run_learned_tfm.py
+python codes/run_imbalance_oracle.py \
+  --c 0.5 \
+  --d 49.5 \
+  --support-sizes 8,16,32,64,128,256,512 \
+  --noisy-token-sigma 1.0
 ```
 
-Outputs are written to:
+Outputs are also written to:
 
 ```text
-codes/results/learned_tfm/
+codes/results/closed_form/
 ```
 
 Expected artifacts:
 
-- `figure_appendix_learned_boundary_corrob.png` and `.pdf`
-- `learned_training_log.csv`
-- `learned_boundary_logloss.csv`
-- `learned_boundary_profiles.csv`
-- saved checkpoints for the two trained mixtures
+- `figure4_balancing_prevalence_curves.png` and `.pdf`
+- `figure5_balancing_small_count.png` and `.pdf`
+- `figure6_balancing_ranking_reversal.png` and `.pdf`
+- `experiment5_balancing_prevalence_curves.csv`
+- `experiment5_balancing_prevalence_calibration.csv`
+- `experiment6_balancing_small_count.csv`
+- `experiment6_balancing_small_count_excess.csv`
+- `experiment7_balancing_ranking.csv`
+- `summary_imbalance_oracle.csv`
 
-The learned script is designed as appendix corroboration. The main paper should still rely on the exact closed-form experiments for its primary evidence.
+Figure mapping:
 
-## How The Figures Validate The Theory
+- `figure4_balancing_prevalence_curves`
+  - natural prompts improve with support size, balanced prompts stay prevalence-blind, and prevalence tokens recover the signal
+- `figure5_balancing_small_count`
+  - excess risk over the natural prompt is largest on rare small-count strata
+- `figure6_balancing_ranking_reversal`
+  - the exact case-control aliasing counterexample from the imbalance section, with a visible ranking reversal under family `A`
 
-- Figures 1 and 2 validate the main design claims:
-  - broad mixing improves worst-case OOD robustness
-  - collapsed mixtures fail on boundary-heavy deployments
-  - boundary-aware bucketing fixes that failure
-- Figure 3 validates the rate-level phase transition:
-  - the left panel shows the slope change across `c > 1`, `c = 1`, and `0 < c < 1`
-  - the right panel shows the task-level prevalence priors whose boundary mass drives the phase transition
+## Notes
+
+- `run_imbalance_oracle.py` records prevalence RMSE and prevalence-calibration tables because ordinary outcome calibration is largely trivial for these oracle predictors.
+- All outputs are deterministic except for the noisy-token Monte Carlo terms, which are controlled by the script seed.
