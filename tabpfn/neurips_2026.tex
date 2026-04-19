@@ -69,7 +69,7 @@
 \maketitle
 
 \begin{abstract}
-PFNs make predictions through synthetic prior libraries rather than by retraining on each dataset. This turns library design into a statistical question: when is it safe to merge heterogeneous task families into one predictive rule? We show that broad mixing and family collapse are fundamentally different. Broad mixtures help hedge deployment uncertainty, but hiding family structure can create irreducible information loss even with Bayes-optimal inference. This problem becomes severe in rare-event prevalence regimes, where collapsed libraries inherit the wrong small-count behavior unless merged families share the same boundary profile. We further show that label balancing can cause the same failure by deleting prevalence information from the prompt: in canonical prevalence models, a perfectly balanced prompt can become uninformative for learning the base rate and can induce score distortions that threshold adjustment cannot repair. Exact closed-form validations support these predictions. The resulting rule is simple: mix broadly for coverage, but do not collapse boundary or prevalence information that remains predictive after the prompt.
+PFNs make predictions through synthetic prior libraries rather than by retraining on each dataset. This turns library design into a statistical question: when is it safe to merge heterogeneous task families into one predictive rule? We show that broad mixing and family collapse are fundamentally different. Broad mixtures help hedge deployment uncertainty, but hiding family structure can create irreducible information loss even with Bayes-optimal inference. This problem becomes severe in rare-event prevalence regimes, where collapsed libraries inherit the wrong small-count behavior unless merged families share the same boundary profile. The organizing object is query-conditioned boundary evidence: in a finite-strata supervised extension, collapsed libraries inherit the wrong query-conditioned boundary profile unless they match the local rare-event behavior of each query stratum, while the label-only Beta--Bernoulli model remains the analytically sharp special case. We further show that label balancing can cause the same failure by deleting query-relevant prevalence information from the prompt: in canonical prevalence models, a perfectly balanced prompt can become uninformative for learning the base rate and can induce score distortions that threshold adjustment cannot repair. Exact closed-form validations support these predictions. The resulting rule is simple: mix broadly for coverage, but do not collapse boundary or prevalence information that remains predictive after the prompt.
 \end{abstract}
 
 \section{Introduction}
@@ -80,20 +80,20 @@ This is a PFN-specific misspecification problem. An oracle PFN returns the Bayes
 
 That distinction matters because global mixing and local collapse are different decisions. A broad mixture is a hedge device. Collapse is a visibility decision about whether family structure remains explicit after conditioning on the prompt. At the oracle level this creates a subtle negative result: among prompt-only predictors, the collapsed predictive is already Bayes-optimal. So unsafe collapse is not an optimization bug that disappears with a better amortizer of the same observation model. It is an information problem. If the prompt no longer reveals which family governs the predictive tail, the oracle itself pays a residual price. The design problem is therefore two-stage: hedge globally by covering plausible families, then decide which distinctions are too dangerous to hide.
 
-Our main answer is sharp and asymmetric. In regular identifiable regimes, prior mismatch repairs quickly and the one-step oracle gap has the benign $n^{-2}$ tail. In rare-event boundary regimes, the story changes qualitatively: unsafe collapse can preserve the wrong small-count boundary profile and thereby the wrong one-step tail law, even when the cumulative hedge budget remains small. This failure mode, not the generic statement that ``broad mixtures are good,'' is the paper's main technical contribution.
+Our main answer is sharp and asymmetric. In regular identifiable regimes, prior mismatch repairs quickly and the one-step oracle gap has the benign $n^{-2}$ tail. In rare-event boundary regimes, the story changes qualitatively: unsafe collapse can preserve the wrong small-count boundary profile and thereby the wrong one-step tail law, even when the cumulative hedge budget remains small. This failure mode persists once features are introduced: in the simplest finite-strata supervised model, the dangerous statistic is the query-local count profile seen near the query pattern. This rare-event failure mode, not the generic statement that ``broad mixtures are good,'' is the paper's main technical contribution.
 
 Class imbalance is a particularly important stress test of that distinction. In ordinary supervised learning, label balancing is often framed as a loss-design or retrospective-sampling issue. For PFNs, the prompt itself is the inference object. Replacing a naturally sampled prompt by a $1{:}1$ case-control prompt therefore changes the observation channel seen by the oracle and can amount to an unsafe collapse of prompt evidence, deleting exactly the prevalence information that identifies the latent family. We will show that this loss is measurable, irreducible at the oracle level, and not generally recoverable by threshold tuning alone. In the simplest Beta--Bernoulli prevalence model, perfect balancing is even stronger: it makes arbitrarily long prompts asymptotically useless for learning the task base rate.
 
-Our contribution has two layers, in deliberate order. First and most importantly, we characterize the rare-event failure mode. In Beta--Bernoulli tasks, we show that collapsed mixtures inherit the most singular boundary component, that mismatched fixed-count profiles already force the slow $n^{-(1+c)}$ regime, that matched profiles restore the regular $n^{-2}$ tail, and that these phenomena extend beyond conjugacy through boundary regular variation. This yields an operational rule: in rare-event regimes, one should preserve boundary-profile distinctions rather than collapsing families by unconditional diversity alone. Second, we give a minimal oracle calculus for deciding when collapse is safe: broad mixtures hedge globally, and prompt-conditioned predictive distinctiveness $\I(F;Y\mid O)$ is the irreducible local price of hiding family structure.
+Our contribution has two layers, in deliberate order. First and most importantly, we characterize the rare-event failure mode. The organizing object in supervised PFNs is the query-conditioned local count profile $(N_{n,k},S_{n,k})$ at the query stratum. We formalize this in a finite-strata supervised model and show that collapsed mixtures can inherit the wrong local boundary coefficient unless merged families share the same query-local profile. The label-only Beta--Bernoulli model is then retained as the analytically sharp $K=1$ special case: there we show that collapsed mixtures inherit the most singular boundary component, that mismatched fixed-count profiles already force the slow $n^{-(1+c)}$ regime, that matched profiles restore the regular $n^{-2}$ tail, and that these phenomena extend beyond conjugacy through boundary regular variation. This yields an operational rule: in rare-event regimes, one should preserve boundary-profile distinctions rather than collapsing families by unconditional diversity alone. Second, we give a minimal oracle calculus for deciding when collapse is safe: broad mixtures hedge globally, and prompt-conditioned predictive distinctiveness $\I(F;Y\mid O)$ is the irreducible local price of hiding family structure.
 
 At a high level, the paper answers three design questions.
 \begin{enumerate}[leftmargin=18pt]
-\item \textbf{Which family distinctions are dangerous to collapse?} In rare-event regimes the dangerous object is the small-count boundary profile, of which the boundary exponent is only the first observable summary. Collapsing across mismatched profiles can change the predictive tail law from the regular $n^{-2}$ regime to the singular $n^{-(1+c)}$ regime.
+\item \textbf{Which family distinctions are dangerous to collapse?} In rare-event regimes the dangerous object is the small-count boundary profile, and in supervised settings its query-conditioned analogue built from local counts $(N_{n,k},S_{n,k})$. The boundary exponent is only the first observable summary. Collapsing across mismatched profiles can change the predictive tail law from the regular $n^{-2}$ regime to the singular $n^{-(1+c)}$ regime.
 \item \textbf{How should collapse cost be measured?} Broad mixtures hedge deployment uncertainty, but the local irreducible price of hiding family structure is exactly $\I(F;Y\mid O)$.
-\item \textbf{Why is class balancing special for PFNs?} Because the prompt is the inference object, balancing can collapse away prevalence evidence, making prompts asymptotically useless for base-rate learning and inducing score distortions that no threshold shift can repair.
+\item \textbf{Why is class balancing special for PFNs?} Because the prompt is the inference object, balancing can collapse away query-relevant prevalence evidence, making prompts asymptotically useless for base-rate learning and inducing score distortions that no threshold shift can repair.
 \end{enumerate}
 
-The oracle calculus surrounding the second question relies on classical sequential log-loss identities under misspecification \citep{clarke1990,amari1993,feder2021,morningstar2022,margossian2024,agrawal2025}, but the rare-event boundary theory is new. Throughout, we work at the oracle level first and use exact closed-form validations to isolate unsafe-collapse effects before finite-capacity or optimization issues enter. The roadmap is correspondingly simple: Section~\ref{sec:oracle-design} gives only the minimal hedge-versus-collapse calculus needed later, Section~\ref{sec:rare-events} contains the paper's main rare-event failure results, Section~\ref{sec:imbalance} studies class imbalance as an unsafe prompt collapse, and Section~\ref{sec:experiments} validates the theory in closed form.
+The oracle calculus surrounding the second question relies on classical sequential log-loss identities under misspecification \citep{clarke1990,amari1993,feder2021,morningstar2022,margossian2024,agrawal2025}, but the rare-event boundary theory is new. Throughout, we work at the oracle level first and use exact closed-form validations to isolate unsafe-collapse effects before finite-capacity or optimization issues enter. The roadmap is correspondingly simple: Section~\ref{sec:oracle-design} gives only the minimal hedge-versus-collapse calculus needed later, Section~\ref{sec:rare-events} contains the paper's main rare-event failure results including a finite-strata supervised extension, Section~\ref{sec:imbalance} studies class imbalance as an unsafe prompt collapse, and Section~\ref{sec:experiments} validates the theory in closed form.
 
 \section{Related Work}
 \label{sec:related}
@@ -136,7 +136,13 @@ q_n^\pi(z_{n+1}\mid z_{1:n})
 :=
 \frac{m_\pi^{n+1}(z_{1:n+1})}{m_\pi^n(z_{1:n})}.
 \]
-In a standard supervised setting, one simply conditions on $X_{n+1}$ and interprets $q_n^\pi$ as a predictive law for $Y_{n+1}$ given $(X_{n+1},Z_{1:n})$; all proofs are unchanged.
+In a standard supervised setting, one conditions on $X_{n+1}$ and interprets $q_n^\pi$ as a predictive law for $Y_{n+1}$ given $(X_{n+1},Z_{1:n})$. The oracle identities below are unchanged under this conditioning, and Section~\ref{sec:stratified} will make this query-conditioned form explicit in a finite-strata model.
+We will occasionally write this supervised predictive as
+\[
+q_n^\pi(y\mid x,z_{1:n})
+:=
+\Pbb_\pi(Y_{n+1}=y\mid X_{n+1}=x,\;Z_{1:n}=z_{1:n}).
+\]
 
 We consider a training prior $\pi_{\tr}$ and a deployment prior $\pi_{\te}$. An oracle PFN trained on $\pi_{\tr}$ returns $q_n^{\tr}:=q_n^{\pi_{\tr}}$, while the deployment-optimal oracle is $q_n^{\te}:=q_n^{\pi_{\te}}$. Under log loss, the one-step excess deployment risk of the oracle PFN is
 \[
@@ -317,6 +323,8 @@ Equivalently, among all predictors measurable with respect to $O_n$, the best ac
 
 The previous section deliberately stayed at the level of generic oracle calculus. We now isolate the paper's main new phenomenon: a global mixture can be hedge-safe in cumulative KL and still be tail-wrong in rare-event boundary regimes. The issue is how quickly context repairs misspecification in concrete regimes. In regular identifiable problems the repair is fast and yields the benchmark $n^{-2}$ tail. In rare-event boundary regimes it can be much slower, producing the phase transitions that matter most for prior construction.
 
+The organizing object in supervised PFNs is \emph{query-conditioned boundary evidence}. We keep the technical development in two layers. The finite-strata supervised model below identifies the right object: local counts near the query pattern. The label-only Beta--Bernoulli model is then retained because it is the exactly solvable $K=1$ special case that delivers the sharpest closed-form phase transitions, profile formulas, and exact validations.
+
 \subsection{Regular Benchmark: The Benign Case}
 \label{sec:regular}
 
@@ -353,9 +361,147 @@ u(\theta)^\top I(\theta)^{-1}u(\theta)
 \]
 \end{proposition}
 
-Thus regular identifiable regimes provide the benign $n^{-2}$ tail law. The next subsection shows that rare-event boundaries can violate this benchmark sharply.
+Thus regular identifiable regimes provide the benign $n^{-2}$ tail law. We now introduce the supervised object that should organize the rare-event theory: query-conditioned boundary evidence.
 
-\subsection{Beta--Bernoulli Boundary Profiles}
+\subsection{Query-Conditioned Boundary Profiles in Finite-Strata Tasks}
+\label{sec:stratified}
+
+We start with the simplest supervised extension. The point is not to solve the full continuous-feature problem in one step. It is to identify the right object: once $X$ is present, the dangerous quantity is the \emph{query-conditioned} boundary evidence carried by examples in the relevant feature stratum.
+
+Consider the finite-strata model
+\[
+X_i \stackrel{i.i.d.}{\sim} \rho,
+\qquad
+\rho_k>0,
+\qquad
+X_i\perp (\theta_1,\dots,\theta_K),
+\]
+\[
+\theta_k \sim \BetaDist(c_k,d_k)
+\quad\text{independently under deployment},
+\qquad
+Y_i\mid X_i=k,\theta_k \sim \Ber(\theta_k).
+\]
+For a query in stratum $k$, define the local exposure and positive counts
+\[
+N_{n,k}:=\sum_{i=1}^n \ind\{X_i=k\},
+\qquad
+S_{n,k}:=\sum_{i=1}^n \ind\{X_i=k,\,Y_i=1\}.
+\]
+Conjugacy gives the deployment oracle predictive
+\[
+q_n^{\te}(1\mid X_{n+1}=k,Z_{1:n})
+=
+\frac{c_k+S_{n,k}}{c_k+d_k+N_{n,k}}.
+\]
+So the natural query-local analogue of the boundary profile is
+\[
+\beta_{k,s}
+:=
+\lim_{m\to\infty}
+m\,\hat q_n(1\mid X_{n+1}=k,\;S_{n,k}=s,\;N_{n,k}=m),
+\qquad s=0,1,2,\dots,
+\]
+when the limit exists. The next proposition shows that a mismatch at one query stratum already reproduces the same slow rare-event tail as in the label-only model.
+
+\begin{proposition}[Query-conditioned boundary obstruction in finite-strata tasks]
+\label{prop:stratified-boundary}
+Define the query-conditioned one-step gap at stratum $k$ by
+\[
+\Delta_{n,k}(\hat q_n)
+:=
+\E\!\left[
+\klb\bigl(
+q_n^{\te}(1\mid X_{n+1}=k,Z_{1:n}),
+\hat q_n(1\mid X_{n+1}=k,Z_{1:n})
+\bigr)
+\;\middle|\;
+X_{n+1}=k
+\right].
+\]
+Fix $k\in\{1,\dots,K\}$ with $0<c_k<1<d_k$. Suppose there exist $\alpha_k>0$ and $\delta>0$ such that, uniformly for $m\in[\rho_k n/2,\,3\rho_k n/2]$,
+\[
+\hat q_n(1\mid X_{n+1}=k,\;S_{n,k}=0,\;N_{n,k}=m)
+=
+\frac{\alpha_k}{m}
++
+O(m^{-1-\delta}),
+\]
+and $\alpha_k\neq c_k$. Then there exists $C_k>0$ such that
+\[
+\Delta_{n,k}(\hat q_n)\ge C_k\,n^{-(1+c_k)}
+\]
+for all large $n$.
+\end{proposition}
+
+The proposition isolates the supervised object that matters. The dangerous discrepancy is not unconditional family diversity, and not even global prevalence alone, but the query-conditioned local boundary profile seen by examples near the query pattern. A library collapse can therefore be globally prevalence-matched and still be locally wrong exactly where the classifier is asked to predict.
+
+\begin{corollary}[Collapsed stratified mixtures inherit the most singular local component]
+\label{cor:stratified-mix}
+Let the training prior be a finite mixture
+\[
+\pi_\lambda
+:=
+\sum_{j=1}^M \lambda_j \pi_j,
+\qquad
+\lambda_j>0,
+\]
+where under family $j$ the stratum-$k$ prior is $\theta_k\sim \BetaDist(a_{j,k},b_{j,k})$ and the strata are conditionally independent. Define
+\[
+a_{k,\star}:=\min_{1\le j\le M} a_{j,k},
+\]
+and
+\[
+\delta_k
+:=
+\min\!\left\{
+1,\;
+\min_{j:\,a_{j,k}>a_{k,\star}}(a_{j,k}-a_{k,\star})
+\right\},
+\]
+with the convention $\delta_k=1$ if all $a_{j,k}=a_{k,\star}$. Then uniformly for $m\in[\rho_k n/2,\,3\rho_k n/2]$,
+\[
+q_n^\lambda(1\mid X_{n+1}=k,\;S_{n,k}=0,\;N_{n,k}=m)
+=
+\frac{a_{k,\star}}{m}
++
+O(m^{-1-\delta_k}).
+\]
+Hence, if deployment has $0<c_k<1<d_k$ in query stratum $k$ and $a_{k,\star}\neq c_k$, then
+\[
+\Delta_{n,k}(\pi_{\te},\pi_\lambda)\ge C_k\,n^{-(1+c_k)}
+\]
+for some $C_k>0$.
+\end{corollary}
+
+Corollary~\ref{cor:stratified-mix} is the finite-feature analogue of Proposition~\ref{thm:beta-mix}. A broad global library may hedge family uncertainty and even match the overall positive rate, yet still be unsafe to collapse if it imports the wrong local coefficient at the query stratum. This is why global $1{:}1$ balancing or other prompt edits can look innocuous in aggregate and still delete the evidence that matters for query-conditioned prediction.
+
+\begin{corollary}[Shared local-profile merges are safe]
+\label{cor:stratified-shared}
+Fix a query stratum $k$ with deployment prior $\theta_k\sim \BetaDist(c_k,d_k)$ and $0<c_k\le 1<d_k$. Suppose experts satisfy
+\[
+q_{n,j}(1\mid X_{n+1}=k,\;S_{n,k}=s,\;N_{n,k}=m)
+=
+\frac{c_k+s}{c_k+b_{j,k}+m},
+\]
+and define any soft mixture
+\[
+\hat q_n(1\mid X_{n+1}=k,\;S_{n,k}=s,\;N_{n,k}=m)
+:=
+\sum_{j=1}^J w_{n,j}(k,s,m)\,
+q_{n,j}(1\mid k,s,m),
+\]
+where $w_{n,j}(k,s,m)\ge 0$ and $\sum_{j=1}^J w_{n,j}(k,s,m)=1$. Then
+\[
+\Delta_{n,k}(\hat q_n)=O(n^{-2}).
+\]
+\end{corollary}
+
+Thus the finite-strata supervised story already has the main asymmetric rule: collapse is unsafe across mismatched local profiles and safe within a shared local-profile class.
+
+The finite-strata results identify the right supervised object, but the fully explicit phase transitions are easier to see in the exactly solvable $K=1$ special case. We therefore now turn to the label-only Beta--Bernoulli model, which should be read as the sharp analytic backbone of the query-conditioned theory rather than as a competing organizing principle.
+
+\subsection{Sharp Label-Only Special Case: Beta--Bernoulli Boundary Profiles}
 
 The regular $n^{-2}$ law is not universal. It can fail when the deployment prior puts substantial mass near nearly deterministic tasks. This is exactly the kind of rare-event regime that mixed prior libraries often try to ``cover'' by adding extreme generators, and it is where unsafe family collapse becomes most consequential. It is also the canonical prevalence model for class imbalance: in the Bernoulli setting, rare-event boundary behavior is literally the regime in which positive labels are scarce.
 
@@ -373,7 +519,7 @@ Y_i\mid \theta \stackrel{i.i.d.}{\sim} \Ber(\theta).
 \]
 Let $S_n:=\sum_{i=1}^n Y_i$.
 
-Here $S_n$ is exactly the number of positive labels in the prompt. Thus the left boundary $S_n\in\{0,1,2,\dots\}$ is simultaneously the rare-event regime of the theorem and the extreme class-imbalance regime of interest in practice.
+Here $S_n$ is exactly the number of positive labels in the prompt. Thus the left boundary $S_n\in\{0,1,2,\dots\}$ is simultaneously the rare-event regime of the theorem and the extreme class-imbalance regime of interest in practice. It is also exactly the $K=1$ instance of the query-conditioned count profile $(N_{n,k},S_{n,k})$ above.
 
 \begin{theorem}[Beta--Bernoulli phase transition]
 \label{thm:beta}
@@ -480,7 +626,7 @@ Consequently, if deployment is $\BetaDist(c,d)$ with $0<c<1<d$ and $a_\star\neq 
 The right-boundary statement is symmetric with $b_\star:=\min_j b_j$.
 \end{proposition}
 
-Proposition~\ref{thm:beta-mix} is the paper's main structural failure theorem. \emph{Including} the correct rare-event component in a broad synthetic mixture is not enough if more singular components are also present and the family label is collapsed. Near the dangerous boundary, the collapsed predictive behaves as if it had been trained on the most singular exponent in the library. This does not contradict Proposition~\ref{thm:mixture}: the cumulative oracle budget can still be small while the \emph{shape} of the one-step tail remains wrong.
+Proposition~\ref{thm:beta-mix} is the sharpest explicit illustration of the structural failure already identified in Corollary~\ref{cor:stratified-mix}. \emph{Including} the correct rare-event component in a broad synthetic mixture is not enough if more singular components are also present and the family label is collapsed. Near the dangerous boundary, the collapsed predictive behaves as if it had been trained on the most singular exponent in the library. This does not contradict Proposition~\ref{thm:mixture}: the cumulative oracle budget can still be small while the \emph{shape} of the one-step tail remains wrong.
 
 Zero counts are only the first obstruction. The next proposition shows that any fixed small-count mismatch can already force the same slow $n^{-(1+c)}$ regime.
 
@@ -517,9 +663,9 @@ then any soft mixture
 still satisfies $\Delta_n(\hat q_n)=O(n^{-2})$.
 \end{corollary}
 
-So the design rule is asymmetric: do not collapse \emph{across} boundary exponents, but in the Beta family it is safe to merge or softly mix \emph{within} a shared-profile class.
+So the design rule is asymmetric: do not collapse \emph{across} boundary exponents, but in the Beta family it is safe to merge or softly mix \emph{within} a shared-profile class. This is exactly the $K=1$ counterpart of Corollary~\ref{cor:stratified-shared}.
 
-The Beta analysis is valuable because it is sharp and explicit, but the mechanism is broader than conjugacy. What really matters is the amount of deployment mass near the boundary. The next section returns to the same object from a different angle: instead of asking what a collapsed prior library predicts on naturally occurring small counts, we ask what happens when the practitioner \emph{edits those counts} by forcing a label-balanced prompt.
+The Beta analysis is valuable because it is sharp and explicit, but the mechanism is broader than conjugacy. What really matters is the amount of deployment mass near the boundary. The next theorem returns to the same object from a different angle in the label-only model.
 
 \begin{theorem}[Boundary slowdown is a regular-variation phenomenon]
 \label{thm:boundary-general}
@@ -577,13 +723,17 @@ Corollary~\ref{cor:observable-exponent} gives an operational diagnostic for unsa
 \section{Label Balancing as Unsafe Collapse of Prompt Evidence}
 \label{sec:imbalance}
 
-The previous section already identified the dangerous statistic in the canonical prevalence model: the small-count profile of $S_n=\sum_{i=1}^n Y_i$. Class imbalance enters here because, in that same Beta--Bernoulli model, an imbalanced prompt is precisely a prompt with boundary-level positive counts. In ordinary supervised learning, label balancing is often analyzed as a retrospective sampling design, and recent TabPFN model reports confirm that threshold tuning can materially improve F1 on imbalanced benchmarks \citep[Fig.~17]{grinsztajn2025tabpfn25}. The oracle question, however, is sharper: if a PFN uses the prompt itself as evidence about the latent task, what happens when we replace the natural i.i.d. prompt by a label-balanced one? The answer is that balancing is not just a downstream threshold choice; it intervenes on the very same count statistic that drives the boundary theory, and can therefore act as an unsafe collapse of the observable sigma-field. Any deleted prompt statistic creates an irreducible Bayes penalty, and when the deleted statistic is the original prevalence count, the resulting error can be qualitatively different from the usual intercept-only case-control correction.
+The previous section identified the dangerous statistic both in the canonical prevalence model and in the finite-strata supervised extension: small-count boundary evidence, either globally through $S_n=\sum_{i=1}^n Y_i$ or locally through $(N_{n,k},S_{n,k})$. Class imbalance enters here because, in the same Beta--Bernoulli model, an imbalanced prompt is precisely a prompt with boundary-level positive counts. In ordinary supervised learning, label balancing is often analyzed as a retrospective sampling design, and recent TabPFN model reports confirm that threshold tuning can materially improve F1 on imbalanced benchmarks \citep[Fig.~17]{grinsztajn2025tabpfn25}. The oracle question, however, is sharper: if a PFN uses the prompt itself as evidence about the latent task, what happens when we replace the natural i.i.d. prompt by a label-balanced one? The answer is that balancing is not just a downstream threshold choice; it intervenes on the very same count statistics that drive the boundary theory, and can therefore act as an unsafe collapse of the observable sigma-field. Any deleted prompt statistic creates an irreducible Bayes penalty, and when the deleted statistic is the original prevalence evidence, the resulting error can be qualitatively different from the usual intercept-only case-control correction.
 
 Let
 \[
-O_n := (Z_{1:n},X_{n+1})
+H_n:=Z_{1:n},
+\qquad
+O_n := (X_{n+1},H_n),
+\qquad
+\widetilde O_n := (X_{n+1},\widetilde H_n),
 \]
-be the full prompt, and let $\widetilde O_n$ be any randomized transformation of $O_n$ satisfying the Markov condition
+where $\widetilde H_n$ is any randomized transformation of $H_n$ satisfying the Markov condition
 \[
 Y_{n+1} \to O_n \to \widetilde O_n.
 \]
@@ -594,23 +744,48 @@ q_O(y\mid O_n):=\Pbb(Y_{n+1}=y\mid O_n),
 q_{\widetilde O}(y\mid \widetilde O_n):=\Pbb(Y_{n+1}=y\mid \widetilde O_n).
 \]
 
-\begin{proposition}[Prompt-transformation penalty]
+\begin{proposition}[Query-conditioned prompt-transformation penalty]
 \label{prop:prompt-transform}
 Under the setup above,
 \[
 R(q_{\widetilde O})-R(q_O)
 =
+\I(Y_{n+1};H_n\mid \widetilde H_n,X_{n+1})
+=
 \I(Y_{n+1};O_n\mid \widetilde O_n).
 \]
-If moreover $O_n=(\widetilde O_n,C_n)$ almost surely for some deleted statistic $C_n$, then
+If moreover $H_n=(\widetilde H_n,C_n)$ almost surely for some deleted statistic $C_n$, then
 \[
 R(q_{\widetilde O})-R(q_O)
 =
-\I(Y_{n+1};C_n\mid \widetilde O_n).
+\I(Y_{n+1};C_n\mid \widetilde H_n,X_{n+1}).
 \]
 \end{proposition}
 
-Proposition~\ref{prop:prompt-transform} is the fundamental PFN asymmetry. For a conventional learner, rebalancing changes the optimization problem used to fit a predictor. For a PFN, rebalancing the context changes the information set available at inference time. If the deleted statistic $C_n$ is the natural class count $S_n$, then the exact price of balancing is the predictive information carried by those counts. This immediately connects class imbalance to the rare-event theory above: a perfectly balanced prompt with exactly $m$ positives and $m$ negatives has transformed count $\widetilde S_{2m}=m$ almost surely, so the zero-count law and the boundary-exponent diagnostic of Corollary~\ref{cor:observable-exponent} are literally unavailable from the balanced prompt alone.
+Proposition~\ref{prop:prompt-transform} is the fundamental PFN asymmetry. For a conventional learner, rebalancing changes the optimization problem used to fit a predictor. For a PFN, rebalancing the context changes the information set available at inference time. If the deleted statistic $C_n$ is the natural class count $S_n$, then the exact price of balancing is the query-conditioned predictive information carried by those counts after the query feature is revealed. In the finite-strata model of Section~\ref{sec:stratified}, the same proposition applies with $C_n$ equal to the query-local evidence $(N_{n,k},S_{n,k})$. This immediately connects class imbalance to the rare-event theory above: a perfectly balanced prompt with exactly $m$ positives and $m$ negatives has transformed count $\widetilde S_{2m}=m$ almost surely, so the zero-count law and the boundary-exponent diagnostic of Corollary~\ref{cor:observable-exponent} are literally unavailable from the balanced prompt alone.
+
+\begin{corollary}[Balanced cores are improved by retaining deleted evidence]
+\label{cor:balanced-plus}
+Let $\widetilde O_n^{\mathrm{bal}}=(X_{n+1},\widetilde H_n^{\mathrm{bal}})$ be any balanced prompt transformation of $O_n=(X_{n+1},H_n)$, and let
+\[
+\bar O_n := (X_{n+1},\widetilde H_n^{\mathrm{bal}},C_n)
+\]
+for any retained statistic $C_n$ measurable with respect to $H_n$. Then
+\[
+R(q_{\widetilde O^{\mathrm{bal}}})-R(q_{\bar O})
+=
+\I(Y_{n+1};C_n\mid \widetilde H_n^{\mathrm{bal}},X_{n+1}).
+\]
+In particular, every balanced design is weakly improved by retaining any query-relevant side information, and in finite-strata tasks the canonical choice is the query-local evidence
+\[
+C_n=(N_{n,k},S_{n,k})
+\qquad\text{when } X_{n+1}=k.
+\]
+\end{corollary}
+
+Corollary~\ref{cor:balanced-plus} suggests a default design principle that is more realistic than a binary choice between natural sampling and pure $1{:}1$ balancing. If balancing is empirically strong because $X$ is highly informative, then the theory does \emph{not} say to abandon balancing. It says to avoid \emph{feature-blind} balancing that deletes the query-relevant prevalence evidence. A theory-backed default is therefore a \emph{balanced core with retained evidence}: use a $1{:}1$ prompt as the discriminative backbone, but append the deleted statistic that still matters for prediction.
+
+There are two especially natural implementations. The first is a \emph{balanced core plus base-rate token}, which restores global prevalence information at negligible prompt cost. The second is a \emph{balanced core plus query-local correction}, which retains either the local counts $(N_{n,k},S_{n,k})$ or a short natural-sampling tail from the query stratum. The first repairs global prevalence blindness; the second targets exactly the query-conditioned boundary evidence identified in Section~\ref{sec:stratified}. In practice this means that a balanced prompt can remain the default, provided it is paired with a side channel that preserves the evidence whose deletion would otherwise incur the mutual-information penalty above.
 
 The next proposition isolates the pure prevalence effect before any feature-specific aliasing enters. In the canonical Beta--Bernoulli library, perfect class balancing does not merely slow prevalence learning; it destroys it. A balanced prompt of arbitrary size is no more informative about the task prevalence than an empty prompt.
 
@@ -698,7 +873,7 @@ For extreme fraud-style tables, this yields a concrete design implication. A $1{
 \section{Exact Validation of Unsafe Collapse}
 \label{sec:experiments}
 
-We validate the theory in the same order in which we want the reader to remember it. First comes the boundary-profile collapse ablation, because that is the paper's main substantive claim. We then show the phase transition directly, and only after that return to the global hedge sanity check. All reported curves are exact deterministic calculations from closed-form Beta--Binomial formulas or numerical summation, so there is no optimizer, seed, or sampling variance in these plots. They should therefore be read as theorem sanity checks and design ablations.
+We validate the theory in the same order in which we want the reader to remember it. First comes the boundary-profile collapse ablation, because that is the paper's main substantive claim. We then show the phase transition directly, and only after that return to the global hedge sanity check. All reported curves are exact deterministic calculations from closed-form Beta--Binomial formulas or numerical summation, so there is no optimizer, seed, or sampling variance in these plots. They should therefore be read as theorem sanity checks and design ablations. These exact validations target the analytically solvable $K=1$ special case that underpins the broader query-conditioned theory.
 
 \begin{figure}[t]
 \centering
@@ -735,21 +910,21 @@ We can now step back from the theorem chain and answer the motivating question d
 Proposition~\ref{thm:mixture} is the global argument for broad prior libraries: assigning each plausible family positive mass hedges deployment uncertainty. But coverage and merging are different decisions. The relevant object is observable predictive behavior after the prompt, not raw latent generator coordinates.
 
 \paragraph{2. Unsafe collapse is organized by boundary profile.}
-Theorem~\ref{thm:beta}, Proposition~\ref{thm:beta-mix}, Proposition~\ref{prop:fixed-count}, Theorem~\ref{thm:boundary-general}, Corollary~\ref{cor:observable-exponent}, and Section~\ref{sec:imbalance} together say that rare-event mismatch is about small-count boundary profiles, with the exponent as only the first observable summary. The practical rule is asymmetric: merge within shared-profile classes, but do not collapse across mismatched profiles, preserve the natural prevalence evidence that identifies those profiles, and validate rare-event tails explicitly rather than relying only on average synthetic loss.
+Theorem~\ref{thm:beta}, Proposition~\ref{thm:beta-mix}, Proposition~\ref{prop:fixed-count}, Theorem~\ref{thm:boundary-general}, Corollary~\ref{cor:observable-exponent}, Proposition~\ref{prop:stratified-boundary}, Corollary~\ref{cor:stratified-mix}, Corollary~\ref{cor:stratified-shared}, and Section~\ref{sec:imbalance} together say that rare-event mismatch is about small-count boundary profiles, with the exponent as only the first observable summary. In supervised settings the same object becomes query-conditioned and local to the relevant feature stratum. The practical rule is asymmetric: merge within shared-profile classes, but do not collapse across mismatched profiles, preserve the natural prevalence evidence that identifies those profiles, and validate rare-event tails explicitly rather than relying only on average synthetic loss.
 
 \paragraph{3. Label balancing can be an unsafe prompt collapse.}
-Proposition~\ref{prop:prompt-transform} says that any prompt transformation incurs exactly the predictive information it deletes, Proposition~\ref{prop:balanced-useless} shows that a perfectly balanced prompt can be asymptotically no better than no prompt at all for prevalence learning, and Theorem~\ref{thm:balancing-counterexample} shows that label-balanced prompts can induce score distortions that are not mere intercept shifts. So for PFNs the relevant question is not ``should the loss be class-balanced?'' but ``which prompt statistics are safe to delete?'' In extreme imbalance settings, a $1{:}1$ prompt without an accompanying base-rate statistic can erase the very evidence needed to identify the correct latent family.
+Proposition~\ref{prop:prompt-transform} says that any prompt transformation incurs exactly the query-conditioned predictive information it deletes, Corollary~\ref{cor:balanced-plus} says that a balanced core is weakly improved by retaining the deleted evidence as a side channel, Proposition~\ref{prop:balanced-useless} shows that a perfectly balanced prompt can be asymptotically no better than no prompt at all for prevalence learning, and Theorem~\ref{thm:balancing-counterexample} shows that label-balanced prompts can induce score distortions that are not mere intercept shifts. So for PFNs the relevant question is not ``should the loss be class-balanced?'' but ``which prompt statistics are safe to delete?'' In extreme imbalance settings, a $1{:}1$ prompt without an accompanying base-rate or query-local statistic can erase the very evidence needed to identify the correct latent family.
 
 \paragraph{4. Merge only when prompt-conditioned predictive distinctiveness is small.}
 Proposition~\ref{prop:prompt-opt} and Corollary~\ref{cor:js} say that the right split/merge object is the prompt-conditioned generalized Jensen--Shannon divergence, not unconditional diversity. Families should be merged only when that prompt-conditioned geometry is small; otherwise the irreducible collapse cost remains visible after the prompt.
 
 \paragraph{Limitations.}
 
-This paper is theory-first. The sharpest results are oracle statements about what no architecture can undo unless the synthetic prior itself changes. The oracle identities in Section~\ref{sec:oracle-design} identify the target quantity $\I(F;Y\mid O)$, but they do not by themselves provide an automatic estimator of it or a complete procedure for selecting among candidate family collapses. Our empirical section reports only exact closed-form validations. Finally, the rare-event theory is sharpest in one-dimensional Bernoulli prevalence models, while the regular benchmark relies on a one-posterior quadratic-tilt regime made explicit in Appendix~\ref{app:regular-proofs}.
+This paper is theory-first. The sharpest results are oracle statements about what no architecture can undo unless the synthetic prior itself changes. The oracle identities in Section~\ref{sec:oracle-design} identify the target quantity $\I(F;Y\mid O)$, but they do not by themselves provide an automatic estimator of it or a complete procedure for selecting among candidate family collapses. Our empirical section reports only exact closed-form validations, and those validations currently target the analytically solvable $K=1$ special case. Finally, the sharpest closed-form rare-event rates remain in one-dimensional Bernoulli prevalence models, while the supervised extension in Section~\ref{sec:stratified} is developed only for finite strata rather than fully continuous covariates, and the regular benchmark relies on a one-posterior quadratic-tilt regime made explicit in Appendix~\ref{app:regular-proofs}.
 
 \paragraph{Discussion.}
 
-The message is deliberately simple. Unsafe collapse, not insufficient library breadth, is the core PFN prior failure mode. Mix broadly to hedge globally. Do not collapse across boundary profiles just because average synthetic loss looks benign. Merge only when the prompt-conditioned predictive geometry certifies that doing so is safe. And do not balance away the prevalence evidence that identifies the dangerous rare-event regimes in the first place.
+The message is deliberately simple. Unsafe collapse, not insufficient library breadth, is the core PFN prior failure mode. Mix broadly to hedge globally. Do not collapse across boundary profiles just because average synthetic loss looks benign. In supervised settings, preserve the query-conditioned boundary evidence carried by local counts near the query. Merge only when the prompt-conditioned predictive geometry certifies that doing so is safe. And do not balance away the prevalence evidence that identifies the dangerous rare-event regimes in the first place.
 
 \section*{Acknowledgments}
 
@@ -766,19 +941,43 @@ By definition of Bayes risk,
 \[
 R(q_{\widetilde O})-R(q_O)
 =
+H(Y_{n+1}\mid \widetilde H_n,X_{n+1})-H(Y_{n+1}\mid H_n,X_{n+1})
+=
+\I(Y_{n+1};H_n\mid \widetilde H_n,X_{n+1}).
+\]
+Because $O_n=(X_{n+1},H_n)$ and $\widetilde O_n=(X_{n+1},\widetilde H_n)$, the same quantity can be rewritten as
+\[
+\I(Y_{n+1};H_n\mid \widetilde H_n,X_{n+1})
+=
 H(Y_{n+1}\mid \widetilde O_n)-H(Y_{n+1}\mid O_n)
 =
 \I(Y_{n+1};O_n\mid \widetilde O_n),
 \]
-because $Y_{n+1}\to O_n\to \widetilde O_n$ is a Markov chain. If $O_n=(\widetilde O_n,C_n)$ almost surely, then the chain rule gives
+because $Y_{n+1}\to O_n\to \widetilde O_n$ is a Markov chain. If $H_n=(\widetilde H_n,C_n)$ almost surely, then the chain rule gives
 \[
-\I(Y_{n+1};O_n\mid \widetilde O_n)
+\I(Y_{n+1};H_n\mid \widetilde H_n,X_{n+1})
 =
-\I(Y_{n+1};\widetilde O_n,C_n\mid \widetilde O_n)
+\I(Y_{n+1};\widetilde H_n,C_n\mid \widetilde H_n,X_{n+1})
 =
-\I(Y_{n+1};C_n\mid \widetilde O_n),
+\I(Y_{n+1};C_n\mid \widetilde H_n,X_{n+1}),
 \]
 as claimed.
+\end{proof}
+
+\subsection{Proof of Corollary~\ref{cor:balanced-plus}}
+
+\begin{proof}
+Apply Proposition~\ref{prop:prompt-transform} with the transformed prompt $\widetilde O_n$ taken to be $\widetilde O_n^{\mathrm{bal}}=(X_{n+1},\widetilde H_n^{\mathrm{bal}})$ and the refined prompt taken to be
+\[
+\bar O_n=(X_{n+1},\widetilde H_n^{\mathrm{bal}},C_n).
+\]
+Since $\bar O_n$ is a refinement of $\widetilde O_n^{\mathrm{bal}}$, the proposition gives
+\[
+R(q_{\widetilde O^{\mathrm{bal}}})-R(q_{\bar O})
+=
+\I(Y_{n+1};C_n\mid \widetilde H_n^{\mathrm{bal}},X_{n+1}).
+\]
+Nonnegativity of conditional mutual information yields the weak domination claim. In the finite-strata model, taking $C_n=(N_{n,k},S_{n,k})$ for the realized query stratum $k$ gives the stated canonical choice.
 \end{proof}
 
 \subsection{Proof of Proposition~\ref{prop:balanced-useless}}
@@ -2000,6 +2199,314 @@ If $\Pbb_{\te}(S_n=0)\sim C n^{-c}$ with $C>0$, then
 \log C - c\log n + o(1).
 \]
 Divide by $\log n$ and let $n\to\infty$.
+\end{proof}
+
+\subsection{Proof of Proposition~\ref{prop:stratified-boundary}}
+
+\begin{proof}
+Fix a query stratum $k$ and let
+\[
+I_n
+:=
+\left\{
+m\in\{0,1,\dots,n\}
+:
+\frac{\rho_k n}{2}\le m\le \frac{3\rho_k n}{2}
+\right\}.
+\]
+Define the event
+\[
+E_n
+:=
+\left\{
+S_{n,k}=0,\;
+N_{n,k}\in I_n
+\right\}.
+\]
+Because $N_{n,k}\sim \Bin(n,\rho_k)$, a Chernoff bound gives
+\[
+\Pbb(N_{n,k}\in I_n)\to 1.
+\]
+Hence, for all large $n$,
+\[
+\Pbb(N_{n,k}\in I_n\mid X_{n+1}=k)\ge \frac{1}{2}.
+\]
+
+Conditional on $N_{n,k}=m$, the local prompt in stratum $k$ is exactly a Beta--Bernoulli sample of size $m$, so
+\[
+\Pbb_{\te}(S_{n,k}=0\mid N_{n,k}=m,\;X_{n+1}=k)
+=
+\frac{B(c_k,d_k+m)}{B(c_k,d_k)}.
+\]
+The Gamma-ratio expansion therefore yields, uniformly over $m\in I_n$,
+\[
+\Pbb_{\te}(S_{n,k}=0\mid N_{n,k}=m,\;X_{n+1}=k)
+=
+C_{k,0}\,m^{-c_k}\bigl(1+O(m^{-1})\bigr)
+\]
+for a constant $C_{k,0}>0$. Since every $m\in I_n$ is $\Theta(n)$, there exists $c_{k,1}>0$ such that
+\[
+\Pbb_{\te}(S_{n,k}=0\mid N_{n,k}=m,\;X_{n+1}=k)
+\ge
+c_{k,1}\,n^{-c_k}
+\qquad
+\text{for all } m\in I_n
+\]
+and all large $n$. Hence
+\begin{align*}
+\Pbb_{\te}(E_n\mid X_{n+1}=k)
+&=
+\sum_{m\in I_n}
+\Pbb(N_{n,k}=m\mid X_{n+1}=k)\,
+\Pbb_{\te}(S_{n,k}=0\mid N_{n,k}=m,\;X_{n+1}=k) \\
+&\ge
+c_{k,1}n^{-c_k}\,
+\Pbb(N_{n,k}\in I_n\mid X_{n+1}=k) \\
+&\ge
+c_{k,2}\,n^{-c_k}
+\end{align*}
+for some $c_{k,2}>0$ and all large $n$.
+
+On the event $E_n$, Beta--Bernoulli conjugacy gives
+\[
+q_n^{\te}(1\mid X_{n+1}=k,\;Z_{1:n})
+=
+\frac{c_k}{c_k+d_k+N_{n,k}}.
+\]
+Since $N_{n,k}\in I_n$ implies $N_{n,k}=\Theta(n)$, we have uniformly on $E_n$
+\[
+q_n^{\te}(1\mid X_{n+1}=k,\;Z_{1:n})
+=
+\frac{c_k}{N_{n,k}}+O(N_{n,k}^{-2}),
+\]
+while by assumption
+\[
+\hat q_n(1\mid X_{n+1}=k,\;Z_{1:n})
+=
+\frac{\alpha_k}{N_{n,k}}+O(N_{n,k}^{-1-\delta}).
+\]
+Because $\alpha_k\neq c_k$, the small-probability expansion used in the proof of Theorem~\ref{thm:boundary-general} implies
+\[
+\klb\bigl(
+q_n^{\te}(1\mid X_{n+1}=k,\;Z_{1:n}),
+\hat q_n(1\mid X_{n+1}=k,\;Z_{1:n})
+\bigr)
+=
+\frac{L(c_k,\alpha_k)}{N_{n,k}}+o(N_{n,k}^{-1})
+\]
+uniformly on $E_n$, where
+\[
+L(c_k,\alpha_k)
+:=
+c_k\log\frac{c_k}{\alpha_k}+\alpha_k-c_k
+>
+0.
+\]
+Thus there exists $c_{k,3}>0$ such that on $E_n$,
+\[
+\klb\bigl(
+q_n^{\te}(1\mid X_{n+1}=k,\;Z_{1:n}),
+\hat q_n(1\mid X_{n+1}=k,\;Z_{1:n})
+\bigr)
+\ge
+c_{k,3}\,n^{-1}
+\]
+for all large $n$.
+
+Finally, lower-bound the conditional risk by the event $E_n$:
+\begin{align*}
+\Delta_{n,k}(\hat q_n)
+&\ge
+\E\!\left[
+\ind\{E_n\}
+\klb\bigl(
+q_n^{\te}(1\mid X_{n+1}=k,\;Z_{1:n}),
+\hat q_n(1\mid X_{n+1}=k,\;Z_{1:n})
+\bigr)
+\;\middle|\;
+X_{n+1}=k
+\right] \\
+&\ge
+\Pbb_{\te}(E_n\mid X_{n+1}=k)\,c_{k,3}\,n^{-1} \\
+&\ge
+C_k\,n^{-(1+c_k)}
+\end{align*}
+for some $C_k>0$ and all large $n$.
+\end{proof}
+
+\subsection{Proof of Corollary~\ref{cor:stratified-mix}}
+
+\begin{proof}
+Fix a query stratum $k$ and condition on
+\[
+S_{n,k}=0,
+\qquad
+N_{n,k}=m.
+\]
+Because the strata are conditionally independent, only the stratum-$k$ prior matters for the predictive at $X_{n+1}=k$. Under family $j$,
+\[
+\Pbb_{\pi_j}(S_{n,k}=0\mid N_{n,k}=m)
+=
+\frac{B(a_{j,k},b_{j,k}+m)}{B(a_{j,k},b_{j,k})},
+\]
+and the family-$j$ predictive is
+\[
+q_{n,j}(1\mid X_{n+1}=k,\;S_{n,k}=0,\;N_{n,k}=m)
+=
+\frac{a_{j,k}}{a_{j,k}+b_{j,k}+m}.
+\]
+Therefore the collapsed mixture predictive equals
+\[
+q_n^\lambda(1\mid X_{n+1}=k,\;S_{n,k}=0,\;N_{n,k}=m)
+=
+\frac{
+\sum_{j=1}^M
+\lambda_j
+\frac{B(a_{j,k},b_{j,k}+m)}{B(a_{j,k},b_{j,k})}
+\frac{a_{j,k}}{a_{j,k}+b_{j,k}+m}
+}{
+\sum_{j=1}^M
+\lambda_j
+\frac{B(a_{j,k},b_{j,k}+m)}{B(a_{j,k},b_{j,k})}
+}.
+\]
+
+Using
+\[
+\frac{B(a_{j,k},b_{j,k}+m)}{B(a_{j,k},b_{j,k})}
+=
+\frac{\Gamma(a_{j,k}+b_{j,k})}{\Gamma(b_{j,k})}
+\frac{\Gamma(b_{j,k}+m)}{\Gamma(a_{j,k}+b_{j,k}+m)},
+\]
+the Gamma-ratio expansion gives
+\[
+\frac{\Gamma(b_{j,k}+m)}{\Gamma(a_{j,k}+b_{j,k}+m)}
+=
+m^{-a_{j,k}}\bigl(1+O(m^{-1})\bigr).
+\]
+Exactly as in the proof of Proposition~\ref{thm:beta-mix}, it follows that
+\[
+\sum_{j=1}^M
+\lambda_j
+\frac{B(a_{j,k},b_{j,k}+m)}{B(a_{j,k},b_{j,k})}
+=
+m^{-a_{k,\star}}
+\Bigl(
+C_{k,\star}+O(m^{-\delta_k})
+\Bigr),
+\]
+where
+\[
+C_{k,\star}
+:=
+\sum_{j:\,a_{j,k}=a_{k,\star}}
+\lambda_j
+\frac{\Gamma(a_{j,k}+b_{j,k})}{\Gamma(b_{j,k})}
+>0,
+\]
+and likewise
+\[
+\sum_{j=1}^M
+\lambda_j
+\frac{B(a_{j,k},b_{j,k}+m)}{B(a_{j,k},b_{j,k})}
+\frac{a_{j,k}}{a_{j,k}+b_{j,k}+m}
+=
+m^{-a_{k,\star}-1}
+\Bigl(
+a_{k,\star}C_{k,\star}+O(m^{-\delta_k})
+\Bigr).
+\]
+Dividing the two expansions yields
+\[
+q_n^\lambda(1\mid X_{n+1}=k,\;S_{n,k}=0,\;N_{n,k}=m)
+=
+\frac{a_{k,\star}}{m}+O(m^{-1-\delta_k}),
+\]
+uniformly for $m\in[\rho_k n/2,\,3\rho_k n/2]$.
+
+If moreover deployment has $0<c_k<1<d_k$ and $a_{k,\star}\neq c_k$, Proposition~\ref{prop:stratified-boundary} applies with $\alpha_k=a_{k,\star}$ and yields
+\[
+\Delta_{n,k}(\pi_{\te},\pi_\lambda)\ge C_k\,n^{-(1+c_k)}
+\]
+for some $C_k>0$ and all large $n$.
+\end{proof}
+
+\subsection{Proof of Corollary~\ref{cor:stratified-shared}}
+
+\begin{proof}
+Fix a query stratum $k$ and condition on
+\[
+X_{n+1}=k,
+\qquad
+N_{n,k}=m.
+\]
+Given these events, the local sufficient statistic satisfies
+\[
+S_{n,k}\mid (X_{n+1}=k,\;N_{n,k}=m)\sim \BetaBin(m,c_k,d_k),
+\]
+and the deployment oracle predictive is
+\[
+q_n^{\te}(1\mid X_{n+1}=k,\;S_{n,k}=s,\;N_{n,k}=m)
+=
+\frac{c_k+s}{c_k+d_k+m}.
+\]
+For this fixed $m$, the experts in the statement have exactly the form covered by Corollary~\ref{cor:beta-shared}, so the conditional query-stratum risk
+\[
+\delta_{m,k}
+:=
+\E\!\left[
+\klb\bigl(
+q_n^{\te}(1\mid X_{n+1}=k,\;Z_{1:n}),
+\hat q_n(1\mid X_{n+1}=k,\;Z_{1:n})
+\bigr)
+\;\middle|\;
+X_{n+1}=k,\;N_{n,k}=m
+\right]
+\]
+satisfies
+\[
+\delta_{m,k}=O(m^{-2})
+\qquad\text{as } m\to\infty.
+\]
+Because the family of experts is finite, we may enlarge constants so that
+\[
+\delta_{m,k}\le \frac{C_k}{(1+m)^2}
+\]
+for every $m\ge 0$.
+
+Now average over $N_{n,k}\mid X_{n+1}=k\sim \Bin(n,\rho_k)$. Split on the event
+\[
+A_n:=\{N_{n,k}\ge \rho_k n/2\}.
+\]
+A Chernoff bound gives $\Pbb(A_n^c\mid X_{n+1}=k)\le e^{-c_k'n}$ for some $c_k'>0$. Therefore
+\begin{align*}
+\Delta_{n,k}(\hat q_n)
+&=
+\E[\delta_{N_{n,k},k}\mid X_{n+1}=k] \\
+&\le
+\E[\delta_{N_{n,k},k}\ind\{A_n\}\mid X_{n+1}=k]
++
+\E[\delta_{N_{n,k},k}\ind\{A_n^c\}\mid X_{n+1}=k].
+\end{align*}
+On $A_n$, we have $(1+N_{n,k})^{-2}\le C n^{-2}$, so the first term is $O(n^{-2})$.
+
+For the second term, note that all involved predictives are Beta--Bernoulli probabilities with fixed positive hyperparameters, so there exists $C_k''>0$ such that
+\[
+\delta_{m,k}\le C_k''(1+\log(1+m))
+\]
+for all $m\ge 0$. Since $m\le n$,
+\[
+\E[\delta_{N_{n,k},k}\ind\{A_n^c\}\mid X_{n+1}=k]
+\le
+C_k''(1+\log(1+n))\,e^{-c_k'n}
+=
+o(n^{-2}).
+\]
+Combining the two bounds yields
+\[
+\Delta_{n,k}(\hat q_n)=O(n^{-2}),
+\]
+as claimed.
 \end{proof}
 
 \begin{thebibliography}{99}

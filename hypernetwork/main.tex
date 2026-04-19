@@ -1,0 +1,994 @@
+\documentclass[a4paper,11pt]{bxjsarticle}
+
+\usepackage{amsmath,amssymb,amsthm,mathtools,bm}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\geometry{margin=25mm}
+
+\newtheorem{theorem}{定理}[section]
+\newtheorem{proposition}[theorem]{命題}
+\newtheorem{corollary}[theorem]{系}
+\newtheorem{lemma}[theorem]{補題}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{定義}
+\newtheorem{remark}[theorem]{注意}
+\newtheorem{example}[theorem]{例}
+
+\DeclareMathOperator{\rank}{rank}
+\DeclareMathOperator{\spanop}{span}
+\DeclareMathOperator{\diag}{diag}
+
+\title{HyperNetworks as Kernelized Task Arithmetic:\\
+未学習条件での補間・外挿・Hyper-LoRA における相互作用}
+\author{Draft}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+本稿では，条件 $z$ から task-specific なモデル更新を生成する HyperNetwork の未学習条件における振る舞いを理論的に解析する．
+主張は三つある．
+第一に，small-update / lazy regime において，HyperNetwork の学習は task vector 回帰に還元され，
+学習後の更新は training task vectors の operator-valued kernel interpolation で与えられる．
+特に scalar-separable な場合，HyperNetwork は query-dependent な係数を持つ task arithmetic に一致する．
+第二に，二つの条件 $z_1,z_2$ のみで学習したとき，未学習条件 $z_\gamma=\gamma z_1+(1-\gamma)z_2$ に対する更新が
+厳密な task arithmetic になるための必要十分条件は，HyperNetwork が条件空間上に誘導する task kernel の
+二つの値 $k(z_\gamma,z_1),k(z_\gamma,z_2)$ によって完全に特徴付けられる．
+第三に，Hyper-LoRA では factor space で線形補間が成り立っても，weight space では必ず交差項が現れ，
+未学習条件における更新は ``task arithmetic $+$ bilinear interaction'' の形を取る．
+従って，full-update HyperNetwork は lazy regime では kernelized task arithmetic とみなせる一方，
+Hyper-LoRA は low-rank factorization の双線形性ゆえに体系的に task arithmetic からずれる．
+さらに，beyond-lazy で training span の外に出る genuinely new directions は Jacobian drift による二次効果として現れる．
+\end{abstract}
+
+\section{導入}
+
+HyperNetwork は，条件変数 $z$ から別のモデルのパラメータあるいは更新量を出力する枠組みである．
+一方で task arithmetic は，ある base model に対する task-specific な更新ベクトルを足し引きすることで
+新たな task を合成・編集する考え方である．
+
+本稿の中心的な問いは次の通りである：
+
+\begin{quote}
+\emph{HyperNetwork は本当に task ごとに新しいモデルを生成しているのか．
+それとも，small-update regime では少数の training task vectors を条件依存に補間しているだけなのか．}
+\end{quote}
+
+この問いに対して，本稿では以下を示す：
+
+\begin{enumerate}[label=(\roman*)]
+    \item local quadratic regime では，HyperNetwork の学習は task vector 回帰に還元される；
+    \item linearized HyperNetwork は operator-valued kernel による task-vector interpolation になる；
+    \item 二点学習・一点テストの最小設定では，未学習条件で task arithmetic が成り立つ条件を厳密に書ける；
+    \item Hyper-LoRA では factor interpolation から必然的に bilinear interaction が生まれ，これが task arithmetic との差を作る；
+    \item training task span の外へ本当に出る novelty は，HyperNetwork の Jacobian drift による二次効果である．
+\end{enumerate}
+
+本稿は，理論的に完全に証明できる主張に限定して記述する．
+
+\section{設定}
+
+\subsection{base model と HyperNetwork}
+
+base model のパラメータを $w_0 \in \mathbb{R}^D$ とする．
+HyperNetwork は条件 $z \in \mathcal{Z}$ から更新ベクトル
+\[
+u_\phi(z)\in \mathbb{R}^D
+\]
+を出力し，task-specific なモデルは
+\[
+w_\phi(z)=w_0+u_\phi(z)
+\]
+で与えられるとする．
+
+訓練条件を $z_1,\dots,z_T$ とし，各 task に対して局所的に最適な更新ベクトルを
+\[
+\tau_1,\dots,\tau_T \in \mathbb{R}^D
+\]
+と書く．
+本稿では，まず HyperNetwork がこれら task vectors をどのように回帰・補間するかを見る．
+
+\subsection{Hyper-LoRA}
+
+Hyper-LoRA では，更新は full vector ではなく低ランク因子
+\[
+A_\phi(z)\in \mathbb{R}^{n\times r},\qquad
+B_\phi(z)\in \mathbb{R}^{m\times r}
+\]
+によって
+\[
+\Delta W_\phi(z)=B_\phi(z)A_\phi(z)^\top
+\]
+と表される．
+このとき base weight は $W_0\in \mathbb{R}^{m\times n}$ であり，task-specific な層は
+\[
+W_\phi(z)=W_0+\Delta W_\phi(z)
+\]
+となる．
+
+\section{local quadratic regime では task vector 回帰になる}
+
+まず，end-to-end の task 損失最小化が局所的には task vector 回帰に還元されることを確認する．
+
+\begin{proposition}[局所二次近似と task vector 回帰]
+\label{prop:local-quadratic}
+task $t$ の損失を base point $w_0$ の近傍で
+\[
+\mathcal{L}_t(w_0+u)
+=
+\mathcal{L}_t(w_0)+g_t^\top u+\frac12 u^\top H_t u
+\]
+と二次近似する．ここで $H_t \in \mathbb{R}^{D\times D}$ は対称正定値とする．
+このとき，最適更新
+\[
+\tau_t^\star := -H_t^{-1}g_t
+\]
+を用いると
+\[
+\mathcal{L}_t(w_0+u)
+=
+\mathcal{L}_t(w_0)-\frac12 g_t^\top H_t^{-1}g_t
++\frac12 \|H_t^{1/2}(u-\tau_t^\star)\|_2^2
+\]
+が成り立つ．
+\end{proposition}
+
+\begin{proof}
+平方完成を行う：
+\[
+g_t^\top u+\frac12 u^\top H_t u
+=
+\frac12\left(u+H_t^{-1}g_t\right)^\top H_t\left(u+H_t^{-1}g_t\right)
+-\frac12 g_t^\top H_t^{-1}g_t.
+\]
+ここで $\tau_t^\star=-H_t^{-1}g_t$ を代入すると
+\[
+g_t^\top u+\frac12 u^\top H_t u
+=
+\frac12 (u-\tau_t^\star)^\top H_t (u-\tau_t^\star)
+-\frac12 g_t^\top H_t^{-1}g_t.
+\]
+両辺に $\mathcal{L}_t(w_0)$ を足せば主張を得る．
+\end{proof}
+
+\begin{remark}
+命題 \ref{prop:local-quadratic} は，local quadratic regime では
+HyperNetwork の学習が task-specific な ``望ましい更新'' $\tau_t^\star$ への回帰と等価であることを意味する．
+以下では表記を簡単にするため，Euclidean 回帰として
+\[
+u_\phi(z_t)\approx \tau_t
+\]
+を考える．
+Hessian を含む重み付きノルムは whitening により吸収できる．
+\end{remark}
+
+\section{linearized HyperNetwork は kernelized task arithmetic になる}
+
+\subsection{線形化}
+
+初期値 $\phi_0$ の近傍で HyperNetwork を線形化する：
+\[
+u_\phi(z)
+=
+u_0(z)+J_0(z)\,\delta\phi,
+\qquad
+u_0(z):=u_{\phi_0}(z),\quad
+\delta\phi:=\phi-\phi_0,
+\]
+ここで
+\[
+J_0(z)\in \mathbb{R}^{D\times P}
+\]
+は $u_\phi(z)$ の $\phi$ に関する Jacobian である．
+
+訓練目的として ridge 付き最小二乗
+\begin{equation}
+\label{eq:ridge-objective}
+\min_{\delta\phi\in\mathbb{R}^P}
+\frac12 \sum_{t=1}^T \|u_0(z_t)+J_0(z_t)\delta\phi-\tau_t\|_2^2
++
+\frac{\lambda}{2}\|\delta\phi\|_2^2
+\end{equation}
+を考える．
+
+\subsection{operator-valued kernel 表現}
+
+\begin{theorem}[linearized HyperNetwork の operator-valued kernel 表現]
+\label{thm:operator-kernel}
+\[
+J_t:=J_0(z_t)\in\mathbb{R}^{D\times P},\qquad
+\mathbf{J}:=
+\begin{bmatrix}
+J_1 \\ \vdots \\ J_T
+\end{bmatrix}
+\in \mathbb{R}^{TD\times P},
+\]
+\[
+\mathbf{y}:=
+\begin{bmatrix}
+\tau_1-u_0(z_1)\\
+\vdots\\
+\tau_T-u_0(z_T)
+\end{bmatrix}
+\in \mathbb{R}^{TD}
+\]
+とおく．
+すると \eqref{eq:ridge-objective} の解 $\delta\phi^\star$ は
+\[
+\delta\phi^\star=(\mathbf{J}^\top\mathbf{J}+\lambda I_P)^{-1}\mathbf{J}^\top \mathbf{y}
+\]
+であり，任意の $z$ に対する予測更新は
+\[
+\hat u(z)
+=
+u_0(z)+\mathbf{K}_0(z,Z)\bigl(\mathbf{K}_0(Z,Z)+\lambda I_{TD}\bigr)^{-1}\mathbf{y}
+\]
+と書ける．
+ここで
+\[
+\mathbf{K}_0(z,Z):=J_0(z)\mathbf{J}^\top \in \mathbb{R}^{D\times TD},
+\qquad
+\mathbf{K}_0(Z,Z):=\mathbf{J}\mathbf{J}^\top \in \mathbb{R}^{TD\times TD}
+\]
+である．
+すなわち，linearized HyperNetwork は training task vectors に対する operator-valued kernel interpolation である．
+\end{theorem}
+
+\begin{proof}
+\eqref{eq:ridge-objective} は
+\[
+\min_{\delta\phi}
+\frac12\|\mathbf{J}\delta\phi-\mathbf{y}\|_2^2+\frac{\lambda}{2}\|\delta\phi\|_2^2
+\]
+と書ける．
+一次条件より
+\[
+(\mathbf{J}^\top\mathbf{J}+\lambda I_P)\delta\phi^\star=\mathbf{J}^\top\mathbf{y},
+\]
+したがって
+\[
+\delta\phi^\star=(\mathbf{J}^\top\mathbf{J}+\lambda I_P)^{-1}\mathbf{J}^\top\mathbf{y}.
+\]
+任意の $z$ に対し
+\[
+\hat u(z)=u_0(z)+J_0(z)\delta\phi^\star
+=
+u_0(z)+J_0(z)(\mathbf{J}^\top\mathbf{J}+\lambda I_P)^{-1}\mathbf{J}^\top\mathbf{y}.
+\]
+ここで恒等式
+\[
+B(A^\top A+\lambda I)^{-1}A^\top
+=
+BA^\top(AA^\top+\lambda I)^{-1}
+\]
+を $A=\mathbf{J},\,B=J_0(z)$ に適用すると
+\[
+J_0(z)(\mathbf{J}^\top\mathbf{J}+\lambda I_P)^{-1}\mathbf{J}^\top
+=
+J_0(z)\mathbf{J}^\top(\mathbf{J}\mathbf{J}^\top+\lambda I_{TD})^{-1}.
+\]
+ゆえに
+\[
+\hat u(z)
+=
+u_0(z)+\mathbf{K}_0(z,Z)\bigl(\mathbf{K}_0(Z,Z)+\lambda I_{TD}\bigr)^{-1}\mathbf{y}.
+\]
+従って主張が従う．
+\end{proof}
+
+\begin{remark}
+定理 \ref{thm:operator-kernel} は，lazy regime において HyperNetwork が
+``訓練 task vectors から独立な全く新しい更新を生み出す'' というより，
+training task vectors を operator-valued kernel で補間していることを意味する．
+\end{remark}
+
+\subsection{scalar-separable な場合：query-dependent task arithmetic}
+
+\begin{corollary}[scalar-separable kernel の場合]
+\label{cor:scalar-separable}
+ある scalar kernel $k:\mathcal{Z}\times\mathcal{Z}\to \mathbb{R}$ が存在して
+\[
+J_0(z)J_0(z')^\top = k(z,z')I_D
+\]
+が成り立つとする．
+このとき
+\[
+\hat u(z)=u_0(z)+\sum_{t=1}^T \alpha_t(z)\bigl(\tau_t-u_0(z_t)\bigr)
+\]
+と書ける．
+ここで
+\[
+\bm{\alpha}(z)=k(z,Z)(K+\lambda I_T)^{-1}\in \mathbb{R}^{1\times T},
+\]
+\[
+k(z,Z):=\begin{bmatrix}k(z,z_1)&\cdots&k(z,z_T)\end{bmatrix},
+\qquad
+K:=\bigl(k(z_s,z_t)\bigr)_{s,t=1}^T \in \mathbb{R}^{T\times T}.
+\]
+\end{corollary}
+
+\begin{proof}
+この仮定の下で
+\[
+\mathbf{K}_0(Z,Z)=K\otimes I_D,\qquad
+\mathbf{K}_0(z,Z)=k(z,Z)\otimes I_D.
+\]
+また
+\[
+(K\otimes I_D+\lambda I_{TD})^{-1}=(K+\lambda I_T)^{-1}\otimes I_D
+\]
+だから，定理 \ref{thm:operator-kernel} より
+\[
+\hat u(z)-u_0(z)
+=
+\bigl(k(z,Z)(K+\lambda I_T)^{-1}\otimes I_D\bigr)\mathbf{y}.
+\]
+これを block-wise に書き直せば
+\[
+\hat u(z)-u_0(z)=\sum_{t=1}^T \alpha_t(z)\bigl(\tau_t-u_0(z_t)\bigr)
+\]
+となる．
+\end{proof}
+
+\begin{remark}
+系 \ref{cor:scalar-separable} は，lazy HyperNetwork が
+\[
+\text{task arithmetic with query-dependent coefficients}
+\]
+になっていることを意味する．
+通常の task arithmetic は係数が固定であるのに対し，HyperNetwork は条件 $z$ に応じて係数 $\alpha_t(z)$ を自動的に切り替える．
+\end{remark}
+
+\subsection{有効 basis 数は task kernel の rank で決まる}
+
+\begin{corollary}[basis decomposition]
+\label{cor:basis-decomposition}
+系 \ref{cor:scalar-separable} の設定の下で，$K$ の固有分解を
+\[
+K = Q\Lambda Q^\top,\qquad
+\Lambda=\diag(\lambda_1,\dots,\lambda_q,0,\dots,0),\qquad q=\rank(K)
+\]
+とする．
+ここで $Q=[q_1,\dots,q_T]$ は直交行列であり，$\lambda_1,\dots,\lambda_q>0$ である．
+各 $j=1,\dots,q$ に対して basis task vector
+\[
+b_j:=\sum_{t=1}^T (q_j)_t\,\bigl(\tau_t-u_0(z_t)\bigr)\in\mathbb{R}^D
+\]
+を定義すると，
+\[
+\hat u(z)
+=
+u_0(z)+\sum_{j=1}^q \frac{k(z,Z)q_j}{\lambda_j+\lambda}\,b_j
+\]
+が成り立つ．
+特に，$\hat u(z)-u_0(z)$ は高々 $q=\rank(K)$ 個の basis task vectors の線形結合である．
+\end{corollary}
+
+\begin{proof}
+系 \ref{cor:scalar-separable} より
+\[
+\hat u(z)-u_0(z)
+=
+k(z,Z)(K+\lambda I_T)^{-1}\mathbf{v},
+\qquad
+\mathbf{v}:=
+\begin{bmatrix}
+\tau_1-u_0(z_1)\\
+\vdots\\
+\tau_T-u_0(z_T)
+\end{bmatrix}.
+\]
+固有分解を用いると
+\[
+(K+\lambda I_T)^{-1}
+=
+Q\,\diag\!\left(\frac1{\lambda_1+\lambda},\dots,\frac1{\lambda_q+\lambda},
+\frac1{\lambda},\dots,\frac1{\lambda}\right)Q^\top.
+\]
+ただし $k(z,Z)$ は $K$ の零固有空間上では寄与しないため，有効な和は $j=1,\dots,q$ のみでよい．
+よって
+\[
+k(z,Z)(K+\lambda I_T)^{-1}
+=
+\sum_{j=1}^q \frac{k(z,Z)q_j}{\lambda_j+\lambda} q_j^\top.
+\]
+これを $\mathbf{v}$ に掛けると
+\[
+\hat u(z)-u_0(z)
+=
+\sum_{j=1}^q \frac{k(z,Z)q_j}{\lambda_j+\lambda}\,
+\left(\sum_{t=1}^T (q_j)_t(\tau_t-u_0(z_t))\right),
+\]
+すなわち主張が従う．
+\end{proof}
+
+\begin{remark}
+系 \ref{cor:basis-decomposition} は，lazy HyperNetwork が task ごとに無限に多様な新規モデルを生むのではなく，
+実際には task kernel の rank で決まる少数の basis task models を混合しているだけ，という見方を与える．
+\end{remark}
+
+\section{二点学習・一点テスト：未学習条件で task arithmetic はいつ成り立つか}
+
+この節では，訓練条件
+\[
+z_1=(1,0),\qquad z_2=(0,1)
+\]
+のみが与えられ，未学習条件として
+\[
+z_\gamma=(\gamma,1-\gamma),\qquad 0\le \gamma \le 1
+\]
+を見る最小設定を考える．
+
+\subsection{一般式}
+
+系 \ref{cor:scalar-separable} の設定で
+\[
+k(z_1,z_1)=k(z_2,z_2)=1,\qquad \rho:=k(z_1,z_2)
+\]
+とする．
+このとき Gram 行列は
+\[
+K=
+\begin{bmatrix}
+1 & \rho\\
+\rho & 1
+\end{bmatrix}
+\]
+であり，
+\[
+K+\lambda I_2=
+\begin{bmatrix}
+1+\lambda & \rho\\
+\rho & 1+\lambda
+\end{bmatrix}
+\]
+である．
+その逆行列を用いると以下を得る．
+
+\begin{proposition}[二点学習・一点テストの closed form]
+\label{prop:two-point-closed}
+\[
+k_1:=k(z,z_1),\qquad k_2:=k(z,z_2),\qquad
+\Delta:=(1+\lambda)^2-\rho^2
+\]
+とおく．
+すると
+\[
+\hat u(z)=u_0(z)+\alpha_1(z)\bigl(\tau_1-u_0(z_1)\bigr)+\alpha_2(z)\bigl(\tau_2-u_0(z_2)\bigr)
+\]
+であり，係数は
+\[
+\alpha_1(z)=\frac{(1+\lambda)k_1-\rho k_2}{\Delta},
+\qquad
+\alpha_2(z)=\frac{(1+\lambda)k_2-\rho k_1}{\Delta}
+\]
+で与えられる．
+\end{proposition}
+
+\begin{proof}
+\[
+(K+\lambda I_2)^{-1}
+=
+\frac{1}{(1+\lambda)^2-\rho^2}
+\begin{bmatrix}
+1+\lambda & -\rho\\
+-\rho & 1+\lambda
+\end{bmatrix}
+\]
+である．
+これを系 \ref{cor:scalar-separable} の
+\[
+\bm{\alpha}(z)=\begin{bmatrix}k_1 & k_2\end{bmatrix}(K+\lambda I_2)^{-1}
+\]
+に代入すれば主張が従う．
+\end{proof}
+
+\subsection{midpoint での挙動}
+
+\begin{corollary}[対称 midpoint]
+\label{cor:midpoint}
+$z=z_{1/2}$ に対して
+\[
+k(z_{1/2},z_1)=k(z_{1/2},z_2)=:\kappa
+\]
+が成り立つとする．
+すると
+\[
+\hat u(z_{1/2})
+=
+u_0(z_{1/2})
++
+\frac{\kappa}{1+\lambda+\rho}
+\Bigl((\tau_1-u_0(z_1))+(\tau_2-u_0(z_2))\Bigr).
+\]
+特に $u_0\equiv 0$ のとき
+\[
+\hat u(z_{1/2})
+=
+\frac{\kappa}{1+\lambda+\rho}(\tau_1+\tau_2).
+\]
+\end{corollary}
+
+\begin{proof}
+命題 \ref{prop:two-point-closed} の係数式に $k_1=k_2=\kappa$ を代入すると
+\[
+\alpha_1(z_{1/2})=\alpha_2(z_{1/2})
+=
+\frac{\kappa((1+\lambda)-\rho)}{((1+\lambda)-\rho)((1+\lambda)+\rho)}
+=
+\frac{\kappa}{1+\lambda+\rho}.
+\]
+これを式に戻せばよい．
+\end{proof}
+
+\begin{remark}
+従って midpoint だからといって一般に
+\[
+\hat u(z_{1/2})=\frac12(\tau_1+\tau_2)
+\]
+になるわけではない．
+正確には
+\[
+2\kappa = 1+\lambda+\rho
+\]
+が必要である．
+\end{remark}
+
+\subsection{厳密な task arithmetic の必要十分条件}
+
+\begin{theorem}[二点設定で厳密な task arithmetic が成り立つ条件]
+\label{thm:exact-arithmetic-condition}
+命題 \ref{prop:two-point-closed} の設定で $\lambda=0$ とする．
+このとき
+\[
+\hat u(z_\gamma)=u_0(z_\gamma)+\gamma\bigl(\tau_1-u_0(z_1)\bigr)+(1-\gamma)\bigl(\tau_2-u_0(z_2)\bigr)
+\]
+が任意の $\tau_1,\tau_2$ について成り立つための必要十分条件は
+\[
+k(z_\gamma,z_1)=\gamma +(1-\gamma)\rho,
+\qquad
+k(z_\gamma,z_2)=(1-\gamma)+\gamma \rho
+\]
+である．
+特に $u_0\equiv 0$ なら
+\[
+\hat u(z_\gamma)=\gamma\tau_1+(1-\gamma)\tau_2
+\]
+が成り立つ．
+\end{theorem}
+
+\begin{proof}
+命題 \ref{prop:two-point-closed} で $\lambda=0$ とすると
+\[
+\alpha_1(z)=\frac{k_1-\rho k_2}{1-\rho^2},\qquad
+\alpha_2(z)=\frac{k_2-\rho k_1}{1-\rho^2}.
+\]
+任意の $\tau_1,\tau_2$ に対して task arithmetic と一致するためには
+\[
+\alpha_1(z_\gamma)=\gamma,\qquad
+\alpha_2(z_\gamma)=1-\gamma
+\]
+が必要十分である．
+これらを連立方程式として解くと
+\[
+k_1-\rho k_2 = \gamma(1-\rho^2),\qquad
+k_2-\rho k_1 = (1-\gamma)(1-\rho^2).
+\]
+第一式に $\rho$ 倍したものを第二式へ代入すると
+\[
+(1-\rho^2)k_2=(1-\gamma)(1-\rho^2)+\rho\gamma(1-\rho^2),
+\]
+すなわち
+\[
+k_2=(1-\gamma)+\gamma\rho.
+\]
+同様に
+\[
+k_1=\gamma +(1-\gamma)\rho.
+\]
+逆にこれらが成り立てば $\alpha_1=\gamma,\alpha_2=1-\gamma$ が従うので十分性も示される．
+\end{proof}
+
+\begin{corollary}[線形 kernel では厳密な task arithmetic]
+\label{cor:linear-kernel}
+\[
+k(z,z')=z^\top z'
+\]
+とし，$z_1=(1,0), z_2=(0,1), z_\gamma=(\gamma,1-\gamma)$ とする．
+さらに $\lambda=0, u_0\equiv 0$ とする．
+このとき
+\[
+\hat u(z_\gamma)=\gamma\tau_1+(1-\gamma)\tau_2
+\]
+が成り立つ．
+\end{corollary}
+
+\begin{proof}
+このとき
+\[
+\rho=z_1^\top z_2=0,\qquad
+k(z_\gamma,z_1)=\gamma,\qquad
+k(z_\gamma,z_2)=1-\gamma.
+\]
+定理 \ref{thm:exact-arithmetic-condition} の条件を満たすので主張が従う．
+\end{proof}
+
+\begin{remark}
+RBF kernel など一般の非線形 kernel では，定理 \ref{thm:exact-arithmetic-condition} の affine 条件は一般に成立しない．
+従って，未学習条件での HyperNetwork の挙動は，単純な task arithmetic ではなく
+\[
+\text{kernelized task arithmetic}
+\]
+と理解するのが正しい．
+\end{remark}
+
+\subsection{affine region における厳密な線形補間}
+
+\begin{proposition}[HyperNetwork が線分上で affine なら厳密補間]
+\label{prop:affine-segment}
+$z_\gamma=\gamma z_1+(1-\gamma)z_2$ とする．
+もし写像 $z\mapsto u_\phi(z)$ が線分 $\{z_\gamma:0\le \gamma\le 1\}$ 上で affine なら
+\[
+u_\phi(z_\gamma)=\gamma u_\phi(z_1)+(1-\gamma)u_\phi(z_2)
+\]
+が成り立つ．
+\end{proposition}
+
+\begin{proof}
+affine 性より，ある行列 $M$ とベクトル $b$ が存在して
+\[
+u_\phi(z)=Mz+b
+\]
+が線分上で成り立つ．
+よって
+\[
+u_\phi(z_\gamma)=M(\gamma z_1+(1-\gamma)z_2)+b
+=
+\gamma(Mz_1+b)+(1-\gamma)(Mz_2+b)
+\]
+であり，主張が従う．
+\end{proof}
+
+\begin{remark}
+ReLU MLP は piecewise affine なので，線分 $[z_1,z_2]$ が同一の activation region に収まるなら
+命題 \ref{prop:affine-segment} が厳密に適用できる．
+\end{remark}
+
+\section{beyond-lazy では novelty は Jacobian drift の二次効果として現れる}
+
+ここでは，training task span の外に genuinely new directions がどの程度現れるかを評価する．
+
+\begin{theorem}[Jacobian drift による二次剰余評価]
+\label{thm:jacobian-drift}
+ある凸近傍 $\mathcal{N}$ において，$u_\phi(z)$ は $\phi$ に関して $C^1$ であり，
+Jacobian $J_\phi(z):=\nabla_\phi u_\phi(z)$ が $\phi$ に関して一様に $L_J$-Lipschitz であるとする：
+\[
+\|J_{\phi}(z)-J_{\phi'}(z)\|_{\mathrm{op}}\le L_J\|\phi-\phi'\|_2
+\qquad
+(\forall \phi,\phi'\in\mathcal{N},\,\forall z\in\mathcal{Z}).
+\]
+このとき，$\phi_0,\phi_0+\delta\phi \in \mathcal{N}$ なら
+\[
+u_{\phi_0+\delta\phi}(z)
+=
+u_{\phi_0}(z)+J_{\phi_0}(z)\delta\phi+R(z)
+\]
+であり，
+\[
+\|R(z)\|_2 \le \frac{L_J}{2}\|\delta\phi\|_2^2
+\]
+が成り立つ．
+\end{theorem}
+
+\begin{proof}
+積分形の Taylor 展開より
+\[
+u_{\phi_0+\delta\phi}(z)-u_{\phi_0}(z)
+=
+\int_0^1 J_{\phi_0+t\delta\phi}(z)\,\delta\phi\,dt.
+\]
+従って
+\[
+R(z)
+=
+\int_0^1 \bigl(J_{\phi_0+t\delta\phi}(z)-J_{\phi_0}(z)\bigr)\delta\phi\,dt.
+\]
+よって
+\[
+\|R(z)\|_2
+\le
+\int_0^1 \|J_{\phi_0+t\delta\phi}(z)-J_{\phi_0}(z)\|_{\mathrm{op}}\|\delta\phi\|_2\,dt
+\]
+\[
+\le
+\int_0^1 (tL_J\|\delta\phi\|_2)\|\delta\phi\|_2\,dt
+=
+\frac{L_J}{2}\|\delta\phi\|_2^2.
+\]
+主張が従う．
+\end{proof}
+
+\begin{remark}
+定理 \ref{thm:jacobian-drift} は，small-update regime では
+\[
+u_{\phi_0+\delta\phi}(z)=\text{(kernelized task arithmetic)} + O(\|\delta\phi\|^2)
+\]
+であることを意味する．
+すなわち，training tasks の span を本当に超える novelty は Jacobian drift による二次効果として初めて現れる．
+\end{remark}
+
+\section{Hyper-LoRA：factor 空間の補間と weight 空間の相互作用}
+
+Hyper-LoRA では，factor 空間で単純な補間が成り立っても，weight 空間では双線形項が生じる．
+これが task arithmetic との差の本質である．
+
+\subsection{二条件間の factor interpolation}
+
+\begin{theorem}[factor interpolation は weight space で interaction を生む]
+\label{thm:lora-interaction}
+二つの条件に対する LoRA 因子 $(A_1,B_1)$, $(A_2,B_2)$ を考え，
+\[
+A_\gamma=\gamma A_1+(1-\gamma)A_2,\qquad
+B_\gamma=\gamma B_1+(1-\gamma)B_2
+\]
+とする．
+このとき
+\[
+\Delta W_\gamma := B_\gamma A_\gamma^\top
+\]
+は
+\[
+\boxed{
+\Delta W_\gamma
+=
+\gamma \Delta W_1+(1-\gamma)\Delta W_2
++
+\gamma(1-\gamma)(B_1-B_2)(A_2-A_1)^\top
+}
+\]
+を満たす．
+ここで $\Delta W_i:=B_iA_i^\top$ である．
+\end{theorem}
+
+\begin{proof}
+直接展開すると
+\[
+\Delta W_\gamma
+=
+(\gamma B_1+(1-\gamma)B_2)(\gamma A_1+(1-\gamma)A_2)^\top
+\]
+\[
+=
+\gamma^2 B_1A_1^\top +(1-\gamma)^2 B_2A_2^\top
++\gamma(1-\gamma)(B_1A_2^\top + B_2A_1^\top).
+\]
+一方，
+\[
+\gamma\Delta W_1+(1-\gamma)\Delta W_2
+=
+\gamma B_1A_1^\top +(1-\gamma)B_2A_2^\top.
+\]
+両者の差を取ると
+\[
+\Delta W_\gamma-\gamma\Delta W_1-(1-\gamma)\Delta W_2
+=
+\gamma(1-\gamma)(B_1A_2^\top-B_1A_1^\top-B_2A_2^\top+B_2A_1^\top),
+\]
+すなわち
+\[
+\Delta W_\gamma-\gamma\Delta W_1-(1-\gamma)\Delta W_2
+=
+\gamma(1-\gamma)(B_1-B_2)(A_2-A_1)^\top.
+\]
+よって主張が従う．
+\end{proof}
+
+\begin{corollary}[midpoint の場合]
+\label{cor:lora-midpoint}
+$\gamma=\frac12$ のとき
+\[
+\Delta W_{1/2}
+=
+\frac12(\Delta W_1+\Delta W_2)
++
+\frac14(B_1-B_2)(A_2-A_1)^\top.
+\]
+\end{corollary}
+
+\begin{corollary}[interaction 項の rank およびノルム評価]
+\label{cor:lora-rank-bound}
+定理 \ref{thm:lora-interaction} の interaction 項
+\[
+E_\gamma:=\gamma(1-\gamma)(B_1-B_2)(A_2-A_1)^\top
+\]
+について
+\[
+\rank(E_\gamma)\le r
+\]
+かつ
+\[
+\|E_\gamma\|_F
+\le
+\gamma(1-\gamma)\|B_1-B_2\|_F\,\|A_2-A_1\|_F
+\]
+が成り立つ．
+\end{corollary}
+
+\begin{proof}
+rank については，$(B_1-B_2)(A_2-A_1)^\top$ の rank が高々 $r$ であることから従う．
+ノルムについては Frobenius ノルムの劣乗法性
+\[
+\|XY^\top\|_F\le \|X\|_F\|Y\|_F
+\]
+を用いればよい．
+\end{proof}
+
+\begin{remark}
+定理 \ref{thm:lora-interaction} は，Hyper-LoRA の unseen-condition 一般化が
+\[
+\text{task arithmetic} + \text{low-rank interaction}
+\]
+であることを示す．
+full-update HyperNetwork の lazy regime が task arithmetic に近いのに対し，
+Hyper-LoRA は factorization の双線形性ゆえに体系的にそこからずれる．
+\end{remark}
+
+\subsection{いつ exact task arithmetic に戻るか}
+
+\begin{corollary}[片側因子が固定なら exact task arithmetic]
+\label{cor:one-sided}
+定理 \ref{thm:lora-interaction} の設定で，もし $A_1=A_2$ なら
+\[
+\Delta W_\gamma=\gamma\Delta W_1+(1-\gamma)\Delta W_2.
+\]
+同様に，もし $B_1=B_2$ でも同じ式が成り立つ．
+\end{corollary}
+
+\begin{proof}
+$A_1=A_2$ なら interaction 項
+\[
+\gamma(1-\gamma)(B_1-B_2)(A_2-A_1)^\top
+\]
+は零である．
+$B_1=B_2$ の場合も同様．
+\end{proof}
+
+\begin{remark}
+従って，Hyper-LoRA が task arithmetic を超えるかどうかは，
+``両側の因子が同時に条件依存して動くか'' によって決まる．
+片側だけが条件依存する一側型の構成では，weight space でも exact な task arithmetic に戻る．
+\end{remark}
+
+\subsection{一般の kernelized factor interpolation}
+
+\begin{theorem}[一般の factor interpolation 展開]
+\label{thm:general-factor-expansion}
+ある係数関数 $\alpha_t(z),\beta_t(z)$ に対して
+\[
+A(z)=\sum_{t=1}^T \alpha_t(z)A_t,\qquad
+B(z)=\sum_{s=1}^T \beta_s(z)B_s
+\]
+とする．
+このとき
+\[
+\Delta W(z)=B(z)A(z)^\top
+\]
+は
+\[
+\boxed{
+\Delta W(z)
+=
+\sum_{t=1}^T \alpha_t(z)\beta_t(z)\Delta W_t
++
+\sum_{\substack{s,t=1\\ s\neq t}}^T \beta_s(z)\alpha_t(z)\,B_sA_t^\top
+}
+\]
+と展開できる．
+ここで $\Delta W_t:=B_tA_t^\top$ である．
+\end{theorem}
+
+\begin{proof}
+定義より
+\[
+\Delta W(z)
+=
+\left(\sum_{s=1}^T \beta_s(z)B_s\right)
+\left(\sum_{t=1}^T \alpha_t(z)A_t\right)^\top
+=
+\sum_{s=1}^T\sum_{t=1}^T \beta_s(z)\alpha_t(z)B_sA_t^\top.
+\]
+この二重和を $s=t$ の項と $s\neq t$ の項に分ければ主張が従う．
+\end{proof}
+
+\begin{remark}
+定理 \ref{thm:general-factor-expansion} は，
+Hyper-LoRA の unseen-condition update が単なる training task LoRA updates の線形結合ではなく，
+cross-task factor interaction
+\[
+B_sA_t^\top\qquad (s\neq t)
+\]
+を必ず含むことを示している．
+\end{remark}
+
+\section{理論的含意}
+
+以上の結果から，次の見方が自然である．
+
+\subsection*{(1) full-update HyperNetwork}
+small-update / lazy regime では，
+\[
+\text{HyperNetwork} \approx \text{kernelized task arithmetic}
+\]
+である．
+training tasks から独立な genuinely new direction は Jacobian drift による二次効果としてのみ現れる．
+
+\subsection*{(2) 未学習条件での一般化}
+二条件学習の場合，Condition $[0.5,0.5]$ に対する挙動は
+\[
+\frac12\tau_1+\frac12\tau_2
+\]
+のような素朴な task arithmetic になるとは限らない．
+正しくは，HyperNetwork が誘導する task kernel の幾何
+\[
+k(z_{1/2},z_1),\quad k(z_{1/2},z_2),\quad k(z_1,z_2)
+\]
+で決まる．
+
+\subsection*{(3) Hyper-LoRA}
+factor space の線形補間は weight space の線形補間を意味しない．
+Hyper-LoRA の unseen-condition generalization は
+\[
+\text{task arithmetic} + \text{bilinear interaction}
+\]
+として理解すべきである．
+この interaction は高々 rank $r$ の新しい方向を生みうる．
+
+\section{反証可能な予言}
+
+本稿の理論から，少なくとも次の予言が得られる．
+
+\begin{enumerate}[label=(P\arabic*)]
+    \item full-update HyperNetwork では，small-update regime ほど，
+    未学習条件で出力される update の大半が training task vectors の span で説明できる．
+    \item scalar-separable に近い regime では，未学習条件の出力は training task vectors の少数 basis の混合として良く近似でき，
+    有効 basis 数は task 数ではなく task kernel の effective rank で飽和する．
+    \item Hyper-LoRA では，
+    \[
+    \Delta W(z_\gamma)-\bigl(\gamma\Delta W_1+(1-\gamma)\Delta W_2\bigr)
+    \]
+    が，factor 差
+    \[
+    (B_1-B_2)(A_2-A_1)^\top
+    \]
+    によって予測される．
+    \item HyperNetwork が task arithmetic を有意に上回るのは，Jacobian drift が大きくなり，
+    linearized regime を外れた後である．
+\end{enumerate}
+
+\section{結論}
+
+本稿では，HyperNetwork の未学習条件における挙動を task arithmetic と結びつけて解析した．
+主な結論は次の通りである：
+
+\begin{enumerate}[label=(\alph*)]
+    \item local quadratic regime では，HyperNetwork の学習は task vector 回帰に還元される；
+    \item linearized HyperNetwork は operator-valued kernel による task-vector interpolation であり，
+    scalar-separable な場合には query-dependent task arithmetic になる；
+    \item 二条件学習の下で，未学習条件が exact な task arithmetic になるための必要十分条件は，
+    task kernel の幾何によって完全に決まる；
+    \item Hyper-LoRA では factor interpolation から bilinear interaction が生じるため，
+    unseen-condition では一般に task arithmetic からずれる；
+    \item training task span の外へ本当に出る novelty は Jacobian drift による二次効果である．
+\end{enumerate}
+
+従って，HyperNetwork は少なくとも lazy regime において
+``完全に新しい task-specific model を生成する装置'' というより，
+\[
+\text{learned / kernelized task arithmetic}
+\]
+として理解するのが適切である．
+そして Hyper-LoRA がそこから外れる本質は，low-rank factorization の双線形相互作用にある．
+
+\end{document}
